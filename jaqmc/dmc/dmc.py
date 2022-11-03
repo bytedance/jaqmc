@@ -475,9 +475,6 @@ def make_dmc_single_iteration(time_step,
             branch_arrays,
             min_thres=weight_branch_threshold[0],
             max_thres=weight_branch_threshold[1])
-        assert flatten_position.shape[0] == flatten_weight.shape[0]
-
-        averaged_energy = average_energy(flatten_energy, flatten_weight, energy_clip_pair)
 
         if ebye_move:
             flatten_position, flatten_energy, flatten_local_energy = branch_arrays
@@ -486,7 +483,10 @@ def make_dmc_single_iteration(time_step,
         else:
             flatten_position, flatten_energy, flatten_walker_age, flatten_local_energy = branch_arrays
             num_old_walkers = agg_sum(flatten_walker_age > 20)
+        assert flatten_position.shape[0] == flatten_weight.shape[0]
+
         total_weight = agg_sum(flatten_weight)
+        averaged_energy = average_energy(flatten_energy, flatten_weight, energy_clip_pair)
 
         try:
             np.testing.assert_array_almost_equal_nulp(total_weight_before_branch, total_weight)
