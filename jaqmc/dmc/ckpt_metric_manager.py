@@ -121,14 +121,14 @@ class CkptMetricManager:
            is called "restore data".
         2. Initialize ckpt_handler and metric manager.
         '''
+        self.workspace_local_path = self._make_workspace(self.save_path.local_path)
+
         self._download_latest_data(self.save_path.remote_path, self.save_path.local_path)
         self._download_latest_data(self.restore_path.remote_path, self.restore_path.local_path)
 
         self.restore_data_path, self.restore_step = self._find_latest_data(
             self.local_storage_handler,
             self.save_path.local_path, self.restore_path.local_path)
-
-        self.workspace_local_path = self._make_workspace(self.save_path.local_path)
 
         self.ckpt_handler = CkptHandler(ckpt_file_prefix=self.ckpt_file_prefix,
                                         local_save_path=self.workspace_local_path)

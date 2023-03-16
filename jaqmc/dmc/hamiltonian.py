@@ -158,13 +158,10 @@ def local_energy(f, atoms, charges, el_partition_num=0):
 
   return _e_l
 
-def make_calc_energy_func(f,
-                          atoms,
-                          charges,
-                          partition_num=0,
-                          clip_pair=None):
-
-    el_fun = local_energy(f, atoms, charges, partition_num)
+def make_calc_energy_func(el_fun, clip_pair=None):
+    '''
+    A factory for averaged energy calculation using local_energy func `el_fun` on a batch of walkers.
+    '''
     # position and mask are vectorized, not params
     vmap_in_axes = (0, 0)
     pmap_in_axes = (0, 0)
