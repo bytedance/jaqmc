@@ -119,8 +119,6 @@ def from_orig_config_wrapper_ebye(
         (
             reshaped_position,
             reshaped_velocity,
-            clipped_velocity,
-            clipped_updated_velocity,
             sum_p,
             sum_p_times_square_delta_R,
             sum_square_delta_R,
@@ -131,14 +129,13 @@ def from_orig_config_wrapper_ebye(
         key, subkey = jax.random.split(key)
         (
             updated_position_i,
-            clipped_velocity_i,
+            _,
             G_forward,
             delta_R_vec,
         ) = single_electron_func(
             reshaped_position[index], None, reshaped_velocity[index], subkey
         )
         updated_position = updated_position.at[index].set(updated_position_i)
-        clipped_velocity = clipped_velocity.at[index].set(clipped_velocity_i)
         square_delta_R = jnp.sum(delta_R_vec ** 2)
         sum_square_delta_R += square_delta_R
 
@@ -147,7 +144,7 @@ def from_orig_config_wrapper_ebye(
         key, subkey = jax.random.split(key)
         (
             _,
-            clipped_updated_velocity_i,
+            _,
             G_backward,
             _,
         ) = single_electron_func(
@@ -174,13 +171,10 @@ def from_orig_config_wrapper_ebye(
         cond = jax.random.uniform(subkey) < p_accept_elec
         reshaped_position = jnp.where(cond, updated_position, reshaped_position)
         reshaped_velocity = jnp.where(cond, updated_velocity, reshaped_velocity)
-        clipped_updated_velocity = clipped_updated_velocity.at[index].set(jnp.where(cond, clipped_updated_velocity_i, clipped_velocity_i))
 
         return (
             reshaped_position,
             reshaped_velocity,
-            clipped_velocity,
-            clipped_updated_velocity,
             sum_p,
             sum_p_times_square_delta_R,
             sum_square_delta_R,
@@ -190,12 +184,24 @@ def from_orig_config_wrapper_ebye(
     reshaped_position = position.reshape((-1, 3))
     reshaped_velocity = velocity.reshape((-1, 3))
     clipped_velocity = jnp.ones(reshaped_velocity.shape)
-    clipped_updated_velocity = jnp.ones(reshaped_velocity.shape)
+
+    # clip the original velocity
+    # For convenience, we directly use vmapped single_electron_func
+    # to clip the velocity, but note that there are some extra
+    # unnecessary caculations.
+    vmapped_func = jax.vmap(single_electron_func)
+    key, subkey = jax.random.split(key)
+    subkey = jax.random.split(subkey, reshaped_position.shape[0])
+    _, clipped_velocity, _, _ = vmapped_func(
+        reshaped_position,
+        None, reshaped_velocity, subkey)
+    
+    # Moving of one single electron may change the global velocity,
+    # so the velocity clipping should be done outside the loop
+    # instead of clipping one by one in the loop.
     (
         reshaped_position,
         reshaped_velocity,
-        clipped_velocity,
-        clipped_updated_velocity,
         sum_p,
         sum_p_times_square_delta_R,
         sum_square_delta_R,
@@ -207,12 +213,17 @@ def from_orig_config_wrapper_ebye(
         (
             reshaped_position,
             reshaped_velocity,
-            clipped_velocity,
-            clipped_updated_velocity,
             0, 0, 0,
             key,
         )
     )
+
+    # clip the final updated_velocity
+    subkey = jax.random.split(key, reshaped_position.shape[0])
+    _, clipped_updated_velocity, _, _ = vmapped_func(
+        reshaped_position,
+        position.reshape((-1, 3)),
+        reshaped_velocity, subkey)
 
     mean_p = sum_p/reshaped_velocity.shape[0]
     effective_time_step = time_step * sum_p_times_square_delta_R / sum_square_delta_R

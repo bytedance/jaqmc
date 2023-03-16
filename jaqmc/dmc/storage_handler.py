@@ -210,7 +210,10 @@ class HdfsStorageHandler(StorageHandler):
         self.call_helper('-put', '-f', src_path, dst_path)
 
     def get(self, src_path: str, dst_path: str):
-        LocalStorageHandler.rm(dst_path)
+        exists_file = (LocalStorageHandler.exists(dst_path)
+                       and (not LocalStorageHandler.exists_dir(dst_path)))
+        if exists_file:
+            LocalStorageHandler.rm(dst_path)
         self.call_helper('-get', src_path, dst_path)
 
     def rm(self, path: str):
@@ -245,7 +248,7 @@ class HdfsStorageHandler(StorageHandler):
         return results
 
     def mkdir(self, path: str):
-        self.call_helper('-mkdir', path)
+        self.call_helper('-mkdir', '-p', path)
 
     def mv(self, src_path: str, dst_path: str):
         self.call_helper('-mv', src_path, dst_path)

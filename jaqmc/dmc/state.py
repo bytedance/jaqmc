@@ -17,6 +17,7 @@ import numpy as np
 
 from .energy_estimator import MixedEstimatorCalculator
 from .effective_time_step_calculator import EffectiveTimeStepCalculator
+from .utils import agg_sum
 
 @attr.s(auto_attribs=True)
 class State:
@@ -46,7 +47,7 @@ class State:
         default_walker_age = np.ones(len(init_position))
         default_weight = np.ones(len(init_position))
         default_energy = calc_energy_func(init_position)
-        default_target_num_walkers = len(init_position)
+        default_target_num_walkers = agg_sum(len(init_position))
         default_mixed_estimator_calculator = MixedEstimatorCalculator(
             mixed_estimator_num_steps=mixed_estimator_num_steps,
             energy_window_size=energy_window_size)

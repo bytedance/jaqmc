@@ -11,6 +11,7 @@ A show case for FermiNet integration.
 import pathlib
 import sys
 import time
+import os
 
 from absl import app
 from absl import logging
@@ -94,7 +95,7 @@ if __name__ == '__main__':
 
     config_flags.DEFINE_config_file('config', None, 'Path to config file.')
 
-    dmc_config_file = str(pathlib.Path(__file__).parents[1].absolute() / 'dmc_config.py')
+    dmc_config_file = str(pathlib.Path(os.path.abspath(__file__)).parents[1].absolute() / 'dmc_config.py')
     config_flags.DEFINE_config_file('dmc_config', dmc_config_file, 'Path to DMC config file.')
 
     app.run(main)

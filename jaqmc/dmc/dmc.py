@@ -53,6 +53,8 @@ def run(init_position,
         ebye_move=False,
         block_size=5000,
         max_restore_nums=3,
+        num_hosts=1,
+        host_idx=0,
 
         # Below are  Debug/Logging related arguments:
         debug_mode=False,
@@ -153,8 +155,6 @@ def run(init_position,
         remote_storage_handler: The storage handler to interact with remote storage system.
     """
     vmc_wave_func = lambda x: vmc_wave_func_with_sign(x)[1]
-    calc_energy_func = make_calc_energy_func(vmc_wave_func, nuclei, charges, clip_pair=energy_clip_pair)
-
 
     if energy_window_size < 0:
         energy_window_size = num_steps
@@ -195,9 +195,20 @@ def run(init_position,
         t_init_from_ckpt, state_from_ckpt = ckpt_metric_manager.load_restore_data()
         if state_from_ckpt is not None:
             t_init = t_init_from_ckpt + 1
+
+            def assert_step_synced(step):
+                step_sum = agg_sum(step)
+                epsilon = 1e-5
+                assert int(step_sum + epsilon) == num_hosts * step, \
+                        "The step on each host is not sync'ed! Please check your checkpoints!"
+
+            assert_step_synced(t_init)
             state = state_from_ckpt
             logging.info(f'Continue DMC process with step {t_init}')
         else:
+
+            # The energy calculation function for the initial trial energy.
+            calc_energy_func = make_calc_energy_func(local_energy_func, clip_pair=energy_clip_pair)
             # Both `state` and `state_from_ckpt` are None, fall back to some default value.
             state = State.default(
                 init_position=init_position,
@@ -210,6 +221,7 @@ def run(init_position,
     (flatten_position, flatten_walker_age, flatten_weight, flatten_local_energy,
      energy_offset, target_num_walkers, mixed_estimator,
      mixed_estimator_calculator, effective_time_step_calculator) = attr.astuple(state, recurse=False)
+
 
     if anchor_energy is None:
         anchor_energy = energy_offset
@@ -257,6 +269,7 @@ def run(init_position,
     key, subkey = jax.random.split(key)
     if max_restore_nums > 0:
         dmc_single_iteration = recovery_wrapper(
+            num_hosts,
             dmc_single_iteration,
             max_restore_nums=max_restore_nums,
             ckpt_metric_manager=ckpt_metric_manager,
@@ -889,7 +902,13 @@ def flatten(arr):
         return arr.reshape((-1, arr.shape[-1]))
     raise Exception(f'Unexpected shape: {arr.shape}')
 
-def recovery_wrapper(#dmc_single_iteration: DMC_ITERATION,
+def success_over_all_hosts(num_hosts, succeeded):
+    epsilon = 1e-5
+    success_sum = int(agg_sum(succeeded) + epsilon)
+    return success_sum == num_hosts
+
+def recovery_wrapper(
+        num_hosts,
         dmc_single_iteration,
         max_restore_nums,
         ckpt_metric_manager,
@@ -900,13 +919,21 @@ def recovery_wrapper(#dmc_single_iteration: DMC_ITERATION,
         nonlocal curr_restore_nums
         nonlocal nonlocal_key
         try:
-            return dmc_single_iteration(*args, **kwargs)
+            result = dmc_single_iteration(*args, **kwargs)
+            succeeded = True
         except Exception as e:
-            curr_restore_nums += 1
+            succeeded = False
             logging.warning(f'Failed try due to {e}')
+
+        all_succeeded = success_over_all_hosts(num_hosts, succeeded)
+        if all_succeeded:
+            return result
+        else:
+            curr_restore_nums += 1
             if curr_restore_nums > max_restore_nums:
-                logging.warning('Exceeding max restore number. Aborting...')
-                raise e
+                err_msg = 'Exceeding max restore number. Aborting...'
+                logging.warning(err_msg)
+                raise Exception(err_msg)
             # May raise `NoSafeDataAvailable` if not safe data is available
             # for restoring.
             nonlocal_key, step, restored_data = restore_and_rollback_dmc_data(ckpt_metric_manager, nonlocal_key)
