@@ -55,6 +55,8 @@ def branch(weight, key, branch_arrays, min_thres=0.3, max_thres=2):
     # We take the k-smallest value of weight and their indices by first multiplying
     # the weight array by -1 then take the top-k elements.
     _, smallest_k_indices = jax.lax.top_k(-1 * weight, 2 * num_to_change)
+
+    # Group the smallest indices to pairs to be merged.
     smallest_k_indices = smallest_k_indices.reshape((num_to_change, 2))
 
     _, largest_k_indices = jax.lax.top_k(weight, num_to_change)
@@ -64,7 +66,7 @@ def branch(weight, key, branch_arrays, min_thres=0.3, max_thres=2):
 
 @jax.jit
 def do_branch(weight, key, smallest_k_indices, largest_k_indices, *branch_arrays):
-    thresholds = smallest_k_indices[:, 0] / (smallest_k_indices[:, 0] + smallest_k_indices[:, 1])
+    thresholds = weight[smallest_k_indices[:, 0]] / (weight[smallest_k_indices[:, 0]] + weight[smallest_k_indices[:, 1]])
     random_num = jax.random.uniform(key, shape=thresholds.shape)
     kept_indices = jnp.where(random_num < thresholds, smallest_k_indices[:, 0], smallest_k_indices[:, 1])
     removed_indices = jnp.where(random_num > thresholds, smallest_k_indices[:, 0], smallest_k_indices[:, 1])
