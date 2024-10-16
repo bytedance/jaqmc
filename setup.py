@@ -22,9 +22,9 @@ REQUIRED_PACKAGES = [
 
 setup(
     name='jaqmc',
-    version='0.0.1',
+    version='0.0.3',
     description='JAX accelerated Quantum Monte Carlo',
-    author='ByteDance, AI-Lab, Research',
+    author='ByteDance Research',
     packages=find_packages(),
     install_requires=REQUIRED_PACKAGES,
     platforms=['any'],
