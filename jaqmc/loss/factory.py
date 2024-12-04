@@ -14,6 +14,7 @@ import jax.numpy as jnp
 
 from jaqmc.loss import utils
 from jaqmc.loss.spin_penalty import SpinAuxData, SpinFuncState, make_spin_penalty
+from jaqmc.loss.overlap_penalty import OverlapAuxData, OverlapFuncState, make_overlap_penalty
 from jaqmc.loss.vmc import VMCAuxData, VMCFuncState, make_vmc_loss
 
 @chex.dataclass
@@ -23,6 +24,7 @@ class FuncState:
     '''
     vmc: Optional[VMCFuncState] = None
     spin: Optional[SpinFuncState] = None
+    overlap: Optional[OverlapFuncState] = None
 
 @chex.dataclass
 class AuxData:
@@ -31,8 +33,9 @@ class AuxData:
   '''
   vmc: Optional[VMCAuxData] = None
   spin: Optional[SpinAuxData] = None
+  overlap: Optional[OverlapAuxData] = None
 
-def build_func_state(step=None) -> FuncState:
+def build_func_state(step=None, overlap_data=None) -> FuncState:
     '''
     Helper function to create parent FuncState from actual data.
     '''
@@ -41,9 +44,15 @@ def build_func_state(step=None) -> FuncState:
     else:
         spin = SpinFuncState(step=step)
 
+    if overlap_data is None:
+        overlap = None
+    else:
+        overlap = OverlapFuncState(overlap_data=overlap_data)
+
     return FuncState(
         vmc=None,
         spin=spin,
+        overlap=overlap
     )
 
 def make_loss(
@@ -52,6 +61,7 @@ def make_loss(
 
     # Flags to control loss behavior by selecting loss components.
     with_spin=False,
+    with_overlap=False,
 
     # kwargs for each loss components.
     **kwargs
@@ -68,6 +78,7 @@ def make_loss(
       local_energy: callable which evaluates the local energy.
 
       with_spin: If True, then add spin penalty in loss.
+      with_overlap: If True, then add overlap penalty in loss.
 
       kwargs: Other flags to be passed to each loss component.
 
@@ -92,6 +103,10 @@ def make_loss(
     if with_spin:
         spin_penalty_func = invoke(make_spin_penalty)
         all_components.append([spin_penalty_func, 'spin'])
+
+    if with_overlap:
+        overlap_penalty_func = invoke(make_overlap_penalty)
+        all_components.append([overlap_penalty_func, 'overlap'])
 
     def total_loss(
             params: utils.ParamTree,
