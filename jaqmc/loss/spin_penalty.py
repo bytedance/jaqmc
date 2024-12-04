@@ -14,45 +14,45 @@ import ml_collections
 from jaqmc.loss import utils
 
 DEFAULT_SPIN_PENALTY_CONFIG = ml_collections.ConfigDict({
-          # Whether to enbale the spin-penalty term.
-          # If True: Evaluate spin penalty in each step.
-          'with_spin': False,
-          # plus: Adopt S_+ penalty proposed in the paper arXiv:2406.01222 (2024).
-          # square: Adopt S^2 penalty.
-          'schema': 'plus',
-          # Only works for S_+ penalty. Choose the component index of 
-          # wavefunction to anniliate for each step:
-          # <\uparrow, ..., \downarrow, ...| S_{i,-} S_+ | \Psi> = 0.
-          # If True: i is fixed as the first index of the electrons in the minor
-          #   spin state.
-          # If False: i is iteratively selected from the indices of electrons in 
-          #   the minor spin state along with the step. 
-          'fix_idx': False,
-          # Partition walkers and calculate grad in loop to avoid out
-          # of memory.
-          # 1: calculate grad of all walkers at once.
-          # other positive integer: Must to be divisible by the number of
-          #   walkers. To partition walkers and calculate the grad
-          #   iteratively, computing one partition at a time.
-          'el_partition_num': 1,
-          # Weight to add spin penalty in the loss.
-          # Generally speaking, the value of weight should be proportional
-          # to the spin-gap. Users should adjust the value according to
-          # specific system working on, but trying the default value would be a
-          # good starting point.
-          # If weight <= 0, the penalty will not be added in the loss term.
-          'weight': 2.,
-          'rm_outlier': True,
-          # Schema to remove outliers, could be 'deviation' or 'percentile'.
-          'outlier_schema': 'deviation',
-          'outlier_width': 10.,
-          'outlier_bound': (1., 99.),
-          'clip': {
-              'schema': 'deviation',
-              'width': 5.,
-              'bound': (0., 100.),
-             },
-    }
+    # Whether to enbale the spin-penalty term.
+    # If True: Evaluate spin penalty in each step.
+    'with_spin': False,
+    # plus: Adopt S_+ penalty proposed in the paper arXiv:2406.01222 (2024).
+    # square: Adopt S^2 penalty.
+    'schema': 'plus',
+    # Only works for S_+ penalty. Choose the component index of
+    # wavefunction to anniliate for each step:
+    # <\uparrow, ..., \downarrow, ...| S_{i,-} S_+ | \Psi> = 0.
+    # If True: i is fixed as the first index of the electrons in the minor
+    #   spin state.
+    # If False: i is iteratively selected from the indices of electrons in
+    #   the minor spin state along with the step.
+    'fix_idx': False,
+    # Partition walkers and calculate grad in loop to avoid out
+    # of memory.
+    # 1: calculate grad of all walkers at once.
+    # other positive integer: Must to be divisible by the number of
+    #   walkers. To partition walkers and calculate the grad
+    #   iteratively, computing one partition at a time.
+    'el_partition_num': 1,
+    # Weight to add spin penalty in the loss.
+    # Generally speaking, the value of weight should be proportional
+    # to the spin-gap. Users should adjust the value according to
+    # specific system working on, but trying the default value would be a
+    # good starting point.
+    # If weight <= 0, the penalty will not be added in the loss term.
+    'weight': 2.,
+    'rm_outlier': True,
+    # Schema to remove outliers, could be 'deviation' or 'percentile'.
+    'outlier_schema': 'deviation',
+    'outlier_width': 10.,
+    'outlier_bound': (1., 99.),
+    'clip': {
+        'schema': 'deviation',
+        'width': 5.,
+        'bound': (0., 100.),
+    },
+  }
 )
 
 @chex.dataclass
