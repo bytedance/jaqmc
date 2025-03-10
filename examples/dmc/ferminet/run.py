@@ -6,6 +6,13 @@
 
 '''
 A show case for FermiNet integration.
+Tested with 
+cuda==12.8
+FermiNet commit 266c0259b70e80a536836f083ae5efb6f03bd57d
+jax==0.5.2
+jax(cuda12)==0.5.1
+kfac-jax==0.0.6
+folx==0.2.15
 '''
 
 import pathlib
@@ -37,22 +44,23 @@ def run_wrapper(cfg, dmc_cfg):
     key = jax.random.PRNGKey(666 if cfg.debug.deterministic else int(1e6 * time.time()))
 
     envelope = envelopes.make_isotropic_envelope()
-    _, network, *_ = networks.make_fermi_net(
-        atoms, spins, charges,
+    _network = networks.make_fermi_net(
+        spins, charges,
         envelope=envelope,
         bias_orbitals=cfg.network.bias_orbitals,
-        use_last_layer=cfg.network.use_last_layer,
         full_det=cfg.network.full_det,
-        **cfg.network.detnet)
+        **cfg.network.ferminet)
 
     vmc_ckpt_save_path = checkpoint.create_save_path(cfg.log.save_path)
     vmc_ckpt_restore_filename = checkpoint.find_last_checkpoint(vmc_ckpt_save_path)
-    _, data, params, *_ = checkpoint.restore(vmc_ckpt_restore_filename, cfg.batch_size)
-
+    _, _data, params, *_ = checkpoint.restore(vmc_ckpt_restore_filename, cfg.batch_size)
+    
+    data = _data.positions
     position = data.reshape((-1, data.shape[-1]))
 
     # Get a single copy of network params from the replicated one
     single_params = jax.tree_map(lambda x: x[0], params)
+    network = lambda params, pos: _network.apply(params, pos, spins, atoms, charges)
     network_wrapper = lambda x: network(params=single_params, pos=x)
 
     run(
