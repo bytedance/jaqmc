@@ -172,7 +172,15 @@ def make_vmc_loss(
     kfac_jax.register_normal_predictive_distribution(psi_primal[:, None])
     primals_out = loss, (func_state, aux_data)
 
-    tangents_out = (jnp.dot(psi_tangent, diff) / device_batch_size, (func_state, aux_data))
+    # Ensure that the tangent returned by the JVP computation matches the primal loss in both shape and dtype
+    # Since the VMC loss is scalar, we explicitly reshape and 
+    # cast the tangent to avoid potential mismatches introduced by JAX transformations
+    loss_tangent = jnp.dot(psi_tangent, diff) / device_batch_size
+    loss = jnp.asarray(loss)
+    loss_tangent = jnp.asarray(loss_tangent)
+    loss_tangent = jnp.reshape(loss_tangent, loss.shape).astype(loss.dtype)
+    
+    tangents_out = (loss_tangent, (func_state, aux_data))
     return primals_out, tangents_out
 
   return total_energy
