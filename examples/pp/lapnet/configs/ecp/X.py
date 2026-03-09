@@ -10,18 +10,20 @@ from lapnet import base_config
 from jaqmc.pp.pp_config import get_config as get_ecp_config
 
 def get_config(input_str):
-    symbol, spin = input_str.split(',')
-    spin = int(spin)
+    # get element symbol and total spin
+    parts = input_str.split(",")
+    symbol, spin = str(parts[0]), int(parts[1])
+
+    # make mole of pyscf
+    mol = gto.Mole()
+    mol.build(
+        atom=f"{symbol} 0 0 0",
+        basis={symbol: "ccpvdz"},
+        spin=spin,
+    )
 
     cfg = base_config.default()
-    cfg['ecp'] = get_ecp_config()
-    mol = gto.Mole()
-    # Set up molecule
-    mol.build(
-        atom=f'{symbol} 0 0 0',
-        basis={symbol: 'ccecpccpvdz'},
-        ecp={symbol: 'ccecp'},
-        spin=spin)
-
     cfg.system.pyscf_mol = mol
+    cfg.system.atom_spin_configs = [(4, 2)] # manually set the spin up and spin down electrons
+    cfg["ecp"] = get_ecp_config()
     return cfg
