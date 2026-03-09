@@ -10,7 +10,8 @@ A show case for LapNet with PH and ECP.
 LapNet: https://github.com/bytedance/LapNet
 '''
 
-
+import os
+import re
 import sys
 import time
 from typing import Sequence, Tuple
@@ -31,6 +32,64 @@ from lapnet.train import make_should_save_ckpt
 from jaqmc.loss.factory import build_func_state, make_loss
 from jaqmc.loss import utils
 
+# stores checkpoints in npz format with filename pattern qmcjax_ckpt_{step}.npz
+_QMCJAX_CKPT_RE = re.compile(r"^qmcjax_ckpt_(\d+)\.npz$") 
+
+def find_last_qmcjax_checkpoint(ckpt_dir: str):
+  """
+  Scan the given directory for files matching the pattern "qmcjax_ckpt_{step}.npz"
+  and return the path and step of the checkpoint with the highest step number.
+
+  For example, if the directory contains:
+      - qmcjax_ckpt_0.npz
+      - qmcjax_ckpt_10.npz
+      - qmcjax_ckpt_5.npz
+  Then this function will return ("path/to/qmcjax_ckpt_10.npz", 10) since that is
+  the checkpoint with the highest step number.
+
+  Returns (qmcjax_ckpt_path, qmcjax_ckpt_step) so the calculation can resume from
+  the latest checkpoint.
+  """
+  if not ckpt_dir or not os.path.isdir(ckpt_dir):
+    return None, None
+
+  best_step = None
+  best_path = None
+
+  for name in os.listdir(ckpt_dir):
+    m = _QMCJAX_CKPT_RE.match(name)
+
+    if not m:  # skip files that don't match the pattern
+      continue
+
+    step = int(m.group(1))
+
+    if best_step is None or step > best_step:
+      best_step = step
+      best_path = os.path.join(ckpt_dir, name)
+
+  return best_path, best_step
+
+def resolve_ckpt_save_path(cfg) -> str:
+  """
+  Make sure we search/save in the *run directory* even if launched from parent via make.
+
+  Returns the absolute path to the directory where checkpoints should be saved,
+  creating it if it doesn't exist.
+  """
+  save_path = cfg.log.get("save_path", "")
+
+  if save_path is None or str(save_path).strip() == "":
+    save_path = "."
+
+  if not os.path.isabs(save_path):
+    save_path = os.path.join(os.getcwd(), save_path)
+
+  save_path = os.path.abspath(save_path)
+  os.makedirs(save_path, exist_ok=True)
+
+  return save_path
+
 def train(cfg):
 
   # Check if mol is a pyscf molecule and convert to internal representation
@@ -42,6 +101,12 @@ def train(cfg):
   charges = jnp.array([atom.charge for atom in cfg.system.molecule])
   nspins = cfg.system.electrons
   local_batch_size = cfg.batch_size
+  
+  ckpt_save_path = resolve_ckpt_save_path(cfg)
+  
+  logging.info(f"cwd              = {os.getcwd()}")
+  logging.info(f"cfg.log.save_path = {cfg.log.get('save_path', '')}")
+  logging.info(f"ckpt_save_path    = {ckpt_save_path}")
   
   signed_network, params, data, sharded_key, network_options = prepare(cfg, atoms, charges, nspins, local_batch_size)
 
@@ -78,73 +143,102 @@ def train(cfg):
       local_energy_outlier_width=cfg.optim.local_energy_outlier_width,
       nspins=nspins,
   )
-  func_state = build_func_state(step=kfac_utils.replicate_all_local_devices(0))
 
+  func_state = build_func_state(step=kfac_utils.replicate_all_local_devices(0))
   val_and_grad = jax.value_and_grad(total_loss, argnums=0, has_aux=True)
+
   def learning_rate_schedule(t_: jnp.ndarray) -> jnp.ndarray:
-    fg = 1.0 * (t_ >= cfg.optim.lr.warmup)
-    orig_lr = cfg.optim.lr.rate * jnp.power(
-          (1.0 / (1.0 + fg * (t_ - cfg.optim.lr.warmup)/cfg.optim.lr.delay)), cfg.optim.lr.decay)
-    linear_lr = cfg.optim.lr.rate * t_ / (cfg.optim.lr.warmup + (cfg.optim.lr.warmup == 0.0))
-    return fg * orig_lr + (1 - fg) * linear_lr
+      fg = 1.0 * (t_ >= cfg.optim.lr.warmup)
+      orig_lr = cfg.optim.lr.rate * jnp.power(
+          (1.0 / (1.0 + fg * (t_ - cfg.optim.lr.warmup) / cfg.optim.lr.delay)),cfg.optim.lr.decay)
+      linear_lr = (cfg.optim.lr.rate * t_ / (cfg.optim.lr.warmup + (cfg.optim.lr.warmup == 0.0)))
+      return fg * orig_lr + (1 - fg) * linear_lr
 
   optimizer = kfac_jax.Optimizer(
-        val_and_grad,
-        l2_reg=cfg.optim.kfac.l2_reg,
-        norm_constraint=cfg.optim.kfac.norm_constraint,
-        value_func_has_aux=True,
-        value_func_has_state=True,
-        value_func_has_rng=True,
-        learning_rate_schedule=learning_rate_schedule,
-        curvature_ema=cfg.optim.kfac.cov_ema_decay,
-        inverse_update_period=cfg.optim.kfac.invert_every,
-        min_damping=cfg.optim.kfac.min_damping,
-        num_burnin_steps=0,
-        register_only_generic=cfg.optim.kfac.register_only_generic,
-        estimation_mode='fisher_exact',
-        multi_device=True,
-        pmap_axis_name=utils.PMAP_AXIS_NAME,
-        auto_register_kwargs=dict(
-            graph_patterns=curvature_tags_and_blocks.GRAPH_PATTERNS,
-        ),
-      )
+      val_and_grad,
+      l2_reg=cfg.optim.kfac.l2_reg,
+      norm_constraint=cfg.optim.kfac.norm_constraint,
+      value_func_has_aux=True,
+      value_func_has_state=True,
+      value_func_has_rng=True,
+      learning_rate_schedule=learning_rate_schedule,
+      curvature_ema=cfg.optim.kfac.cov_ema_decay,
+      inverse_update_period=cfg.optim.kfac.invert_every,
+      min_damping=cfg.optim.kfac.min_damping,
+      num_burnin_steps=0,
+      register_only_generic=cfg.optim.kfac.register_only_generic,
+      estimation_mode="fisher_exact",
+      multi_device=True,
+      pmap_axis_name=utils.PMAP_AXIS_NAME,
+      auto_register_kwargs=dict(
+          graph_patterns=curvature_tags_and_blocks.GRAPH_PATTERNS,
+      ),
+  )
+ # MCMC step and width (will be overwritten on resume if checkpoint has it)
+  mcmc_step, mcmc_width, update_mcmc_width = prepare_mcmc(cfg, signed_network, local_batch_size)
 
+  # Initialize opt_state (will be overwritten on resume)
   sharded_key, subkeys = kfac_jax.utils.p_split(sharded_key)
   opt_state = optimizer.init(params, subkeys, data, func_state)
 
-  time_of_last_ckpt = time.time()
-  ckpt_save_path = checkpoint.create_save_path(cfg.log.save_path)
-  should_save_ckpt = make_should_save_ckpt(cfg)
+  # Resume from checkpoint if exists
+  ckpt_save_path = resolve_ckpt_save_path(cfg)
+  ckpt_path, ckpt_step = find_last_qmcjax_checkpoint(ckpt_save_path)
+  if ckpt_path is None:
+      logging.info("No qmcjax_ckpt_*.npz found. Starting from scratch.")
+      t_init = 0
+  else:
+      logging.info(f"Resuming from checkpoint: {ckpt_path} (step {ckpt_step})")
+      t_loaded, data, params, opt_state, mcmc_width_ckpt, sharded_key = checkpoint.restore(
+          ckpt_path, local_batch_size
+      )
+      t_init = int(t_loaded) + 1
 
-  mcmc_step, mcmc_width, update_mcmc_width = prepare_mcmc(cfg, signed_network, local_batch_size)
+      try:
+          if isinstance(mcmc_width_ckpt, (list, tuple, np.ndarray)):
+              mcmc_width = kfac_utils.replicate_all_local_devices(
+                  jnp.asarray(mcmc_width_ckpt)[0]
+              )
+          else:
+              mcmc_width = kfac_utils.replicate_all_local_devices(
+                  jnp.asarray(mcmc_width_ckpt)
+              )
+      except Exception:
+          pass
+
+      logging.info(f"Resume start iteration t_init = {t_init}")
+
+  time_of_last_ckpt = time.time()
+  should_save_ckpt = make_should_save_ckpt(cfg)
   do_logging, writer_manager, write_to_csv = prepare_logging(ckpt_save_path)
 
   with writer_manager as writer:
-      for t in range(cfg.optim.iterations):
+    for t in range(t_init, cfg.optim.iterations):
 
-        sharded_key, mcmc_keys, loss_keys = kfac_jax.utils.p_split_num(sharded_key, 3)
-        func_state.spin.step = kfac_utils.replicate_all_local_devices(t)
-        data, pmove = mcmc_step(params, data, mcmc_keys, mcmc_width)
+      sharded_key, mcmc_keys, loss_keys = kfac_jax.utils.p_split_num(sharded_key, 3)
+      func_state.spin.step = kfac_utils.replicate_all_local_devices(t)
 
-        # Optimization step
-        params, opt_state, _, stats = optimizer.step(
-            params=params,
-            func_state=func_state,
-            state=opt_state,
-            rng=loss_keys,
-            data_iterator=iter([data]),
-            momentum=kfac_jax.utils.replicate_all_local_devices(jnp.zeros([])),
-            damping=kfac_jax.utils.replicate_all_local_devices(jnp.asarray(cfg.optim.kfac.damping)))
-        mcmc_width = update_mcmc_width(t, mcmc_width, pmove[0])
+      data, pmove = mcmc_step(params, data, mcmc_keys, mcmc_width)
 
-        do_logging(t, pmove, stats)
-        write_to_csv(writer, t, pmove, stats)
+      # Optimization step
+      params, opt_state, _, stats = optimizer.step(
+          params=params,
+          func_state=func_state,
+          state=opt_state,
+          rng=loss_keys,
+          data_iterator=iter([data]),
+          momentum=kfac_jax.utils.replicate_all_local_devices(jnp.zeros([])),
+          damping=kfac_jax.utils.replicate_all_local_devices(jnp.asarray(cfg.optim.kfac.damping)))
 
-	# Checkpointing
-        if should_save_ckpt(t, time_of_last_ckpt):
-            if cfg.optim.optimizer != 'none':
-                checkpoint.save(ckpt_save_path, t, data, params, opt_state, mcmc_width, sharded_key)
-            time_of_last_ckpt = time.time()
+      mcmc_width = update_mcmc_width(t, mcmc_width, pmove[0])
+
+      do_logging(t, pmove, stats)
+      write_to_csv(writer, t, pmove, stats)
+
+      # Checkpointing
+      if should_save_ckpt(t, time_of_last_ckpt):
+          checkpoint.save(ckpt_save_path, t, data, params, opt_state, mcmc_width, sharded_key)
+          time_of_last_ckpt = time.time()
 
 def pyscf_mol_to_internal_representation(
     mol: pyscf.gto.Mole) -> ml_collections.ConfigDict:
@@ -300,33 +394,50 @@ def use_ecp_or_ph(cfg):
     return use_ecp or use_ph
 
 def prepare_logging(save_dir):
-    schema = ['energy', 'var', 'pmove']
-    message = '{t} ' + ' '.join(f'{key}: {{{key}:.4f}}' for key in schema)
+    """
+    Write only total energy into result.txt (plus var and pmove).
+
+    result.txt columns:
+      t, etot, var, pmove
+    """
+    schema = ["etot", "var", "pmove"]
+    message = "{t} " + " ".join(f"{k}: {{{k}:.6f}}" for k in schema)
     writer_manager = writers.Writer(
-        name='result',
+        name="result",
         schema=schema,
         directory=save_dir,
         iteration_key=None,
-        log=False)
+        log=False,
+    )
 
-    def _prepare(t, pmove, stats):
-        aux = stats['aux']
+    def _prepare(t, pmove, stats, params=None, loss_keys=None, data=None):
+        aux = stats["aux"]
         vmc_aux = aux.vmc
-        logging_dict = {
-            't': t,
-            'energy': stats['loss'][0],
-            'var': vmc_aux.variance[0],
-            'pmove': pmove[0]}
+        
+        # This ensures that logging reflects the averaged values across devices/batches
+        etot = float(np.asarray(stats["loss"]).mean())
+        var = float(np.asarray(vmc_aux.variance).mean())
+        pm = float(np.asarray(pmove).mean())
 
-        return logging_dict
+        return {
+            "t": int(t),
+            "etot": etot,
+            "var": var,
+            "pmove": pm,
+        }
 
-    def do_logging(t, pmove, stats):
-        logging_dict = _prepare(t, pmove, stats)
-        logging.info(message.format(**logging_dict))
+    def do_logging(t, pmove, stats, params=None, loss_keys=None, data=None):
+        d = _prepare(t, pmove, stats, params=params, loss_keys=loss_keys, data=data)
+        logging.info(message.format(**d))
 
-    def write_to_csv(writer, t, pmove, stats):
-        logging_dict = _prepare(t, pmove, stats)
-        writer.write(**logging_dict)
+    def write_to_csv(writer, t, pmove, stats, params=None, loss_keys=None, data=None):
+        d = _prepare(t, pmove, stats, params=params, loss_keys=loss_keys, data=data)
+        writer.write(
+            t=d["t"],
+            etot=d["etot"],
+            var=d["var"],
+            pmove=d["pmove"],
+        )
 
     return do_logging, writer_manager, write_to_csv
 
