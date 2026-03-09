@@ -394,33 +394,50 @@ def use_ecp_or_ph(cfg):
     return use_ecp or use_ph
 
 def prepare_logging(save_dir):
-    schema = ['energy', 'var', 'pmove']
-    message = '{t} ' + ' '.join(f'{key}: {{{key}:.4f}}' for key in schema)
+    """
+    Write only total energy into result.txt (plus var and pmove).
+
+    result.txt columns:
+      t, etot, var, pmove
+    """
+    schema = ["etot", "var", "pmove"]
+    message = "{t} " + " ".join(f"{k}: {{{k}:.6f}}" for k in schema)
     writer_manager = writers.Writer(
-        name='result',
+        name="result",
         schema=schema,
         directory=save_dir,
         iteration_key=None,
-        log=False)
+        log=False,
+    )
 
-    def _prepare(t, pmove, stats):
-        aux = stats['aux']
+    def _prepare(t, pmove, stats, params=None, loss_keys=None, data=None):
+        aux = stats["aux"]
         vmc_aux = aux.vmc
-        logging_dict = {
-            't': t,
-            'energy': stats['loss'][0],
-            'var': vmc_aux.variance[0],
-            'pmove': pmove[0]}
+        
+        # This ensures that logging reflects the averaged values across devices/batches
+        etot = float(np.asarray(stats["loss"]).mean())
+        var = float(np.asarray(vmc_aux.variance).mean())
+        pm = float(np.asarray(pmove).mean())
 
-        return logging_dict
+        return {
+            "t": int(t),
+            "etot": etot,
+            "var": var,
+            "pmove": pm,
+        }
 
-    def do_logging(t, pmove, stats):
-        logging_dict = _prepare(t, pmove, stats)
-        logging.info(message.format(**logging_dict))
+    def do_logging(t, pmove, stats, params=None, loss_keys=None, data=None):
+        d = _prepare(t, pmove, stats, params=params, loss_keys=loss_keys, data=data)
+        logging.info(message.format(**d))
 
-    def write_to_csv(writer, t, pmove, stats):
-        logging_dict = _prepare(t, pmove, stats)
-        writer.write(**logging_dict)
+    def write_to_csv(writer, t, pmove, stats, params=None, loss_keys=None, data=None):
+        d = _prepare(t, pmove, stats, params=params, loss_keys=loss_keys, data=data)
+        writer.write(
+            t=d["t"],
+            etot=d["etot"],
+            var=d["var"],
+            pmove=d["pmove"],
+        )
 
     return do_logging, writer_manager, write_to_csv
 
