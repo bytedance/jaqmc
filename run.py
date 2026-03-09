@@ -10,7 +10,8 @@ A show case for LapNet with PH and ECP.
 LapNet: https://github.com/bytedance/LapNet
 '''
 
-
+import os
+import re
 import sys
 import time
 from typing import Sequence, Tuple
@@ -30,6 +31,64 @@ from lapnet.train import make_should_save_ckpt
 
 from jaqmc.loss.factory import build_func_state, make_loss
 from jaqmc.loss import utils
+
+# stores checkpoints in npz format with filename pattern qmcjax_ckpt_{step}.npz
+_QMCJAX_CKPT_RE = re.compile(r"^qmcjax_ckpt_(\d+)\.npz$") 
+
+def find_last_qmcjax_checkpoint(ckpt_dir: str):
+  """
+  Scan the given directory for files matching the pattern "qmcjax_ckpt_{step}.npz"
+  and return the path and step of the checkpoint with the highest step number.
+
+  For example, if the directory contains:
+      - qmcjax_ckpt_0.npz
+      - qmcjax_ckpt_10.npz
+      - qmcjax_ckpt_5.npz
+  Then this function will return ("path/to/qmcjax_ckpt_10.npz", 10) since that is
+  the checkpoint with the highest step number.
+
+  Returns (qmcjax_ckpt_path, qmcjax_ckpt_step) so the calculation can resume from
+  the latest checkpoint.
+  """
+  if not ckpt_dir or not os.path.isdir(ckpt_dir):
+    return None, None
+
+  best_step = None
+  best_path = None
+
+  for name in os.listdir(ckpt_dir):
+    m = _QMCJAX_CKPT_RE.match(name)
+
+    if not m:  # skip files that don't match the pattern
+      continue
+
+    step = int(m.group(1))
+
+    if best_step is None or step > best_step:
+      best_step = step
+      best_path = os.path.join(ckpt_dir, name)
+
+  return best_path, best_step
+
+def resolve_ckpt_save_path(cfg) -> str:
+  """
+  Make sure we search/save in the *run directory* even if launched from parent via make.
+
+  Returns the absolute path to the directory where checkpoints should be saved,
+  creating it if it doesn't exist.
+  """
+  save_path = cfg.log.get("save_path", "")
+
+  if save_path is None or str(save_path).strip() == "":
+    save_path = "."
+
+  if not os.path.isabs(save_path):
+    save_path = os.path.join(os.getcwd(), save_path)
+
+  save_path = os.path.abspath(save_path)
+  os.makedirs(save_path, exist_ok=True)
+
+  return save_path
 
 def train(cfg):
 
