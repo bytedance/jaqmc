@@ -45,7 +45,7 @@ Scplus_tr2:
 Scplus_tr3:
 	python run.py --config configs/ecp/X.py:Sc,2,1,6,4,tr3 --config.batch_size 4096 --config.optim.iterations 30000
 Scplus_tr4:
-	python run.py --config configs/ecp/X.py:Sc,2,1,6,4,tr4 --config.batch_size 4096 --config.optim.iterations 30000
+	python run.py --config configs/ecp/X.py:Sc,2,1,6,4,tr4 --config.batch_size 128 --config.optim.iterations 1000
 Scplus_tr5:
 	python run.py --config configs/ecp/X.py:Sc,2,1,6,4,tr5 --config.batch_size 4096 --config.optim.iterations 30000
 Scplus_tr6:
@@ -64,7 +64,7 @@ ScO_ccecp:
 	python run.py --config configs/ecp/XO.py:Sc,1.664,1,0,6,5,4,4,ccecp --config.batch_size 4096 --config.optim.iterations 100000
 
 ScO_tr2:
-	python run.py --config configs/ecp/XO.py:Sc,1.664,1,0,6,5,4,4,tr2 --config.batch_size 4096 --config.optim.iterations 100000
+	python run.py --config configs/ecp/XO.py:Sc,1.664,1,0,6,5,4,4,tr2 --config.batch_size 128 --config.optim.iterations 1000
 ScO_tr3:
 	python run.py --config configs/ecp/XO.py:Sc,1.664,1,0,6,5,4,4,tr3 --config.batch_size 4096 --config.optim.iterations 100000
 ScO_tr4:
