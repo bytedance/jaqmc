@@ -415,12 +415,17 @@ def pp_energy(f: WavefunctionLike,
       ph_atoms = set(pp_cfg.ph_info[1].keys())
   logging.info(f'Elements for Pseudo-Hamiltonian: {ph_atoms}')
 
+  ph_mode = getattr(pp_cfg, 'ph_mode', None) # get ph_mode from pp_cfg
+  use_ecp_for_ph_atoms = (ph_mode == "hybrid") # if ph_mode is hybrid, use ECP for PH
+    
   ecp_atoms = []
   ecp_element_list = []
   for sym, coord in pyscf_mol._atom:
-      if sym in pyscf_mol._ecp and sym not in ph_atoms:
+      if sym in pyscf_mol._ecp: # if the element has ECP, add ecp_element_list
+        if sym not in ph_atoms or use_ecp_for_ph_atoms: # if the element is not in PH atoms or ph_mode is hybrid, add ecp_element_list
           ecp_atoms.append((sym, coord))
           ecp_element_list.append(sym)
+          
   logging.info(f'Elements for ECP: {set(x[0] for x in ecp_atoms)}')
 
   ecp_quadrature_id = pp_cfg.ecp_quadrature_id
