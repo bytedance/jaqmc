@@ -41,7 +41,7 @@ Sc_ph_l2:
 	python run.py --config configs/ph/X.py:Sc,1,l2,0,6,5 --config.batch_size 128 --config.optim.iterations 1000
 
 Sc_ph_hybrid:
-	python run.py --config configs/ph/X.py:Sc,1,hybrid,0,6,5 --config.batch_size 4096 --config.optim.iterations 30000
+	python run.py --config configs/ph/X.py:Sc,1,hybrid,0,6,5 --config.batch_size 128 --config.optim.iterations 1000
 
 
 # ===============================
@@ -77,7 +77,7 @@ Scplus_ph_l2:
 	python run.py --config configs/ph/X.py:Sc,2,l2,1,6,4 --config.batch_size 128 --config.optim.iterations 1000
 
 Scplus_ph_hybrid:
-	python run.py --config configs/ph/X.py:Sc,2,hybrid,1,6,4 --config.batch_size 4096 --config.optim.iterations 30000
+	python run.py --config configs/ph/X.py:Sc,2,hybrid,1,6,4 --config.batch_size 128 --config.optim.iterations 1000
 
 
 # ===============================
@@ -101,3 +101,16 @@ ScO_tr6:
 	python run.py --config configs/ecp/XO.py:Sc,1.664,1,0,6,5,4,4,tr6 --config.batch_size 4096 --config.optim.iterations 100000
 ScO_tr7:
 	python run.py --config configs/ecp/XO.py:Sc,1.664,1,0,6,5,4,4,tr7 --config.batch_size 4096 --config.optim.iterations 100000
+
+
+# ===============================
+# ScO molecule PH
+# XO.py input:
+#   symbol,dist,spin,pp_type,charge,Xup,Xdn,Oup,Odn
+# ===============================
+
+ScO_ph_l2:
+	python run.py --config configs/ph/XO.py:Sc,1.664,1,l2,0,6,5,4,4 --config.batch_size 128 --config.optim.iterations 1000
+
+ScO_ph_hybrid:
+	python run.py --config configs/ph/XO.py:Sc,1.664,1,hybrid,0,6,5,4,4 --config.batch_size 128 --config.optim.iterations 1000
