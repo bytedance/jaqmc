@@ -14,7 +14,7 @@ def get_config(input_str):
     mol = gto.Mole()
     mol.build(
         atom=f'{symbol} 0 0 0; O 0 0 {dist}',
-        basis={symbol: 'ccecpccpvdz', 'O': 'ccecpccpvdz'},
+        basis={symbol: 'ccecpccpvdz', 'O': 'ccpvdz'},
         ecp={symbol: ecpvar(symbol, ecps), 'O': 'ccecp'},
         spin=int(spin),
         charge=int(charge),
