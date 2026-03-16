@@ -5,7 +5,7 @@
 # ===============================
 
 O_ccecp:
-	python run.py --config configs/ecp/X.py:O,2,0,4,2,ccecp --config.batch_size 4096 --config.optim.iterations 30000
+	python run.py --config configs/ecp/X.py:O,2,0,4,2,ccecp --config.batch_size 128 --config.optim.iterations 1000
 
 
 # ===============================
@@ -18,7 +18,7 @@ Sc_ccecp:
 	python run.py --config configs/ecp/X.py:Sc,1,0,6,5,ccecp --config.batch_size 4096 --config.optim.iterations 30000
 
 Sc_tr2:
-	python run.py --config configs/ecp/X.py:Sc,1,0,6,5,tr2 --config.batch_size 4096 --config.optim.iterations 30000
+	python run.py --config configs/ecp/X.py:Sc,1,0,6,5,tr2 --config.batch_size 128 --config.optim.iterations 1000
 Sc_tr3:
 	python run.py --config configs/ecp/X.py:Sc,1,0,6,5,tr3 --config.batch_size 4096 --config.optim.iterations 30000
 Sc_tr4:

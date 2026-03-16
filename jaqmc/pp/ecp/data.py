@@ -1,24 +1,26 @@
-from importlib import resources
+from pathlib import Path
 from pyscf import gto
 
-raw_package = "jaqmc.pp.ecp.raw_data"
-Sc_family = "0.21_187"
+SC_FAMILY = "0.21_187"
+RAW_DATA_DIR = Path(__file__).resolve().parent / "raw_data"
 
 def load_ecp_variant(symbol: str, ecp_variant: str):
     symbol = symbol.strip().capitalize()
-    ecp_variant = ecp_variant.strip()
+    ecp_variant = ecp_variant.strip().lower()
 
     if symbol == "Sc":
-        if ecp_variant.lower() == "ccecp":
+        if ecp_variant == "ccecp":
             return "ccecp"
 
-        filename = f"{symbol}.{Sc_family}_{ecp_variant}.nwchem"
-        resource = resources.files(raw_package).joinpath(filename)
+        filename = f"{symbol}.{SC_FAMILY}_{ecp_variant}.nwchem"
+        path = RAW_DATA_DIR / filename
 
-        if not resource.is_file():
-            raise FileNotFoundError(f"ECP file not found for Sc: {filename}")
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"ECP file not found for Sc variant '{ecp_variant}': {path}"
+            )
 
-        ecp_text = resource.read_text()
+        ecp_text = path.read_text()
         return gto.basis.parse_ecp(ecp_text, symb=symbol)
 
     return ecp_variant
