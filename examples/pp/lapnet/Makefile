@@ -38,10 +38,10 @@ Sc_tr7:
 # ===============================
 
 Sc_ph_l2:
-	python run.py --config configs/ecp/X.py:Sc,1,l2,0,6,5,ccecp --config.batch_size 4096 --config.optim.iterations 30000
+	python run.py --config configs/ph/X.py:Sc,1,l2,0,6,5 --config.batch_size 128 --config.optim.iterations 1000
 
 Sc_ph_hybrid:
-	python run.py --config configs/ecp/X.py:Sc,1,hybrid,0,6,5,nl --config.batch_size 4096 --config.optim.iterations 30000
+	python run.py --config configs/ph/X.py:Sc,1,hybrid,0,6,5 --config.batch_size 4096 --config.optim.iterations 30000
 
 
 # ===============================
@@ -74,10 +74,10 @@ Scplus_tr7:
 # ===============================
 
 Scplus_ph_l2:
-	python run.py --config configs/ecp/X.py:Sc,2,l2,1,6,4,ccecp --config.batch_size 4096 --config.optim.iterations 30000
+	python run.py --config configs/ph/X.py:Sc,2,l2,1,6,4 --config.batch_size 128 --config.optim.iterations 1000
 
 Scplus_ph_hybrid:
-	python run.py --config configs/ecp/X.py:Sc,2,hybrid,1,6,4,nl --config.batch_size 4096 --config.optim.iterations 30000
+	python run.py --config configs/ph/X.py:Sc,2,hybrid,1,6,4 --config.batch_size 4096 --config.optim.iterations 30000
 
 
 # ===============================
