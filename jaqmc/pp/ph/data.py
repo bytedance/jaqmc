@@ -1,11 +1,9 @@
-# Copyright (c) ByteDance, Inc. and its affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
 import numpy as np
 import pathlib
+
+# for reading L2 and semilocal data from XML file
+import re
+import xml.etree.ElementTree as ET
 
 # value: spin
 PH_TM_ELEMENTS = {'Cr': 6,
@@ -44,7 +42,6 @@ def PH_config(get_config,
     return wrapper
 
 def parse_TM_xml(xml_file):
-    import xml.etree.ElementTree as ET
     tree = ET.parse(xml_file)
     root = tree.getroot()
 
@@ -122,7 +119,6 @@ def gen_ph_data_Co():
     , which support all the first row transition metals, including Co.
     '''
     def parse_xml(xml_file):
-        import xml.etree.ElementTree as ET
         tree = ET.parse(xml_file)
         root = tree.getroot()
         loc_data = [float(y) for x in root[3][0][0][1].text.split('\n') for y in x.strip().split(' ') if y != '']
@@ -140,3 +136,59 @@ def gen_ph_data_Co():
     # Here `l2_data` and `loc_data` are the data in "L2 section" and s-channel
     # in "semilocal section" in the XML file respectively.
     return loc_data + 17.0, l2_data
+
+def parse_compact_data(text):
+    """
+    Extract floating-point numbers from compact numeric text.
+    """
+    tokens = re.findall(r"[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", text)
+    return np.array([float(t) for t in tokens])
+
+def extract_L2_data(xml_file):
+    """
+    Extract the L2 radial function data from a pseudopotential XML file.
+    """
+    tree = ET.parse(xml_file)
+    root = tree.getroot()
+
+    tag = root.find(".//L2//radfunc//data")
+
+    if tag is None:
+        raise ValueError("L2/radfunc/data was not found in the XML file")
+
+    text = tag.text
+
+    tokens = re.findall(r"[+-]?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", text)
+
+    if len(tokens) == 0:
+        raise ValueError(
+            "No L2 data values were found (regex extraction returned zero tokens)"
+        )
+
+    return np.array([float(t) for t in tokens])
+
+def extract_semilocal_data(xml_file, l_target="d"):
+    """
+    Extract semilocal radial potential data for a specified angular momentum
+    channel from a pseudopotential XML file.
+    """
+    tree = ET.parse(xml_file)
+    root = tree.getroot()
+
+    vps_list = root.findall(".//semilocal//vps")
+
+    for vps in vps_list:
+        if vps.get("l") == l_target:
+            data_tag = vps.find(".//radfunc//data")
+
+            if data_tag is None:
+                raise RuntimeError(
+                    f"No radial function data found for vps(l={l_target})."
+                )
+
+            text = data_tag.text
+            return parse_compact_data(text)
+
+    raise RuntimeError(
+        f"No semilocal vps entry found for angular momentum l={l_target}."
+    )
