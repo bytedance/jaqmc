@@ -193,14 +193,10 @@ def extract_semilocal_data(xml_file, l_target="d"):
         f"No semilocal vps entry found for angular momentum l={l_target}."
     )
 
-def load_sc_ph_data(pp_name, pp_type):
-
-    xml_file = pathlib.Path(__file__).parent.resolve() / "raw_data" / "TM" / f"Sc.{pp_name}.xml"
+def load_sc_ph_data():
+    xml_file = pathlib.Path(__file__).parent.resolve() / "raw_data" / "TM" / "Sc.0.21_187.xml"
 
     loc_data = extract_semilocal_data(xml_file=str(xml_file), l_target="d")
     l2_data = extract_L2_data(xml_file=str(xml_file))
 
-    if pp_type == "l2":
-        return dict(Sc=(loc_data + 11.0, l2_data))
-    else:
-        raise NotImplementedError
+    return dict(Sc=(loc_data + 11.0, l2_data))

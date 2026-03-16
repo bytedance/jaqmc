@@ -1,14 +1,13 @@
 # Copyright (c) ByteDance, Inc. and its affiliates.
 # All rights reserved.
-#
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
 
 from pyscf import gto
 
 from lapnet import base_config
-from jaqmc.pp.ph.data import PH_config, extract_L2_data, extract_semilocal_data
+from jaqmc.pp.ph.data import PH_config, load_sc_ph_data
 from jaqmc.pp.pp_config import get_config as get_ecp_config
+from jaqmc.pp.ecp.data import load_ecp_variant as ecpvar
+
 
 @PH_config
 def _get_standard_config(input_str):
@@ -17,65 +16,74 @@ def _get_standard_config(input_str):
 
     cfg = base_config.default()
     cfg['ecp'] = get_ecp_config()
+
     mol = gto.Mole()
-    # Set up molecule
     mol.build(
         atom=f'{symbol} 0 0 0',
         basis={symbol: 'ccecpccpvdz'},
         ecp={symbol: 'ccecp'},
-        spin=spin)
+        spin=spin,
+    )
 
     cfg.system.pyscf_mol = mol
     return cfg
 
+
 def get_config(input_str: str):
+
     parts = input_str.split(',')
 
-    # Standard PH case, e.g. "Fe,4"
+    # Case 1: original PH
     if len(parts) == 2:
         return _get_standard_config(input_str)
 
-    # Custom Sc L2 case, e.g. "Sc,1,tr2,l2,0"
-    elif len(parts) == 5:
-        symbol, spin, pp_name, pp_type, charges = (
-            parts[0], int(parts[1]), parts[2], parts[3], int(parts[4])
-        )
+    # Case 2/3: Sc L2 or hybrid
+    elif len(parts) == 6:
 
-        # make mole of pyscf
+        symbol, spin, pp_type, charge, Xup, Xdn = parts
+
+        spin = int(spin)
+        charge = int(charge)
+        Xup = int(Xup)
+        Xdn = int(Xdn)
+
+        if symbol != "Sc":
+            raise NotImplementedError("Custom PH case only implemented for Sc")
+
+        if pp_type not in ("l2", "hybrid"):
+            raise NotImplementedError(f"Unsupported pp_type: {pp_type}")
+
+        cfg = base_config.default()
+        cfg["ecp"] = get_ecp_config()
+
+        # choose ECP
+        if pp_type == "l2":
+            ecp_data = "ccecp"
+        else:
+            ecp_data = ecpvar(symbol, "nl")
+
         mol = gto.Mole()
         mol.build(
             atom=f"{symbol} 0 0 0",
             basis={symbol: "ccecpccpvdz"},
-            ecp={symbol: "ccecp"},
+            ecp={symbol: ecp_data},
             spin=spin,
-            charge=charges,
+            charge=charge,
         )
 
-        cfg = base_config.default()
         cfg.system.pyscf_mol = mol
-        cfg["ecp"] = get_ecp_config()
-        cfg.system.atom_spin_configs = [(6, 4)]
+        cfg.system.atom_spin_configs = [(Xup, Xdn)]
 
-        # make ph_data
-        if symbol == "Sc":
-            xml_file = f"{PP_DIRECTORY}/Sc.{pp_name}.xml"
-            loc_data = extract_semilocal_data(xml_file=xml_file, l_target="d")
-            l2_data = extract_L2_data(xml_file=xml_file)
-            if pp_type == "l2":
-                ph_data = dict(Sc=(loc_data + 11.0, l2_data))
-            else:
-                raise NotImplementedError
-        else:
-            raise NotImplementedError
+        ph_data = load_sc_ph_data()
 
-        # register ph_info to config
         cfg.ecp.ph_info = ([(symbol, (0, 0, 0))], ph_data)
+        cfg.ecp.ph_mode = pp_type
 
         return cfg
 
     else:
         raise ValueError(
-            'Unsupported input format. '
-            'Use "symbol,spin" for the standard PH case '
-            'or "symbol,spin,pp_name,pp_type,charge" for the custom Sc L2 case.'
+            'Unsupported input format.\n'
+            'Use "symbol,spin" for original PH\n'
+            'or "Sc,spin,pp_type,charge,Xup,Xdn" for custom Sc PH.'
         )
