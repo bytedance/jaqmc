@@ -194,11 +194,8 @@ def extract_semilocal_data(xml_file, l_target="d"):
     )
 
 def load_sc_ph_data(pp_name, pp_type):
-    """
-    Load PH data for Sc using custom XML pseudopotential.
-    """
 
-    xml_file = pathlib.Path(__file__).parent.resolve() / "raw_data" / "SC" / f"Sc.{pp_name}.xml"
+    xml_file = pathlib.Path(__file__).parent.resolve() / "raw_data" / "TM" / f"Sc.{pp_name}.xml"
 
     loc_data = extract_semilocal_data(xml_file=str(xml_file), l_target="d")
     l2_data = extract_L2_data(xml_file=str(xml_file))
@@ -206,4 +203,4 @@ def load_sc_ph_data(pp_name, pp_type):
     if pp_type == "l2":
         return dict(Sc=(loc_data + 11.0, l2_data))
     else:
-        raise NotImplementedError(f"Unsupported pp_type for Sc: {pp_type}")
+        raise NotImplementedError
