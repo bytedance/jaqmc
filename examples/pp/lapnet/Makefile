@@ -32,6 +32,19 @@ Sc_tr7:
 
 
 # ===============================
+# Sc atom PH
+# X.py input:
+#   symbol,spin,pp_type,charge,Xup,Xdn,ecps
+# ===============================
+
+Sc_ph_l2:
+	python run.py --config configs/ecp/X.py:Sc,1,l2,0,6,5,ccecp --config.batch_size 4096 --config.optim.iterations 30000
+
+Sc_ph_hybrid:
+	python run.py --config configs/ecp/X.py:Sc,1,hybrid,0,6,5,nl --config.batch_size 4096 --config.optim.iterations 30000
+
+
+# ===============================
 # Sc+ ion
 # X.py input:
 #   symbol,spin,charge,Xup,Xdn,ecps
@@ -52,6 +65,19 @@ Scplus_tr6:
 	python run.py --config configs/ecp/X.py:Sc,2,1,6,4,tr6 --config.batch_size 4096 --config.optim.iterations 30000
 Scplus_tr7:
 	python run.py --config configs/ecp/X.py:Sc,2,1,6,4,tr7 --config.batch_size 4096 --config.optim.iterations 30000
+
+
+# ===============================
+# Sc+ ion PH
+# X.py input:
+#   symbol,spin,pp_type,charge,Xup,Xdn,ecps
+# ===============================
+
+Scplus_ph_l2:
+	python run.py --config configs/ecp/X.py:Sc,2,l2,1,6,4,ccecp --config.batch_size 4096 --config.optim.iterations 30000
+
+Scplus_ph_hybrid:
+	python run.py --config configs/ecp/X.py:Sc,2,hybrid,1,6,4,nl --config.batch_size 4096 --config.optim.iterations 30000
 
 
 # ===============================
