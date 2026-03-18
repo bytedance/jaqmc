@@ -34,9 +34,27 @@ from jaqmc.loss import utils
 import os
 import re
 
+# Regex pattern to match checkpoint files and extract iteration number.
+# Example match: qmcjax_ckpt_5000.npz → step = 5000
 CKPT_PATTERN = re.compile(r"qmcjax_ckpt_(\d+)\.npz")
 
+
 def find_latest_checkpoint(directory):
+    """
+    Find the latest checkpoint file in a directory.
+
+    This function scans the given directory for checkpoint files matching
+    the pattern `qmcjax_ckpt_<step>.npz`, extracts the step number, and
+    returns the file with the largest step value.
+
+    Args:
+        directory (str): Path to the checkpoint directory.
+
+    Returns:
+        str or None:
+            Full path to the latest checkpoint file if found,
+            otherwise None if no valid checkpoint exists.
+    """
     if not os.path.isdir(directory):
         return None
 
@@ -140,6 +158,10 @@ def train(cfg):
   time_of_last_ckpt = time.time()
   ckpt_save_path = checkpoint.create_save_path(cfg.log.save_path)
   
+  # Initial iteration index.
+  # By default, training starts from scratch (t = 0).
+  # If a checkpoint is found and restored, this value will be updated
+  # to resume from the next iteration after the saved checkpoint.
   t_init = 0
 
   if cfg.log.restore_path:
@@ -153,6 +175,9 @@ def train(cfg):
               local_batch_size
           )
 
+          # Resume from the next step after the checkpoint.
+          # Example:
+          #   qmcjax_ckpt_5000.npz → resume from t = 5001
           t_init = int(t_loaded) + 1
           logging.info(f"Resuming from iteration {t_init}")
   
