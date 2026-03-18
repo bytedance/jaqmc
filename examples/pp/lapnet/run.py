@@ -31,6 +31,31 @@ from lapnet.train import make_should_save_ckpt
 from jaqmc.loss.factory import build_func_state, make_loss
 from jaqmc.loss import utils
 
+import os
+import re
+
+CKPT_PATTERN = re.compile(r"qmcjax_ckpt_(\d+)\.npz")
+
+def find_latest_checkpoint(directory):
+    if not os.path.isdir(directory):
+        return None
+
+    best_step = -1
+    best_file = None
+
+    for f in os.listdir(directory):
+        m = CKPT_PATTERN.match(f)
+        if m:
+            step = int(m.group(1))
+            if step > best_step:
+                best_step = step
+                best_file = f
+
+    if best_file is None:
+        return None
+
+    return os.path.join(directory, best_file)
+
 def train(cfg):
 
   # Check if mol is a pyscf molecule and convert to internal representation
@@ -114,14 +139,30 @@ def train(cfg):
 
   time_of_last_ckpt = time.time()
   ckpt_save_path = checkpoint.create_save_path(cfg.log.save_path)
+  
+  t_init = 0
+
+  if cfg.log.restore_path:
+      latest_ckpt = find_latest_checkpoint(cfg.log.restore_path)
+
+      if latest_ckpt:
+          logging.info(f"Restoring checkpoint: {latest_ckpt}")
+
+          t_loaded, data, params, opt_state, mcmc_width, sharded_key = checkpoint.restore(
+              latest_ckpt,
+              local_batch_size
+          )
+
+          t_init = int(t_loaded) + 1
+          logging.info(f"Resuming from iteration {t_init}")
+  
   should_save_ckpt = make_should_save_ckpt(cfg)
 
   mcmc_step, mcmc_width, update_mcmc_width = prepare_mcmc(cfg, signed_network, local_batch_size)
   do_logging, writer_manager, write_to_csv = prepare_logging(ckpt_save_path)
 
   with writer_manager as writer:
-      for t in range(cfg.optim.iterations):
-
+    for t in range(t_init, cfg.optim.iterations):
         sharded_key, mcmc_keys, loss_keys = kfac_jax.utils.p_split_num(sharded_key, 3)
         func_state.spin.step = kfac_utils.replicate_all_local_devices(t)
         data, pmove = mcmc_step(params, data, mcmc_keys, mcmc_width)
