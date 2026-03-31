@@ -69,14 +69,14 @@ run_Sc_tr7:
 # ===============================
 
 run_Sc_l2:
-	python run.py --config configs/ph/X.py:Sc,1,l2,0,6,5 \
+	python run.py --config configs/ph/X.py:Sc,1,0,6,5 \
 	--config.batch_size 4096 \
 	--config.optim.iterations 30000 \
 	--config.log.save_path=Sc_l2 \
 	--config.log.restore_path=Sc_l2
 
 run_Sc_hybrid:
-	python run.py --config configs/ph/X.py:Sc,1,hybrid,0,6,5 \
+	python run.py --config configs/hph/Sc.py:Sc,1,0,6,5 \
 	--config.batch_size 4096 \
 	--config.optim.iterations 30000 \
 	--config.log.save_path=Sc_hybrid \
@@ -142,14 +142,14 @@ run_Scplus_tr7:
 # ===============================
 
 run_Scplus_l2:
-	python run.py --config configs/ph/X.py:Sc,2,l2,1,6,4 \
+	python run.py --config configs/ph/X.py:Sc,2,1,6,4 \
 	--config.batch_size 4096 \
 	--config.optim.iterations 30000 \
 	--config.log.save_path=Scplus_l2 \
 	--config.log.restore_path=Scplus_l2
 
 run_Scplus_hybrid:
-	python run.py --config configs/ph/X.py:Sc,2,hybrid,1,6,4 \
+	python run.py --config configs/hph/Sc.py:Sc,2,1,6,4 \
 	--config.batch_size 4096 \
 	--config.optim.iterations 30000 \
 	--config.log.save_path=Scplus_hybrid \
@@ -215,14 +215,14 @@ run_ScO_tr7:
 # ===============================
 
 run_ScO_l2:
-	python run.py --config configs/ph/XO.py:Sc,1.664,1,l2,0,6,5,4,4 \
+	python run.py --config configs/ph/XO.py:Sc,1.664,1,0,6,5,4,4 \
 	--config.batch_size 4096 \
 	--config.optim.iterations 100000 \
 	--config.log.save_path=ScO_l2 \
 	--config.log.restore_path=ScO_l2
 
 run_ScO_hybrid:
-	python run.py --config configs/ph/XO.py:Sc,1.664,1,hybrid,0,6,5,4,4 \
+	python run.py --config configs/hph/ScO.py:Sc,1.664,1,0,6,5,4,4 \
 	--config.batch_size 4096 \
 	--config.optim.iterations 100000 \
 	--config.log.save_path=ScO_hybrid \
