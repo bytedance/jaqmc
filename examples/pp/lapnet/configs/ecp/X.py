@@ -11,6 +11,17 @@ from jaqmc.pp.pp_config import get_config as get_ecp_config
 from jaqmc.pp.ecp.data import load_ecp_variant as ecpvar
 
 def get_config(input_str):
+    
+    """
+    The inputs are expected to be in one of the following formats:
+    symbol: the chemical symbol of the element (e.g., "Sc" or "O")
+    spin: the total spin of the system (e.g., "2")
+    charge: the total charge of the system (e.g., "0")
+    Xup: the number of spin-up electrons in the valence shell (e.g., "4")
+    Xdn: the number of spin-down electrons in the valence shell (e.g.,"2")
+    ecps: a string specifying the ECP variant to use (e.g., "ccecp" from PySCF or "tr2" from user's custom ECPs)    
+    """
+    
     symbol, spin, charge, Xup, Xdn, ecps = input_str.split(',')
 
     cfg = base_config.default()
