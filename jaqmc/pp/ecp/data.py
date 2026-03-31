@@ -4,6 +4,29 @@ from pyscf import gto
 SC_FAMILY = "0.21_187"
 RAW_DATA_DIR = Path(__file__).resolve().parent / "raw_data"
 
+"""
+Load ECP for a given element and variant.
+
+For Sc:
+- If 'ccecp' → use PySCF built-in keyword
+- Otherwise → load custom ECP from local NWChem file
+
+For other elements:
+- Return the variant as-is (assumed PySCF keyword)
+
+Parameters
+----------
+symbol : str
+    Atomic symbol (e.g., 'Sc')
+ecp_variant : str
+    ECP name or variant (e.g., 'ccecp', 'tr2')
+
+Returns
+-------
+str or dict
+    PySCF ECP input (keyword or parsed object)
+"""
+
 def load_ecp_variant(symbol: str, ecp_variant: str):
     symbol = symbol.strip().capitalize()
     ecp_variant = ecp_variant.strip().lower()
