@@ -33,6 +33,22 @@ def PH_config(get_config,
               get_ecp_cfg_ref_from_cfg=lambda x: x.ecp,
               get_pyscf_mol_from_cfg=lambda x: x.system.pyscf_mol):
     def wrapper(*args):
+        """
+        Wraps the user-defined config function to ensure PH (Pseudo-Hamiltonian)
+        information is properly initialized.
+    
+        Behavior:
+        - If `ph_info` is already explicitly defined in the config, the wrapper
+          preserves it and uses the provided `ph_info` and `ph_elements` as part
+          of the custom workflow.
+        - If `ph_info` is not defined, the wrapper falls back to the original
+          JaQMC workflow by automatically generating `ph_info` using
+          `gen_ph_info`, based on the atoms in the PySCF molecule and the
+          specified `ph_elements`.
+    
+        Returns:
+            cfg: Configuration object with initialized PH information.
+        """
         cfg = get_config(*args)
         pyscf_mol = get_pyscf_mol_from_cfg(cfg)
         ecp_cfg_ref = get_ecp_cfg_ref_from_cfg(cfg)
