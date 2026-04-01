@@ -2,10 +2,10 @@
 # O atom
 # ===============================
 
-run_O_ccecp:
-	python run.py --config configs/ecp/X.py:O,2,0,4,2,ccecp \
-	--config.batch_size 128 \
-	--config.optim.iterations 1000 \
+run_O_all:
+	python run.py --config configs/ecp/X.py:O,2,0,5,3,none \
+	--config.batch_size 1280 \
+	--config.optim.iterations 3000 \
 	--config.log.save_path=O_ccecp \
 	--config.log.restore_path=O_ccecp
 
