@@ -36,8 +36,11 @@ def PH_config(get_config,
         cfg = get_config(*args)
         pyscf_mol = get_pyscf_mol_from_cfg(cfg)
         ecp_cfg_ref = get_ecp_cfg_ref_from_cfg(cfg)
-        ecp_cfg_ref.ph_info = gen_ph_info(pyscf_mol._atom,
-                                          ph_elements=ecp_cfg_ref.ph_elements)
+        if ecp_cfg_ref.ph_info is None:
+            ecp_cfg_ref.ph_info = gen_ph_info(
+                pyscf_mol._atom,
+                ph_elements=ecp_cfg_ref.ph_elements
+            )
         return cfg
     return wrapper
 

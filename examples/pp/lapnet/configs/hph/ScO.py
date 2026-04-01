@@ -40,8 +40,10 @@ def get_config(input_str):
         (Xup, Xdn),
         (Oup, Odn),
     ]
+    
+    # keep JaQMC electron count consistent with atom_spin_configs
     cfg.system.electrons = (Xup + Oup, Xdn + Odn)
-
+    
     ph_data = load_sc_ph_data()
     cfg.ecp.ph_info = ([(symbol, (0, 0, 0))], ph_data)
     cfg.ecp.ph_mode = "hybrid"

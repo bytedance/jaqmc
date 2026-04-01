@@ -11,7 +11,6 @@ from jaqmc.pp.ph.data import PH_config, load_sc_ph_data
 from jaqmc.pp.pp_config import get_config as get_ecp_config
 from jaqmc.pp.ecp.data import load_ecp_variant as ecpvar
 
-
 @PH_config
 def get_config(input_str):
     symbol, spin, charge, Xup, Xdn = input_str.split(',')
