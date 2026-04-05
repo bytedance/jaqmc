@@ -77,8 +77,8 @@ run_Sc_l2:
 
 run_Sc_hybrid:
 	python run.py --config configs/hph/Sc.py:Sc,1,0,6,5 \
-	--config.batch_size 4096 \
-	--config.optim.iterations 30000 \
+	--config.batch_size 1280 \
+	--config.optim.iterations 1000 \
 	--config.log.save_path=Sc_hybrid \
 	--config.log.restore_path=Sc_hybrid
 
@@ -223,7 +223,32 @@ run_ScO_l2:
 
 run_ScO_hybrid:
 	python run.py --config configs/hph/ScO.py:Sc,1.664,1,0,6,5,4,4 \
-	--config.batch_size 4096 \
-	--config.optim.iterations 100000 \
+	--config.batch_size 128 \
+	--config.optim.iterations 1000 \
 	--config.log.save_path=ScO_hybrid \
 	--config.log.restore_path=ScO_hybrid
+
+# ===============================
+# S atom (PH potentials)
+# ===============================
+
+run_S_l2:
+	python run.py --config configs/ph/X.py:S,2,0,4,2 \
+	--config.batch_size 1280 \
+	--config.optim.iterations 1000 \
+	--config.log.save_path=S_l2 \
+	--config.log.restore_path=S_l2
+
+run_ScS_hybrid:
+	python run.py --config configs/ScO.py:Sc,2.14,1,0,6,5,3,3 \
+	--config.batch_size 1280 \
+	--config.optim.iterations 1000 \
+	--config.log.save_path=ScS_hybrid \
+	--config.log.restore_path=ScS_hybrid
+
+run_ScO:
+	python run.py --config configs/hph/ScO.py:Sc,2.14,1,0,6,5,3,3 \
+	--config.batch_size 1280 \
+	--config.optim.iterations 1000 \
+	--config.log.save_path=ScS_hybrid \
+	--config.log.restore_path=ScS_hybrid

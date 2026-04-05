@@ -398,12 +398,20 @@ def pp_energy(f: WavefunctionLike,
     atoms: Shape (natoms, ndim). Positions of the atoms.
     charges:Shape (natoms). Nuclear charges of the atoms.
     pyscf_mol: pyscf.gto.mole.Mole class.
-    pp_cfg: pp config. In particular:
-        - ph_info: information for pseudo-Hamiltonian (PH) atoms.
-        - ph_mode: set the hybrid pseudohamiltonian (HPH) implementation,
-          if "hybrid" then the PH atoms and ECP atoms are included. Otherwise,
-          PH atoms only contribute through the local PH terms without ECP terms.
-    energy_local: local energy function (parameter, key, position)
+    pp_cfg: pseudopotential configuration. In particular:
+       - ph_info: information for pseudo-Hamiltonian (PH) atoms.
+       - ph_mode: if set to "hybrid", enables hybrid PH+ECP treatment.
+       - hybrid_elements: tuple of elements to be treated as hybrid.
+         Only these elements will include both PH and ECP contributions.
+         Other PH atoms will remain purely PH (L2).
+    Behavior:
+       - If ph_mode != "hybrid":
+           PH atoms contribute only through PH (no ECP).
+       - If ph_mode == "hybrid" and hybrid_elements is not set:
+           all PH atoms are treated as hybrid (backward-compatible behavior).
+       - If ph_mode == "hybrid" and hybrid_elements is set:
+           only selected elements are hybrid; others remain PH-only.
+     energy_local: local energy function (parameter, key, position)
                 if exist, use this local energy function,
                 if None,  generate the local energy in the program
     use_scan: Whether to use a `lax.scan` for computing the laplacian.
@@ -418,20 +426,23 @@ def pp_energy(f: WavefunctionLike,
   else:
       ph_atoms = set(pp_cfg.ph_info[1].keys())
   logging.info(f'Elements for Pseudo-Hamiltonian: {ph_atoms}')
-  
-  ph_mode = getattr(pp_cfg, 'ph_mode', None) 
-  use_ecp_for_ph_atoms = (ph_mode == "hybrid") 
-    
+
+  ph_mode = getattr(pp_cfg, 'ph_mode', None)
+  hybrid_elements = set(getattr(pp_cfg, 'hybrid_elements', ()))
+
+  if ph_mode == "hybrid" and len(hybrid_elements) == 0:
+      hybrid_elements = set(ph_atoms)
+
   ecp_atoms = []
   ecp_element_list = []
   for sym, coord in pyscf_mol._atom:
-      if sym in pyscf_mol._ecp: 
-        if sym not in ph_atoms or use_ecp_for_ph_atoms:
-          ecp_atoms.append((sym, coord))
-          ecp_element_list.append(sym)
-          
+      if sym in pyscf_mol._ecp:
+          if sym not in ph_atoms or sym in hybrid_elements:
+              ecp_atoms.append((sym, coord))
+              ecp_element_list.append(sym)
+  
   logging.info(f'Elements for ECP: {set(x[0] for x in ecp_atoms)}')
-
+  
   ecp_quadrature_id = pp_cfg.ecp_quadrature_id
   max_core = pp_cfg.ecp_select_core.max_core
 
