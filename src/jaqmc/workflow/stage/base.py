@@ -130,6 +130,9 @@ class WorkStage(ABC):
         partition = state.partition()
         initial_step, restored = ckpt.restore(state)
         state = jax.device_put(restored, parallel_jax.make_sharding(partition))
+        if self.config.iterations <= initial_step:
+            return state
+
         rngs = jax.device_put(
             jax.random.split(rngs, jax.device_count()).flatten(),
             parallel_jax.make_sharding(parallel_jax.DATA_PARTITION),

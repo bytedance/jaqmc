@@ -32,9 +32,29 @@ def test_molecule_run(tmp_path):
     ckpts = list(tmp_path.glob("train_ckpt_*.npz"))
     assert ckpts, "No checkpoints were created in the temporary directory"
 
-    # Check that the average of the last 10 train/loss values is close to -0.5
+    # Check that the average of the last 10 train/loss values is lower than -1
     with h5py.File(tmp_path / "train_stats.h5", "r") as f:
         assert f["loss"][0] < 0, "Energy after pretrain is positive"
         assert f["loss"][-10:].mean() < -1, (
             "Average of last 10 train/loss values is not larger than -1"
         )
+
+
+def test_without_pretrain(tmp_path):
+    cfg = ConfigManager(
+        {
+            "workflow": {"seed": 42, "save_path": str(tmp_path), "batch_size": 4},
+            "wf": {"hidden_dims_single": [8, 8], "hidden_dims_double": [4, 4]},
+            "system": {
+                "electron_spins": [1, 0],
+                "atoms": [{"symbol": "H", "coords": [0, 0, 0]}],
+            },
+            "pretrain": {"run": {"iterations": 0}},
+            "train": {"run": {"burn_in": 0, "iterations": 1}},
+        },
+    )
+    MoleculeTrainWorkflow(cfg)()
+
+    # Smoke test the run without pretrain will work
+    ckpts = list(tmp_path.glob("train_ckpt_*.npz"))
+    assert ckpts, "No checkpoints were created in the temporary directory"
