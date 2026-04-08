@@ -334,7 +334,6 @@ def non_local_energy(
                     ) -> EnergyPattern:
   quadrature = get_quadrature(ecp_quadrature_id)
   ecp_element_list = ecp_element_list or list(set(pyscf_mol.elements))
-  logging.info(f'ecp elements: {ecp_element_list}')
   element_coords = {}
   max_l = [len(s[1]) for s in list(pyscf_mol._ecp.values())]
   max_l = max(max_l)
@@ -386,67 +385,81 @@ def pp_energy(f: WavefunctionLike,
                charges: jnp.ndarray,
                pyscf_mol: pyscf.gto.mole,
                pp_cfg,
-               energy_local : EnergyPattern = None,
+               energy_local: EnergyPattern = None,
                use_scan: bool = False,
-               el_partition_num = 0,
+               el_partition_num=0,
                forward_laplacian=True,
                ) -> EnergyPattern:
-  """Returns the total energy funtion.
+  """Returns the total energy function.
 
   Args:
     f: network parameters.
     atoms: Shape (natoms, ndim). Positions of the atoms.
-    charges:Shape (natoms). Nuclear charges of the atoms.
+    charges: Shape (natoms). Nuclear charges of the atoms.
     pyscf_mol: pyscf.gto.mole.Mole class.
     pp_cfg: pseudopotential configuration. In particular:
-       - ph_info: information for pseudo-Hamiltonian (PH) atoms.
-       - ph_mode: if set to "hybrid", enables hybrid PH+ECP treatment.
-       - hybrid_elements: tuple of elements to be treated as hybrid.
-         Only these elements will include both PH and ECP contributions.
-         Other PH atoms will remain purely PH (L2).
+       - ph_info: information for pure PH atoms (L2 only)
+       - hph_info: information for HPH atoms (PH + ECP)
     Behavior:
-       - If ph_mode != "hybrid":
-           PH atoms contribute only through PH (no ECP).
-       - If ph_mode == "hybrid" and hybrid_elements is not set:
-           all PH atoms are treated as hybrid (backward-compatible behavior).
-       - If ph_mode == "hybrid" and hybrid_elements is set:
-           only selected elements are hybrid; others remain PH-only.
-     energy_local: local energy function (parameter, key, position)
+       - atoms in ph_info contribute only through PH
+       - atoms in hph_info contribute through both PH and ECP
+       - atoms in pyscf_mol._ecp but not in either set contribute only through ECP
+    energy_local: local energy function (parameter, key, position)
                 if exist, use this local energy function,
-                if None,  generate the local energy in the program
+                if None, generate the local energy in the program
     use_scan: Whether to use a `lax.scan` for computing the laplacian.
     el_partition_num: 0: fori_loop implementation
                       1: Hessian implementation
-                      other positive integer: Split the laplacian to multiple trunks and
-                                           calculate accordingly.
+                      other positive integer: Split the laplacian to multiple chunks
     forward_laplacian: whether to use forward laplacian
   """
-  if pp_cfg.ph_info is None:
-      ph_atoms = set()
-  else:
-      ph_atoms = set(pp_cfg.ph_info[1].keys())
+  ph_info = getattr(pp_cfg, 'ph_info', None)
+  hph_info = getattr(pp_cfg, 'hph_info', None)
+
+  ph_atoms = set() if ph_info is None else set(ph_info[1].keys())
+  hph_atoms = set() if hph_info is None else set(hph_info[1].keys())
+  all_ph_atoms = ph_atoms | hph_atoms
+
   logging.info(f'Elements for Pseudo-Hamiltonian: {ph_atoms}')
-
-  ph_mode = getattr(pp_cfg, 'ph_mode', None)
-  hybrid_elements = set(getattr(pp_cfg, 'hybrid_elements', ()))
-
-  if ph_mode == "hybrid" and len(hybrid_elements) == 0:
-      hybrid_elements = set(ph_atoms)
+  logging.info(f'Elements for Hybrid Pseudo-Hamiltonian: {hph_atoms}')
+  
+  # ECP only case
+  if ph_info is None and hph_info is None:
+    merged_ph_info = None
+  # PH only case
+  elif ph_info is None:
+    merged_ph_info = hph_info
+  # HPH only case
+  elif hph_info is None:
+    merged_ph_info = ph_info
+  # Both PH and HPH case
+  else:
+    ph_atom_pos_1, ph_data_1 = ph_info
+    ph_atom_pos_2, ph_data_2 = hph_info
+    merged_atom_pos = list(ph_atom_pos_1) + list(ph_atom_pos_2)
+    merged_data = {**ph_data_1, **ph_data_2}
+    merged_ph_info = (merged_atom_pos, merged_data)
 
   ecp_atoms = []
   ecp_element_list = []
+  
+  # for logging only, in the case of pure ECP
+  pure_ecp_atoms = set()
+
   for sym, coord in pyscf_mol._atom:
       if sym in pyscf_mol._ecp:
-          if sym not in ph_atoms or sym in hybrid_elements:
+          if sym not in ph_atoms:
               ecp_atoms.append((sym, coord))
               ecp_element_list.append(sym)
-  
-  logging.info(f'Elements for ECP: {set(x[0] for x in ecp_atoms)}')
+          if sym not in ph_atoms and sym not in hph_atoms:
+              pure_ecp_atoms.add(sym)
+
+  logging.info(f'Elements for ECP: {pure_ecp_atoms}')
   
   ecp_quadrature_id = pp_cfg.ecp_quadrature_id
   max_core = pp_cfg.ecp_select_core.max_core
 
-  if energy_local is None or len(ph_atoms) > 0:
+  if energy_local is None or len(all_ph_atoms) > 0:
     energy_local = local_energy(
         f,
         atoms,
@@ -454,11 +467,11 @@ def pp_energy(f: WavefunctionLike,
         use_scan,
         el_partition_num,
         forward_laplacian=forward_laplacian,
-        ph_atoms=ph_atoms,
-        ph_info=pp_cfg.ph_info,
+        ph_atoms=all_ph_atoms,
+        ph_info=merged_ph_info,
         ph_rv_type=pp_cfg.ph_rv_type,
     )
-    logging.info(f'Using local energy from JaQMC implementation')
+    logging.info('Using local energy from JaQMC implementation')
 
   if len(ecp_element_list) > 0:
       energy_nonlocal = non_local_energy(
@@ -468,16 +481,19 @@ def pp_energy(f: WavefunctionLike,
           ecp_quadrature_id,
           max_core,
       )
-      logging.info(f'ECP atoms detected. Adding non-local terms')
+      if hph_atoms:
+          logging.info('Hybrid Pseudo-Hamiltonian atoms detected. Adding non-local terms')
+      else:
+          logging.info('ECP atoms detected. Adding non-local terms')
   else:
       energy_nonlocal = lambda *args, **kwargs: 0.0
-      logging.info(f'No ECP atoms detected. No non-local term added')
+      logging.info('No non-local term added')
 
-  rearrange = [jnp.array([0]),# spin-up start
-               jnp.array([nspins[0]]),# spin-up end
-               jnp.array([nspins[0]]),# spin-down start
-               jnp.array([nspins[0] + nspins[1]]),# spin-down end
-               ]
+  rearrange = [jnp.array([0]),                  # spin-up start
+               jnp.array([nspins[0]]),          # spin-up end
+               jnp.array([nspins[0]]),          # spin-down start
+               jnp.array([nspins[0] + nspins[1]])]  # spin-down end
+
   energy_ecp = lambda params, key, x: energy_local(params, key, x) \
                 + energy_nonlocal(params, rearrange, key, x)
   return energy_ecp
