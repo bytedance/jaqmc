@@ -7,7 +7,7 @@
 from pyscf import gto
 
 from lapnet import base_config
-from jaqmc.pp.ph.data import PH_config, load_sc_ph_data
+from jaqmc.pp.ph.data import PH_config
 from jaqmc.pp.pp_config import get_config as get_ecp_config
 from jaqmc.pp.ecp.data import load_ecp_variant as ecpvar
 
@@ -16,6 +16,7 @@ from jaqmc.pp.ecp.data import load_ecp_variant as ecpvar
 def get_config(input_str):
     symbol, dist, spin, charge, Xup, Xdn, Oup, Odn = input_str.split(',')
 
+    dist = float(dist)
     spin = int(spin)
     charge = int(charge)
     Xup = int(Xup)
@@ -43,10 +44,7 @@ def get_config(input_str):
     
     # keep JaQMC electron count consistent with atom_spin_configs
     cfg.system.electrons = (Xup + Oup, Xdn + Odn)
-    
-    ph_data = load_sc_ph_data()
-    cfg.ecp.ph_info = ([(symbol, (0, 0, 0))], ph_data)
-    cfg.ecp.ph_mode = "hybrid"
-    cfg.ecp.ph_elements = (symbol,)
+
+    cfg.ecp.hph_elements = (symbol,)
 
     return cfg
