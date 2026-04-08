@@ -34,7 +34,6 @@ def get_config(input_str):
     cfg.system.pyscf_mol = mol
     cfg.system.atom_spin_configs = [(Xup, Xdn)]
 
-    # ph_data = load_sc_ph_data()
-    # cfg.ecp.ph_info = ([(symbol, (0, 0, 0))], ph_data)
+    cfg.ecp.ph_elements = (symbol,)
 
     return cfg
