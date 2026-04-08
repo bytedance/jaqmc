@@ -379,6 +379,33 @@ def non_local_energy(
 
   return non_local_sum
 
+def merge_ph_hph_info(ph_info, hph_info):
+    """
+    Merge PH and HPH information into a single (atom_pos, data) tuple.
+
+    Rules:
+    - If both are None, return None
+    - If only PH exists, return PH
+    - If only HPH exists, return HPH
+    - If both exist, concatenate atom positions and merge data dicts
+    """
+    if ph_info is None and hph_info is None:
+        return None
+
+    if ph_info is None:
+        return hph_info
+
+    if hph_info is None:
+        return ph_info
+
+    ph_atom_pos_1, ph_data_1 = ph_info
+    ph_atom_pos_2, ph_data_2 = hph_info
+
+    merged_atom_pos = list(ph_atom_pos_1) + list(ph_atom_pos_2)
+    merged_data = {**ph_data_1, **ph_data_2}
+
+    return (merged_atom_pos, merged_data)
+
 def pp_energy(f: WavefunctionLike,
                atoms: jnp.ndarray,
                nspins: Sequence[int],
@@ -423,23 +450,8 @@ def pp_energy(f: WavefunctionLike,
   logging.info(f'Elements for Pseudo-Hamiltonian: {ph_atoms}')
   logging.info(f'Elements for Hybrid Pseudo-Hamiltonian: {hph_atoms}')
   
-  # ECP only case
-  if ph_info is None and hph_info is None:
-    merged_ph_info = None
-  # PH only case
-  elif ph_info is None:
-    merged_ph_info = hph_info
-  # HPH only case
-  elif hph_info is None:
-    merged_ph_info = ph_info
-  # Both PH and HPH case
-  else:
-    ph_atom_pos_1, ph_data_1 = ph_info
-    ph_atom_pos_2, ph_data_2 = hph_info
-    merged_atom_pos = list(ph_atom_pos_1) + list(ph_atom_pos_2)
-    merged_data = {**ph_data_1, **ph_data_2}
-    merged_ph_info = (merged_atom_pos, merged_data)
-
+  merged_ph_info = merge_ph_hph_info(ph_info, hph_info)
+  
   ecp_atoms = []
   ecp_element_list = []
   
@@ -451,7 +463,7 @@ def pp_energy(f: WavefunctionLike,
           if sym not in ph_atoms:
               ecp_atoms.append((sym, coord))
               ecp_element_list.append(sym)
-          if sym not in ph_atoms and sym not in hph_atoms:
+          if sym not in all_ph_atoms:
               pure_ecp_atoms.add(sym)
 
   logging.info(f'Elements for ECP: {pure_ecp_atoms}')

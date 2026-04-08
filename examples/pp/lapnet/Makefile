@@ -179,8 +179,6 @@ run_ScO_ccecp:
 	--config.log.save_path=ScO_ccecp \
 	--config.log.restore_path=ScO_ccecp
 
-# (same pattern for tr2–tr7, l2, hybrid)
-
 run_ScO_l2:
 	python run.py --config configs/ph/XO.py:Sc,1.664,1,0,6,5,4,4 \
 	--config.batch_size 4096 \
