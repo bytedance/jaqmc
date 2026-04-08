@@ -7,7 +7,7 @@
 from pyscf import gto
 
 from lapnet import base_config
-from jaqmc.pp.ph.data import PH_config, load_sc_ph_data, gen_ph_info
+from jaqmc.pp.ph.data import PH_config
 from jaqmc.pp.pp_config import get_config as get_ecp_config
 from jaqmc.pp.ecp.data import load_ecp_variant as ecpvar
 
@@ -41,31 +41,11 @@ def get_config(input_str):
         (Xup, Xdn),
         (Sup, Sdn),
     ]
-
+    
     # keep JaQMC electron count consistent with atom_spin_configs
     cfg.system.electrons = (Xup + Sup, Xdn + Sdn)
 
-    # position and data for Sc
-    sc_ph_atom_pos = [(symbol, (0.0, 0.0, 0.0))]
-    sc_ph_data = load_sc_ph_data()
-
-    # position and data for S
-    s_ph_atom_pos, s_ph_data = gen_ph_info(
-        mol._atom,
-        ph_elements=("S",),
-    )
-    
-    # combine Sc and S PH info
-    ph_atom_pos = sc_ph_atom_pos + s_ph_atom_pos
-    ph_data = {}
-    ph_data.update(s_ph_data)
-    ph_data.update(sc_ph_data)
-
-    cfg.ecp.ph_info = (ph_atom_pos, ph_data)
-    cfg.ecp.ph_mode = "hybrid"
-    cfg.ecp.ph_elements = (symbol, "S")
-    
-    # specify which element(s) use the hybrid PH mode
-    cfg.ecp.hybrid_elements = ("Sc",)
+    cfg.ecp.hph_elements = (symbol,)
+    cfg.ecp.ph_elements = ("S",)
 
     return cfg
