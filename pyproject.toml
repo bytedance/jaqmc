@@ -98,7 +98,6 @@ docs = [
     "sphinx-copybutton>=0.5.2",
     "sphinx-design>=0.6.1",
     "sphinx-llm>=0.4.1",
-    "sphinxcontrib-katex>=0.9.11",
     "types-docutils>=0.22.3.20251115",
 ]
 types = [

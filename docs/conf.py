@@ -11,7 +11,6 @@
 
 import datetime
 import os
-import shutil
 import sys
 import warnings
 from importlib.metadata import version as get_version
@@ -47,7 +46,6 @@ extensions = [
     "sphinx_design",
     "sphinx_autodoc_typehints",
     "sphinx_copybutton",
-    "sphinxcontrib.katex",
     "sphinx_llm.txt",
 ]
 
@@ -127,9 +125,6 @@ nb_execution_in_temp = True
 nb_execution_timeout = 360
 
 graphviz_output_format = "svg"
-
-if shutil.which("node"):
-    katex_prerender = True
 
 
 class GitHubSourceRole(SphinxRole):

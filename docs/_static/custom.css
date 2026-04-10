@@ -93,6 +93,11 @@
     display: none;
 }
 
+div.math mjx-container {
+    padding-bottom: 0.5rem;
+    overflow: hidden;
+}
+
 .config-defaults-list {
     margin: 1.1rem 0 1.6rem;
 }
