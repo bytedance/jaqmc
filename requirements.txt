@@ -23,7 +23,7 @@ casefy==1.1.0
     # via pyserde
 chex==0.1.91
     # via distrax
-click==8.3.1
+click==8.3.2
     # via jaqmc
 cloudpickle==3.1.2
     # via tfp-nightly
@@ -39,7 +39,7 @@ decorator==5.2.1
     # via tfp-nightly
 distrax==0.1.7
     # via kfac-jax
-dm-tree==0.1.9
+dm-tree==0.1.10
     # via
     #   kfac-jax
     #   tfp-nightly
@@ -53,7 +53,7 @@ flax==0.12.6
     # via jaqmc
 folx @ git+https://github.com/microsoft/folx@47a0e8d97a311686115aae353a85a45ae6432274
     # via jaqmc
-fsspec==2026.2.0
+fsspec==2026.3.0
     # via
     #   etils
     #   jaqmc
@@ -97,7 +97,7 @@ jinja2==3.1.6
     # via pyserde
 kfac-jax==0.0.8
     # via jaqmc
-librt==0.8.1 ; platform_python_implementation != 'PyPy'
+librt==0.9.0 ; platform_python_implementation != 'PyPy'
     # via mypy
 markdown-it-py==4.0.0
     # via rich
@@ -116,12 +116,14 @@ msgpack==1.1.2
     # via
     #   flax
     #   orbax-checkpoint
-mypy==1.19.1
+mypy==1.20.0
 mypy-extensions==1.1.0
     # via
     #   mypy
     #   typing-inspect
-numpy==2.4.3
+nest-asyncio==1.6.0 ; sys_platform == 'win32'
+    # via orbax-checkpoint
+numpy==2.4.4
     # via
     #   chex
     #   distrax
@@ -150,7 +152,7 @@ optax==0.2.8
     #   flax
     #   jaqmc
     #   kfac-jax
-orbax-checkpoint==0.11.33
+orbax-checkpoint==0.11.34
     # via
     #   flax
     #   orbax-export
@@ -160,7 +162,7 @@ packaging==26.0
     # via
     #   marshmallow
     #   pytest
-pandas==3.0.1
+pandas==3.0.2
     # via jaqmc
 pathlib-abc==0.5.2
     # via universal-pathlib
@@ -178,16 +180,16 @@ protobuf==7.34.1
     #   orbax-export
 psutil==7.2.2
     # via orbax-checkpoint
-pygments==2.19.2
+pygments==2.20.0
     # via
     #   jaqmc
     #   pytest
     #   rich
 pyscf==2.12.1
     # via jaqmc
-pyserde==0.31.1
+pyserde==0.31.2
     # via jaqmc
-pytest==9.0.2
+pytest==9.0.3
     # via
     #   pytest-cov
     #   pytest-mock
@@ -205,7 +207,7 @@ rich==14.3.3
     # via
     #   flax
     #   plum-dispatch
-ruff==0.15.7
+ruff==0.15.10
 scipy==1.17.1
     # via
     #   jax
@@ -223,13 +225,13 @@ tensorstore==0.1.82
     # via
     #   flax
     #   orbax-checkpoint
-tfp-nightly==0.26.0.dev20260323
+tfp-nightly==0.26.0.dev20260410
     # via distrax
 toolz==1.1.0
     # via chex
 treescope==0.1.10
     # via flax
-types-pyyaml==6.0.12.20250915
+types-pyyaml==6.0.12.20260408
 typing-extensions==4.15.0
     # via
     #   chex
@@ -245,11 +247,11 @@ typing-inspect==0.9.0
     # via
     #   dataclasses-json
     #   pyserde
-tzdata==2025.3 ; sys_platform == 'emscripten' or sys_platform == 'win32'
+tzdata==2026.1 ; sys_platform == 'emscripten' or sys_platform == 'win32'
     # via pandas
 universal-pathlib==0.3.10
     # via jaqmc
-uvloop==0.22.1
+uvloop==0.22.1 ; sys_platform != 'win32'
     # via orbax-checkpoint
 wadler-lindig==0.1.7
     # via jaxtyping
