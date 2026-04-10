@@ -1,10 +1,3 @@
-# ========================================================================
-# We are not including a full list of coding agents configuration files.
-# If you need to ignore coding agent configuration files specifically for
-# this repo, use `.git/info/exclude`. If you want to ignore globally, use
-# `git config --global core.excludesFile <global-gitignore-file>`.
-# ========================================================================
-
 # Python-generated files
 __pycache__/
 *.py[oc]
