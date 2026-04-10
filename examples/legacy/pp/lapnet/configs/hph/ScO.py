@@ -1,0 +1,47 @@
+# Copyright (c) 2026 Bytedance Ltd. and/or its affiliates
+# SPDX-License-Identifier: Apache-2.0
+
+from pyscf import gto
+
+from lapnet import base_config
+from jaqmc.pp.ph.data import PH_config
+from jaqmc.pp.pp_config import get_config as get_ecp_config
+from jaqmc.pp.ecp.data import load_ecp_variant as ecpvar
+
+
+@PH_config
+def get_config(input_str):
+    symbol, dist, spin, charge, Xup, Xdn, Oup, Odn = input_str.split(',')
+
+    dist = float(dist)
+    spin = int(spin)
+    charge = int(charge)
+    Xup = int(Xup)
+    Xdn = int(Xdn)
+    Oup = int(Oup)
+    Odn = int(Odn)
+
+    cfg = base_config.default()
+    cfg["ecp"] = get_ecp_config()
+
+    mol = gto.Mole()
+    mol.build(
+        atom=f"{symbol} 0 0 0; O 0 0 {dist}",
+        basis={symbol: "ccecpccpvdz", "O": "ccpvdz"},
+        ecp={symbol: ecpvar(symbol, "nl")},
+        spin=spin,
+        charge=charge,
+    )
+
+    cfg.system.pyscf_mol = mol
+    cfg.system.atom_spin_configs = [
+        (Xup, Xdn),
+        (Oup, Odn),
+    ]
+
+    # keep JaQMC electron count consistent with atom_spin_configs
+    cfg.system.electrons = (Xup + Oup, Xdn + Odn)
+
+    cfg.ecp.hph_elements = (symbol,)
+
+    return cfg

@@ -1,0 +1,188 @@
+[project]
+name = "jaqmc"
+version = "0.1.0"
+description = "JAX accelerated Quantum Monte Carlo"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+readme = "README.md"
+keywords = [
+    "quantum monte carlo",
+    "neural network wavefunction",
+    "variational monte carlo",
+    "computational physics",
+    "electronic structure",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+maintainers = [
+    { name = "ByteDance Seed" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.3.1",
+    "flax>=0.10.4",
+    # Using folx from GitHub for better shard_map support (see https://github.com/microsoft/folx/pull/36)
+    "folx@git+https://github.com/microsoft/folx@47a0e8d",
+    "fsspec>=2026.2.0",
+    "h5py>=3.15.1",
+    "jax>=0.4.36,<=0.9.1",
+    "kfac-jax==0.0.8",
+    "numpy>=2.3.5",
+    "pyserde>=0.31.1",
+    "optax>=0.2.5",
+    "pygments>=2.19.2",
+    "pyscf>=2.11.0",
+    "universal-pathlib>=0.3.6",
+    "pandas>=3.0.1",
+]
+
+[project.optional-dependencies]
+cuda12 = ["jax[cuda12]>=0.4.36"]
+cuda12_local = ["jax[cuda12_local]>=0.4.36"]
+cuda13 = ["jax[cuda13]>=0.7.0"]
+cuda13_local = ["jax[cuda13_local]>=0.7.0"]
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "cuda12" },
+        { extra = "cuda12_local" },
+        { extra = "cuda13" },
+        { extra = "cuda13_local" },
+    ]
+]
+
+[project.scripts]
+jaqmc = "jaqmc.app.cli:cli"
+
+[project.urls]
+Repository = "https://github.com/bytedance/jaqmc.git"
+Issues = "https://github.com/bytedance/jaqmc/issues"
+Documentation = "https://bytedance.github.io/jaqmc"
+
+[dependency-groups]
+lint = [
+    "ruff>=0.14.7",
+    "mypy>=1.19.0",
+]
+test = [
+    "pytest>=9.0.1",
+    "pytest-cov>=7.0.0",
+    "pytest-mock>=3.15.1",
+    "pytest-xdist>=3.6.1",
+]
+analysis = [
+    "ipykernel>=7.2.0",
+    "matplotlib>=3.10.8",
+    "pandas>=3.0.1",
+    "pyblock>=0.6",
+]
+docs = [
+    {include-group = "analysis"},
+    "myst-nb>=1.3.0",
+    "myst-parser>=4.0.1",
+    "sphinx>=8.2.3",
+    "sphinx-autobuild>=2025.8.25",
+    "sphinx-autodoc-typehints>=3.6.1",
+    "sphinx-book-theme>=1.1.4",
+    "sphinx-copybutton>=0.5.2",
+    "sphinx-design>=0.6.1",
+    "sphinx-llm>=0.4.1",
+    "sphinxcontrib-katex>=0.9.11",
+    "types-docutils>=0.22.3.20251115",
+]
+types = [
+    "types-pyyaml>=6.0.12.20250915",
+]
+dev = [
+  {include-group = "lint"},
+  {include-group = "test"},
+  {include-group = "types"},
+]
+
+[build-system]
+requires = ["uv_build>=0.11.0,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = ["jaqmc", "jaqmc_legacy"]
+
+[tool.mypy]
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+exclude = [
+    "tests",
+    "docs",
+    "src/jaqmc_legacy",
+    "examples/legacy",
+]
+
+[tool.ruff]
+target-version = "py312"
+exclude = ["src/jaqmc_legacy", "examples/legacy"]
+
+[tool.ruff.lint]
+# CPY and DOC rules are currently in preview
+preview = true
+# Allow en-dash (U+2013)
+allowed-confusables = ["–"]
+select = [
+    "F", "E", "W", # pyflakes and pycodestyle
+    "D", "DOC",    # pydocstyle and pydoclint
+    "G", "LOG",    # logging rules
+    "RUF",         # ruff rules
+    "I",           # isort
+    "CPY",         # copyright header
+    "ERA",         # commented code
+    "FURB", "UP",  # modernize code
+    "SIM", "C90",  # simplify code
+    "PLW", "PLE",  # pylint rules
+]
+ignore = [
+    "D1",          # Allow missing docstring
+    "RUF009",      # Allow functions creating Fields in dataclass
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pytest]
+filterwarnings = [
+    # Third party libraries that have not addressed this warnings in new JAX
+    'ignore:.*device_put_replicated.*:DeprecationWarning:kfac_jax.*',
+    'ignore:.*jax.lax.pvary.*:DeprecationWarning:folx.*',
+    # We can do nothing about this because no replacement is planned
+    # If this is removed one day, all wa can do is to copy old code over and run
+    'ignore:.*jax.scipy.special.lpmn_values.*:DeprecationWarning:jaqmc.*',
+]
+testpaths = ["src/jaqmc", "tests"]
+addopts = ["--doctest-modules"]
+doctest_optionflags = ["NORMALIZE_WHITESPACE", "ELLIPSIS"]
+
+[tool.coverage.run]
+branch = true
+parallel = true
+source = ["jaqmc"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "@abc.abstractmethod",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
+
+[[tool.jupytext.formats]]
+"notebooks/" = "ipynb"
+"docs/" = "md:myst"

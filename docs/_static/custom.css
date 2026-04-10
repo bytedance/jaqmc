@@ -1,0 +1,167 @@
+/* Hero banner */
+.hero-banner {
+    background: linear-gradient(135deg, #0d1b2a 0%, #1b3a5c 50%, #3a7bd5 100%);
+    color: #fff;
+    padding: 3rem 2rem 2.5rem;
+    text-align: center;
+    border-radius: 12px;
+    margin-bottom: 1.5rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.hero-banner::before {
+    content: "";
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background:
+        radial-gradient(circle at 30% 70%, rgba(58, 123, 213, 0.3), transparent 50%),
+        radial-gradient(circle at 70% 30%, rgba(106, 17, 203, 0.15), transparent 50%);
+    pointer-events: none;
+}
+
+.hero-banner > * {
+    position: relative;
+}
+
+.hero-logo {
+    width: 200px;
+    margin-bottom: 0.75rem;
+}
+
+.hero-tagline {
+    font-size: 1.1rem;
+    max-width: 520px;
+    margin: 0 auto 1.5rem;
+    line-height: 1.6;
+}
+
+.hero-buttons {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.hero-buttons a {
+    padding: 0.55rem 1.4rem;
+    border-radius: 8px;
+    text-decoration: none !important;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.hero-buttons a:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    text-decoration: none !important;
+}
+
+.hero-btn-primary {
+    border: 2px solid rgba(255, 255, 255, 0.7);
+    background: #fff;
+    color: #1b3a5c !important;
+}
+
+.hero-btn-secondary {
+    border: 2px solid rgba(255, 255, 255, 0.7);
+    color: #fff !important;
+    background: transparent;
+}
+
+.hero-btn-secondary:hover {
+    border-color: #fff;
+}
+
+.graphviz {
+    text-align: center;
+}
+
+/* Small config-key badges */
+.sd-badge-sm {
+    font-size: 0.65em;
+    padding: 0.15em 0.45em;
+    vertical-align: middle;
+}
+
+/* Hide badges in sidebar TOC */
+.bd-toc .sd-badge-sm {
+    display: none;
+}
+
+.config-defaults-list {
+    margin: 1.1rem 0 1.6rem;
+}
+
+.config-defaults-separator {
+    border: 0;
+    border-top: 1px solid var(--pst-color-border, rgba(15, 23, 42, 0.2));
+    margin: 0.05rem 0;
+}
+
+.config-defaults-item {
+    padding: 0.7rem 0;
+}
+
+.config-defaults-item-group {
+    padding-bottom: 0.85rem;
+}
+
+.config-defaults-header {
+    margin: 0;
+}
+
+.config-defaults-key {
+    font-size: 1em;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.config-defaults-meta {
+    color: var(--pst-color-text-muted);
+    font-size: 0.95rem;
+    margin: 0.18rem 0 0;
+}
+
+.config-defaults-meta code {
+    font-size: 1em;
+    overflow-wrap: anywhere;
+}
+
+.config-defaults-meaning {
+    color: var(--pst-color-text-muted);
+    font-size: 0.96rem;
+    margin: 0.28rem 0 0;
+}
+
+.config-defaults-meaning code {
+    font-size: 1em;
+}
+
+.config-defaults-nested {
+    background: transparent;
+    border-left: 2px solid var(--pst-color-border, rgba(0, 0, 0, 0.12));
+    margin: 0.7rem 0 0 1rem;
+    padding-left: 1rem;
+}
+
+.config-defaults-item-nested {
+    border-top: 0;
+    padding: 0.55rem 0 0;
+}
+
+.config-defaults-item-nested:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+}
+
+@media (max-width: 720px) {
+    .config-defaults-nested {
+        margin-left: 0.6rem;
+        padding-left: 0.75rem;
+    }
+}

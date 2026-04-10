@@ -1,0 +1,46 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: v0.25
+    hooks:
+      - id: validate-pyproject
+        additional_dependencies: ["validate-pyproject-schema-store[all]"]
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.7
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.11.0
+    hooks:
+      - id: uv-export
+        args: ["--no-hashes", "--frozen", "--output-file=requirements.txt"]
+  - repo: https://github.com/Lucas-C/pre-commit-hooks
+    rev: v1.5.6
+    hooks:
+      - id: insert-license
+        files: \.py$
+        args:
+          - --license-filepath
+          - license-header.txt
+          - --use-current-year
+          - --skip-license-insertion-comment
+          - DeepMind
+  # mypy should run locally to pick up dependencies
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        language: system
+        # workaround for tools like VS Code which doesn't activate venv
+        entry: .venv/bin/mypy .
+        types_or: [python, pyi]
+        args: ["--ignore-missing-imports"]
+        pass_filenames: false
+        exclude: "(docs|tests)/.*"
