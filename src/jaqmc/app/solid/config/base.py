@@ -9,6 +9,8 @@ import numpy as np
 from jaqmc.utils.atomic.atomic_system import AtomicSystemConfig
 from jaqmc.utils.config import configurable_dataclass
 
+__all__ = ["SolidConfig"]
+
 
 @configurable_dataclass
 class SolidConfig(AtomicSystemConfig):
