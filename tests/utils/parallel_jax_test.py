@@ -166,7 +166,7 @@ def run_parallel_jax_test(num_processes, test_arrays, mode="cpu"):
     Returns:
         Sorted list of worker results.
     """
-    coordinator_address = f"0.0.0.0:{find_free_port()}"
+    coordinator_address = f"127.0.0.1:{find_free_port()}"
     queue = multiprocessing.Queue()
 
     processes = []
