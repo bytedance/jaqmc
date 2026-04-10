@@ -453,9 +453,13 @@ class ConfigManager(ConfigManagerLike):
             module_name = self._get_primitive(f"{name}.module", default_module)
             make_module = resolve_object(module_name, package=module_base)
         else:
-            module_base = default_module.__module__
             default_module_name = (
                 f"{default_module.__module__}:{default_module.__name__}"
+            )
+            module_base = (
+                None
+                if "." not in default_module.__module__
+                else default_module.__module__[: default_module.__module__.rfind(".")]
             )
             module_name = self._get_primitive(f"{name}.module", default_module_name)
             if module_name != default_module_name:

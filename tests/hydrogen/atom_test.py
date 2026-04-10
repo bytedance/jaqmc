@@ -16,10 +16,10 @@ from jaqmc.utils.config import ConfigManager
 @pytest.mark.parametrize(
     "optimizer,lr",
     [
-        ("jaqmc.optimizer.optax:adam", 0.05),
-        ("jaqmc.optimizer.kfac", 0.5),
+        ("optax:adam", 0.05),
+        ("kfac", 0.5),
         pytest.param(
-            "jaqmc.optimizer.sr",
+            "sr",
             0.5,
             marks=pytest.mark.skipif(
                 jax.__version_info__ < (0, 7, 0),

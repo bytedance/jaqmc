@@ -195,3 +195,6 @@ class KFACOptimizer:
             optax.scale_by_learning_rate(self.learning_rate),
             self._preconditioner.as_gradient_transform(),
         )
+
+
+KFACOptimizer.__module__ = __package__

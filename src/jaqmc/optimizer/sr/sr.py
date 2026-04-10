@@ -135,3 +135,6 @@ class SROptimizer:
         if not hasattr(self, "_sr_base"):
             raise RuntimeError("SROptimizer.init must be called before update")
         return self._sr_base.update(grads, state, params, data=batched_data.data)
+
+
+SROptimizer.__module__ = __package__
