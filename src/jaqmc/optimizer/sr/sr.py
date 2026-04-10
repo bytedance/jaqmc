@@ -77,7 +77,7 @@ class SROptimizer:
     score_norm_clip: float | None = None
     gram_num_chunks: int | None = 4
     gram_dot_prec: str | None = "F64"
-    prune_inactive: bool = True
+    prune_inactive: bool = False
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
 
     def init(
