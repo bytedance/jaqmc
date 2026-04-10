@@ -68,6 +68,7 @@ html_static_path = ["_static"]
 html_favicon = "_static/jaqmc-light.svg"
 html_css_files = ["custom.css"]
 html_logo = "_static/jaqmc-light-large.svg"
+html_baseurl = "https://bytedance.github.io/jaqmc/"
 html_theme_options = {
     "repository_url": "https://github.com/bytedance/jaqmc",
     "use_source_button": True,
