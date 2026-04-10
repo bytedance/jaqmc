@@ -94,7 +94,9 @@ with deep neural networks",
 
 ### Config Dataclasses
 
-If you're writing a config dataclass, document its fields in the **class docstring** under an `Args:` section (rather than in `__init__`). This ensures our `--verbose-config` CLI option can extract field descriptions to display to users.
+If you're writing a config dataclass, document its fields in the **class docstring**
+under an `Args:` section (rather than in `__init__`). This ensures verbose config
+output can extract field descriptions to display to users.
 
 ## Testing
 

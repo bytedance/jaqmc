@@ -100,9 +100,9 @@ For Hall-specific wavefunction settings under [wf.*](#hall-train-wf), including 
 Laughlin, and free states, use the training configuration reference.
 
 For authoritative key definitions and effective defaults, see the [training configuration
-reference](train.md) and use `--dry-run --verbose-config` to inspect the fully resolved
-config for your run. For checkpointing and resuming longer jobs, see
-<project:../../guide/running-workflows.md>.
+reference](train.md) and use `--dry-run workflow.config.verbose=true` to inspect
+the fully resolved config for your run. For checkpointing and resuming longer
+jobs, see <project:../../guide/running-workflows.md>.
 
 We used the following hyperparameters in our [paper](https://arxiv.org/abs/2412.14795) and recommend them as a starting point:
 

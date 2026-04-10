@@ -196,9 +196,9 @@ and [Multi-Device](../../guide/multi-device.md) for how walkers are distributed
 across GPUs.
 
 For authoritative key definitions and effective defaults, see the [training configuration
-<project:train.md> and use `--dry-run --verbose-config` to inspect the fully resolved
-config for your run. For checkpointing and resuming longer jobs, see
-<project:../../guide/running-workflows.md>.
+<project:train.md> and use `--dry-run workflow.config.verbose=true` to inspect
+the fully resolved config for your run. For checkpointing and resuming longer
+jobs, see <project:../../guide/running-workflows.md>.
 
 :::{admonition} Checking convergence
 :class: tip

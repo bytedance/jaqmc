@@ -183,7 +183,8 @@ acceptance rate, and burn-in interact.
 
 For authoritative key definitions and effective defaults, see the
 <project:train.md> and use
-`--dry-run --verbose-config` to inspect the fully resolved config for your run.
+`--dry-run workflow.config.verbose=true` to inspect the fully resolved config
+for your run.
 
 :::{admonition} Checking convergence
 :class: tip

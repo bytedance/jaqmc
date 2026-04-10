@@ -29,10 +29,10 @@ Because the available config keys depend on which modules you select (e.g., KFAC
 
 - **`--dry-run`**: Loads the configuration and initializes the workflow but stops before the expensive training loop. The full resolved config is printed to the terminal and saved as `config.yaml` in the output directory.
 - **Source location comments**: The output includes `# Defined in ...` comments pointing to where each parameter is defined in source code.
-- **`--verbose-config`**: Also includes docstrings for each configured class, helping you understand what each parameter does.
+- **`workflow.config.verbose=true`**: Also includes docstrings for each configured class, helping you understand what each parameter does.
 
 ```bash
-jaqmc molecule train --dry-run --verbose-config
+jaqmc molecule train --dry-run workflow.config.verbose=true
 ```
 
 ## Common Configuration Patterns

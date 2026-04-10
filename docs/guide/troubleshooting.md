@@ -97,7 +97,8 @@ of `train.run.iterations`.
 **Fixes:**
 - Check the spelling of the key.
 - Use `--dry-run` to see the full resolved config and verify all keys.
-- Use `--verbose-config` to see available fields and their descriptions.
+- Add `workflow.config.verbose=true` to see available fields and their
+  descriptions.
 
 ```{tip}
 CLI overrides must not have spaces around `=`. Write `key=value`, not

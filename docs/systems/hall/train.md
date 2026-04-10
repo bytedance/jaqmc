@@ -2,11 +2,11 @@
 
 Configuration reference for `jaqmc hall train`.
 This page shows the effective defaults for the train workflow preset. Use
-`--dry-run` to see the resolved config for your run, or `--verbose-config` to
-include field descriptions. Keys use the same dot notation as CLI overrides,
-such as `train.run.iterations=5000`. Defaults are resolved in this order:
-schema defaults, workflow preset, YAML config, then CLI overrides. For
-evaluation config, see <project:eval.md>.
+`--dry-run` to see the resolved config for your run, or add
+`workflow.config.verbose=true` to include field descriptions. Keys use the same
+dot notation as CLI overrides, such as `train.run.iterations=5000`. Defaults
+are resolved in this order: schema defaults, workflow preset, YAML config, then
+CLI overrides. For evaluation config, see <project:eval.md>.
 
 ```{eval-rst}
 .. config-context::

@@ -5,7 +5,7 @@ Use this section when you already picked a system and want to run, analyze, tune
 ## Run Workflows
 
 - <project:running-workflows.md> — debug runs, production runs, resume/branch/evaluate, and reporting checklist.
-- <project:configuration.md> — CLI overrides, YAML layering, and `--dry-run` / `--verbose-config`.
+- <project:configuration.md> — CLI overrides, YAML layering, and `--dry-run`.
 
 ## Analyze Results
 

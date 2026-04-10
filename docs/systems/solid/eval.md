@@ -2,12 +2,12 @@
 
 Configuration reference for `jaqmc solid evaluate`.
 This page shows the effective defaults for the evaluation workflow preset. Use
-`--dry-run` to see the resolved config for your run, or `--verbose-config` to
-include field descriptions. Evaluation has only one stage, so stage keys
-(`run.*`, `sampler.*`, `writers.*`) live at the config root rather than under
-a `train.*` prefix. Defaults are resolved in this order: schema defaults,
-workflow preset, YAML config, then CLI overrides. For training config, see
-<project:train.md>.
+`--dry-run` to see the resolved config for your run, or add
+`workflow.config.verbose=true` to include field descriptions. Evaluation has
+only one stage, so stage keys (`run.*`, `sampler.*`, `writers.*`) live at the
+config root rather than under a `train.*` prefix. Defaults are resolved in this
+order: schema defaults, workflow preset, YAML config, then CLI overrides. For
+training config, see <project:train.md>.
 
 ## Workflow (`workflow.*`)
 
