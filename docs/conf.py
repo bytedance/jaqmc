@@ -152,3 +152,9 @@ class GitHubSourceRole(SphinxRole):
 def setup(app: Sphinx):
     app.add_role("ghsrc", GitHubSourceRole())
     config_reference_setup(app)
+
+    def configure_for_builder(app):
+        if app.builder.name == "markdown":
+            app.config.nb_execution_mode = "off"
+
+    app.connect("builder-inited", configure_for_builder)
