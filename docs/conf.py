@@ -126,6 +126,8 @@ nb_execution_timeout = 360
 
 graphviz_output_format = "svg"
 
+llms_txt_suffix_mode = "replace"
+
 
 class GitHubSourceRole(SphinxRole):
     """Inline role that links a source path to its GitHub location.
