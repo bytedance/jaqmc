@@ -156,7 +156,8 @@ def run_distributed_test(run, num_processes, tmp_path, mode="cpu"):
 def test_distributed_training(tmp_path: Path, run, num_processes, mode):
     """Unified test for distributed training across various configurations."""
     if num_processes != 1:
-        pytest.importorskip("jax", minversion="0.5.0")
+        # Old JAX version does not have good distributed running support on CPU
+        pytest.importorskip("jax", minversion="0.6.0")
 
     results = run_distributed_test(
         run, num_processes=num_processes, tmp_path=tmp_path, mode=mode
