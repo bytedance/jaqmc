@@ -36,14 +36,20 @@ for you.
 
 ## Installation
 
+Clone the Repository and navigate to the jaqmc directory.
 ```bash
 git clone https://github.com/bytedance/jaqmc.git
 cd jaqmc
+```
 
-# Install with uv (recommended)
-uv sync
+Install with [uv](https://docs.astral.sh/uv/getting-started/installation/) (recommended):
+```bash
+uv sync --python 3.12
+```
 
-# Or with pip (create a venv first)
+Or with pip (create a venv first):
+
+```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e . -r requirements.txt
 ```
