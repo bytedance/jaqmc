@@ -3,6 +3,7 @@
 <p align="center">
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.12+-blue.svg"></a>
+  <a href="https://bytedance.github.io/jaqmc/"><img src="https://img.shields.io/badge/documentation-teal.svg"></a>
 </p>
 
 
@@ -96,13 +97,13 @@ jaqmc hydrogen-atom train train.optim.learning_rate.rate=0.01 train.run.iteratio
 jaqmc molecule train system.module=atom system.symbol=Li
 ```
 
-See the [documentation](docs/getting-started/quick-start.md) for detailed guides on installation, molecular simulations, and writing custom workflows.
+See the [documentation](https://bytedance.github.io/jaqmc/getting-started/quick-start.html) for detailed guides on installation, molecular simulations, and writing custom workflows.
 
 ## Where to Go Next
 
-- **Train a real system**: See [Molecules](docs/systems/molecule/index.md), [Solids](docs/systems/solid/index.md), or [Quantum Hall](docs/systems/hall/index.md).
-- **Understand the framework**: Read [Core Concepts](docs/getting-started/concepts.md).
-- **Extend JaQMC**: Start from [Extending JaQMC](docs/extending/index.md).
+- **Train a real system**: See [Molecules](https://bytedance.github.io/jaqmc/systems/molecule/index.html), [Solids](https://bytedance.github.io/jaqmc/systems/solid/index.html), or [Quantum Hall](https://bytedance.github.io/jaqmc/systems/hall/index.html).
+- **Understand the framework**: Read [Core Concepts](https://bytedance.github.io/jaqmc/getting-started/concepts.html).
+- **Extend JaQMC**: Start from [Extending JaQMC](https://bytedance.github.io/jaqmc/extending/index.html).
 - **Contribute code**: See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Development
