@@ -12,7 +12,7 @@ Before you begin, make sure you have:
 - **Python 3.12** or later
 - **Git** (for cloning the repository)
 
-### Step 1: Clone the Repository and navigate to the `jaqmc` directory.
+### Step 1: Clone the repository and navigate to the `jaqmc` directory.
 
 ```bash
 git clone https://github.com/bytedance/jaqmc.git
@@ -21,7 +21,7 @@ cd jaqmc
 
 ### Step 2: Install Dependencies
 
-JaQMC recommends [uv](https://docs.astral.sh/uv/getting-started/installation/) for fast, reliable package management. If you don't have `uv` installed yet, follow the link above — it takes about 10 seconds.
+JaQMC recommends [uv](https://docs.astral.sh/uv/getting-started/installation/) for fast, reliable package management. If you do not have `uv` installed yet, follow the link above.
 
 **Using uv (recommended):**
 
@@ -31,21 +31,21 @@ JaQMC recommends [uv](https://docs.astral.sh/uv/getting-started/installation/) f
 :::{tab-item} CPU
 :sync: cpu
 ```bash
-uv sync --python 3.12
+uv sync --frozen --python 3.12
 ```
 :::
 
 :::{tab-item} GPU (Download CUDA)
 :sync: cuda
 ```bash
-uv sync --python 3.12 --extra cuda12
+uv sync --frozen --python 3.12 --extra cuda12
 ```
 :::
 
 :::{tab-item} GPU (Local CUDA)
 :sync: cuda-local
 ```bash
-uv sync --python 3.12 --extra cuda12-local
+uv sync --frozen --python 3.12 --extra cuda12-local
 ```
 :::
 
@@ -53,7 +53,9 @@ uv sync --python 3.12 --extra cuda12-local
 
 **Using pip or conda:**
 
-If you prefer `pip` or `conda`, you'll need to create and activate a virtual environment first.
+These commands install the exact dependency versions currently tested by the project from the official PyPI index.
+
+If you prefer `pip` or `conda`, create and activate an environment first.
 
 ````{dropdown} pip setup
 ```bash
@@ -79,25 +81,27 @@ Then install JaQMC:
 :::{tab-item} CPU
 :sync: cpu
 ```bash
-pip install -e . -r requirements.txt
+pip install -e . -r requirements.txt --extra-index-url https://pypi.org/simple
 ```
 :::
 
 :::{tab-item} GPU (Download CUDA)
 :sync: cuda
 ```bash
-pip install -e ".[cuda12]" -r requirements.txt
+pip install -e ".[cuda12]" -r requirements.txt --extra-index-url https://pypi.org/simple
 ```
 :::
 
 :::{tab-item} GPU (Local CUDA)
 :sync: cuda-local
 ```bash
-pip install -e ".[cuda12_local]" -r requirements.txt
+pip install -e ".[cuda12_local]" -r requirements.txt --extra-index-url https://pypi.org/simple
 ```
 :::
 
 ::::
+
+The `--extra-index-url https://pypi.org/simple` flag is recommended when you use PyPI mirrors, since some mirrors may not include every required package.
 
 For troubleshooting GPU or JAX issues, see the official [JAX installation guide](inv:jax:*:doc#installation).
 

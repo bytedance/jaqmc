@@ -36,7 +36,12 @@ for you.
 
 ## Installation
 
-Clone the Repository and navigate to the jaqmc directory.
+Before you begin, make sure you have:
+
+- **Python 3.12** or later
+- **Git** (for cloning the repository)
+
+Clone the repository and navigate to the `jaqmc` directory.
 ```bash
 git clone https://github.com/bytedance/jaqmc.git
 cd jaqmc
@@ -44,30 +49,34 @@ cd jaqmc
 
 Install with [uv](https://docs.astral.sh/uv/getting-started/installation/) (recommended):
 ```bash
-uv sync --python 3.12
+uv sync --frozen --python 3.12
 ```
 
-Or with pip (create a venv first):
+This installs the exact dependency versions currently tested by the project from the official PyPI index.
+
+If you prefer `pip`, or if you use a PyPI mirror, create a virtual environment first and install manually:
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e . -r requirements.txt
+pip install -e . -r requirements.txt --extra-index-url https://pypi.org/simple
 ```
+
+The `--extra-index-url https://pypi.org/simple` flag is recommended when you use PyPI mirrors, since some mirrors may not include every required package.
 
 ### GPU Support
 
-For GPU acceleration, choose based on your setup:
+For GPU acceleration, choose the option that matches your setup:
 
 ```bash
-# Option 1: Download CUDA libraries (recommended, no system CUDA needed)
-uv sync --extra cuda12
+# Option 1: Download CUDA libraries (recommended; no system CUDA required)
+uv sync --frozen --python 3.12 --extra cuda12
 # Or with pip:
-pip install -e ".[cuda12]" -r requirements.txt
+pip install -e ".[cuda12]" -r requirements.txt --extra-index-url https://pypi.org/simple
 
-# Option 2: Use local CUDA installation (requires CUDA 12 already installed)
-uv sync --extra cuda12-local
+# Option 2: Use a local CUDA installation (requires CUDA 12 to already be installed)
+uv sync --frozen --python 3.12 --extra cuda12-local
 # Or with pip:
-pip install -e ".[cuda12_local]" -r requirements.txt
+pip install -e ".[cuda12_local]" -r requirements.txt --extra-index-url https://pypi.org/simple
 ```
 
 For troubleshooting GPU setup, see the [JAX installation guide](https://docs.jax.dev/en/latest/installation.html).
@@ -99,7 +108,7 @@ See the [documentation](docs/getting-started/quick-start.md) for detailed guides
 ## Development
 
 ```bash
-uv sync
+uv sync --frozen --python 3.12
 uv tool install prek
 prek install
 

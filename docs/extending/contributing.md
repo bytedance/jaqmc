@@ -6,6 +6,17 @@ This page covers setting up your development environment and the conventions we 
 
 If you plan to contribute code, it's worth setting up a few tools that will catch common issues before they reach code review.
 
+Start by cloning the repository and installing the locked development environment:
+
+```bash
+git clone https://github.com/bytedance/jaqmc.git
+cd jaqmc
+uv sync --frozen --python 3.12 --extra cuda12   # CPU-only: omit --extra cuda12
+source .venv/bin/activate
+```
+
+This installs the exact dependency versions currently tested by the project from the official PyPI index.
+
 ### Pre-commit Hooks
 
 We use [prek](https://github.com/j178/prek) to run Ruff (linting and formatting) and Mypy (type checking) automatically every time you `git commit`. To install the hooks:
@@ -180,7 +191,7 @@ For a minimal workflow smoke test, build a `ConfigManager` with only 2 pretrain/
 To build and preview the docs locally:
 
 ```bash
-uv sync --group docs
+uv sync --frozen --group docs
 sphinx-autobuild docs docs/_build --watch src
 ```
 

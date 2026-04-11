@@ -15,7 +15,7 @@ When contributing new features or bug fixes, please:
 ```bash
 git clone https://github.com/bytedance/jaqmc.git
 cd jaqmc
-uv sync --python 3.12 --extra cuda12   # CPU-only: omit --extra cuda12
+uv sync --frozen --python 3.12 --extra cuda12   # CPU-only: omit --extra cuda12
 source .venv/bin/activate
 uv tool install prek
 prek install
@@ -41,7 +41,7 @@ prek run --all-files             # All hooks at once
 For code style, docstrings, testing conventions, and documentation setup, see the **Contributing** section in the rendered docs (`docs/extending/contributing.md`). To build the docs locally:
 
 ```bash
-uv sync --group docs
+uv sync --frozen --group docs
 sphinx-autobuild docs docs/_build --watch src
 ```
 
