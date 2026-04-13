@@ -28,7 +28,7 @@ repos:
         files: \.py$
         args:
           - --license-filepath
-          - license-header.txt
+          - .github/common-header.txt
           - --use-current-year
           - --skip-license-insertion-comment
           - DeepMind
