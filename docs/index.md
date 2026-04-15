@@ -67,5 +67,6 @@ systems/index.md
 guide/index.md
 extending/index.md
 roadmap.md
+citing.md
 api-reference/index.md
 ```

@@ -124,13 +124,22 @@ ruff format .
 
 ## Citation
 
-If you use JaQMC in your research, please cite:
+If you use JaQMC in your research, please cite the following paper, which introduced the first version of the software:
 
 ```bibtex
-@software{jaqmc2025,
-  title = {JaQMC: JAX-based Quantum Monte Carlo},
-  author = {ByteDance Seed},
-  year = {2025},
-  url = {https://github.com/bytedance/jaqmc}
+@article{ren_towards_2023,
+  title = {Towards the Ground State of Molecules via Diffusion {{Monte Carlo}} on Neural Networks},
+  author = {Ren, Weiluo and Fu, Weizhong and Wu, Xiaojie and Chen, Ji},
+  year = 2023,
+  month = apr,
+  journal = {Nature Communications},
+  volume = {14},
+  number = {1},
+  pages = {1860},
+  publisher = {Nature Publishing Group},
+  issn = {2041-1723},
+  doi = {10.1038/s41467-023-37609-3},
 }
 ```
+
+See [Citing JaQMC](https://bytedance.github.io/jaqmc/citing.html) for additional citations for specific techniques.
