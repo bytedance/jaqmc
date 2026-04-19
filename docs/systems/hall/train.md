@@ -8,6 +8,9 @@ dot notation as CLI overrides, such as `train.run.iterations=5000`. Defaults
 are resolved in this order: schema defaults, workflow preset, YAML config, then
 CLI overrides. For evaluation config, see <project:eval.md>.
 
+Root-level runtime keys such as `logging.*`, `jax.*`, and `distributed.*` are
+shared by all commands. See <project:../../guide/runtime-configuration.md>.
+
 ```{eval-rst}
 .. config-context::
    :preset: jaqmc.app.hall.workflow.HallTrainWorkflow.default_preset

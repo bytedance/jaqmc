@@ -53,7 +53,6 @@ class WorkflowConfig:
             directory or a specific checkpoint file.
         config: Controls config validation behavior (extra-key warnings,
             verbose output).
-        disable_jit: Disable JAX JIT compilation (for debugging).
     """
 
     seed: int | None = None
@@ -61,7 +60,6 @@ class WorkflowConfig:
     save_path: str = ""
     restore_path: str = ""
     config: ConfigCheck = field(default_factory=ConfigCheck)
-    disable_jit: bool = False
 
     def __post_init__(self):
         if not self.save_path:

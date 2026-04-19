@@ -6,6 +6,7 @@ Use this section when you already picked a system and want to run, analyze, tune
 
 - <project:running-workflows.md> — debug runs, production runs, resume/branch/evaluate, and reporting checklist.
 - <project:configuration.md> — CLI overrides, YAML layering, and `--dry-run`.
+- <project:runtime-configuration.md> — root-level logging, JAX, and distributed runtime keys.
 
 ## Analyze Results
 
@@ -36,6 +37,7 @@ Use this section when you already picked a system and want to run, analyze, tune
 
 configuration.md
 running-workflows.md
+runtime-configuration.md
 wavefunction.md
 estimators/index.md
 optimizers/index.md

@@ -20,7 +20,7 @@ import os
 import numpy as np
 import pytest
 
-from jaqmc.utils.parallel_jax import DistributedConfig
+from jaqmc.utils.runtime import DistributedConfig
 
 from .distributed import find_free_port, redirect_stdout_stderr, setup_envs
 

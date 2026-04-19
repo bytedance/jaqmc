@@ -6,9 +6,8 @@ from collections.abc import Sequence
 import click
 import yaml
 
-from jaqmc.utils import parallel_jax
 from jaqmc.utils.config import ConfigManager
-from jaqmc.utils.logging_setup import LoggingLevel, setup_logging
+from jaqmc.utils.runtime import configure_runtime
 
 
 def make_cli(workflow=None, **kwargs):
@@ -36,10 +35,7 @@ def make_cli(workflow=None, **kwargs):
         dotlist: tuple[str, ...], yml: Sequence[str], dry_run: bool = False
     ) -> None:
         cfg = ConfigManager([load_yaml(f) for f in yml], list(dotlist))
-        setup_logging(cfg.get("logging_level", LoggingLevel.info))
-        if not dry_run:
-            distributed_config = cfg.get("distributed", parallel_jax.DistributedConfig)
-            distributed_config.init_runtime()
+        configure_runtime(cfg, dry_run=dry_run)
         workflow(cfg, dry_run=dry_run)
 
     return command

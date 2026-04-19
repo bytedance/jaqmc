@@ -136,23 +136,35 @@ jaqmc molecule train --yml my_system.yml \
 (programmatic-multi-host)=
 ## Programmatic (API) Usage
 
-The CLI handles distributed initialization automatically, but if you're calling a workflow from Python, you need to initialize the distributed runtime yourself:
+The CLI handles distributed initialization automatically, but if you're calling a workflow from Python, create a {class}`jaqmc.utils.config.ConfigManager` and initialize the distributed runtime yourself:
 
 ```python
 from jaqmc.utils.config import ConfigManager
-from jaqmc.utils.parallel_jax import DistributedConfig
+from jaqmc.utils.runtime import configure_runtime
 
 cfg = ConfigManager(my_config_dict)
 
-distributed = cfg.get("distributed", DistributedConfig)
-distributed.init_runtime()  # no-op for single-process runs
+configure_runtime(cfg)  # no-op for single-process runs
 
 my_workflow(cfg)
 ```
 
-JAX requires `jax.distributed.initialize()` to be called before process/device-dependent runtime setup. In JaQMC, this initialization is done before running workflows so distributed configuration is active consistently across process-local setup and execution.
+JAX and distributed settings can both be configured from the root config:
 
-Without `init_runtime()`, multi-host config keys are silently ignored and the workflow runs on a single process.
+```yaml
+jax:
+  enable_x64: true
+  default_matmul_precision: highest
+
+distributed:
+  coordinator_address: 192.168.1.10:1234
+  num_processes: 2
+  process_id: 1
+```
+
+JAX requires distributed initialization to happen before process/device-dependent runtime setup. In JaQMC, {func}`jaqmc.utils.runtime.configure_runtime` applies logging and JAX-global flags first, then initializes the distributed runtime so startup configuration is active consistently before workflow execution.
+
+Without {func}`jaqmc.utils.runtime.configure_runtime`, multi-host config keys are silently ignored and the workflow runs on a single process, and any configured JAX global flags are not applied.
 
 ## Simulating Multiple Devices in Tests
 

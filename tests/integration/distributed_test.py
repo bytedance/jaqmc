@@ -17,11 +17,9 @@ from ..utils.distributed import find_free_port, redirect_stdout_stderr, setup_en
 
 def init_runtime(cfg):
     """Set up logging and distributed runtime (mirrors make_cli behavior)."""
-    from jaqmc.utils import parallel_jax
-    from jaqmc.utils.logging_setup import LoggingLevel, setup_logging
+    from jaqmc.utils.runtime import configure_runtime
 
-    setup_logging(LoggingLevel.info)
-    cfg.get("distributed", parallel_jax.DistributedConfig).init_runtime()
+    configure_runtime(cfg)
 
 
 def run_hydrogen_atom(distributed, save_path):

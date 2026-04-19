@@ -9,6 +9,9 @@ config root rather than under a `train.*` prefix. Defaults are resolved in this
 order: schema defaults, workflow preset, YAML config, then CLI overrides. For
 training config, see <project:train.md>.
 
+Root-level runtime keys such as `logging.*`, `jax.*`, and `distributed.*` are
+shared by all commands. See <project:../../guide/runtime-configuration.md>.
+
 ## Workflow (`workflow.*`)
 
 These keys control evaluation-wide settings and checkpoint loading.

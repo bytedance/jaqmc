@@ -2,11 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-import time
 
 import jax
-
-from jaqmc.utils.config import configurable_dataclass
 
 try:
     from jax import shard_map
@@ -174,53 +171,3 @@ def addressable_data(x):
     if isinstance(x, jax.Array):
         return x.addressable_data(0)
     return x
-
-
-@configurable_dataclass
-class DistributedConfig:
-    """Configuration for initializing JAX distributed runtime."""
-
-    coordinator_address: str | None = None
-    "IP address and port of the coordinator process (e.g., 192.168.1.10:1234)."
-
-    num_processes: int = 1
-    "Total number of processes in the distributed run."
-
-    process_id: int = 0
-    "ID of the current process (0 to num_processes - 1)."
-
-    initialization_timeout: int = 300
-    "Timeout in seconds for distributed runtime initialization."
-
-    wait_second_before_connect: float = 10.0
-    "Seconds to wait before non-master processes connecting to the coordinator."
-
-    def init_runtime(self):
-        """Initialize JAX distributed runtime for multi-host training.
-
-        If coordinator_address is None or num_processes is 1, the distributed
-        runtime will not be initialized.
-
-        """
-        if self.coordinator_address is None or self.num_processes == 1:
-            logger.info("Initialize a local runtime.")
-            return
-
-        logger.info("server_addr=%s", self.coordinator_address)
-        logger.info("num_hosts=%s", self.num_processes)
-        logger.info("host_idx=%s", self.process_id)
-
-        if self.process_id > 0:
-            logger.info(
-                "Sleeping %s seconds before connecting to server...",
-                self.wait_second_before_connect,
-            )
-            time.sleep(self.wait_second_before_connect)
-        # This may fail if waiting for too long, controlled by `initialization_timeout`
-        # in xla_client_self.
-        jax.distributed.initialize(
-            self.coordinator_address,
-            num_processes=self.num_processes,
-            process_id=self.process_id,
-            initialization_timeout=self.initialization_timeout,
-        )

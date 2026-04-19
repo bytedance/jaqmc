@@ -9,7 +9,6 @@ import pytest
 import yaml
 
 from jaqmc.utils.config import ConfigManager, configurable_dataclass, module_config
-from jaqmc.workflow.base import Workflow
 
 
 @dataclass
@@ -41,18 +40,6 @@ def simple_func(a: int = 10, b: int = 20):
 
 def another_simple_func(a: int = 10, b: int = 20):
     return b, a
-
-
-class PresetWorkflow(Workflow):
-    @classmethod
-    def default_preset(cls) -> dict[str, Any]:
-        return {
-            "workflow": {"disable_jit": True},
-            "section": {"x": 5},
-        }
-
-    def run(self) -> None:
-        raise NotImplementedError()
 
 
 def test_get_primitive():
@@ -88,29 +75,6 @@ def test_get_primitive_preset():
 
     assert cfg.get("a", default=0) == 3
     assert cfg.get("b", default=0) == 100
-
-    cfg.finalize()
-
-
-def test_workflow_default_preset_applied():
-    cfg = ConfigManager({})
-    wf = PresetWorkflow(cfg)
-
-    assert wf.config.disable_jit is True
-    assert cfg.get("section", default=SimpleConfig()).x == 5
-
-    cfg.finalize()
-
-
-def test_workflow_default_preset_is_low_priority():
-    cfg = ConfigManager(
-        {"workflow": {"disable_jit": False}, "section": {"x": 9}},
-        dotlist=["section.x=11"],
-    )
-    wf = PresetWorkflow(cfg)
-
-    assert wf.config.disable_jit is False
-    assert cfg.get("section", default=SimpleConfig()).x == 11
 
     cfg.finalize()
 

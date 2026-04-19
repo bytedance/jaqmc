@@ -123,6 +123,10 @@ train.optim.module=my_project.optimizers:CustomOptimizer
 
 ## Reference
 
+Root-level runtime keys such as `logging.*`, `jax.*`, and `distributed.*` are
+shared by all commands. See <project:runtime-configuration.md> for their
+defaults and field descriptions.
+
 For the full list of configurable keys for each workflow, see the config reference:
 
 - <project:../systems/molecule/index.md>

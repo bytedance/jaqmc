@@ -67,11 +67,21 @@ Wrappers for extracting real/imaginary parts and handling complex-valued JAX fun
    :members:
 ```
 
+## Runtime setup
+
+```{eval-rst}
+.. autoclass:: jaqmc.utils.runtime.JaxConfig
+   :members:
+
+.. autoclass:: jaqmc.utils.runtime.DistributedConfig
+   :members:
+
+.. autofunction:: jaqmc.utils.runtime.configure_runtime
+```
+
 ## Multi-device parallelism
 
 ```{eval-rst}
-.. autoclass:: jaqmc.utils.parallel_jax.DistributedConfig
-
 .. autofunction:: jaqmc.utils.parallel_jax.make_mesh
 .. autofunction:: jaqmc.utils.parallel_jax.make_sharding
 .. autofunction:: jaqmc.utils.parallel_jax.jit_sharded
