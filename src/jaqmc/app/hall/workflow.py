@@ -66,7 +66,9 @@ class HallTrainWorkflow(VMCWorkflow):
         train.configure_sample_plan(wf.logpsi, {"electrons": sampler})
         train.configure_optimizer(default=KFACOptimizer, f_log_psi=wf.logpsi)
         train.configure_estimators(**estimators)
-        train.configure_loss_grads(LossAndGrad(loss_key=loss_key), f_log_psi=wf.logpsi)
+        train.configure_loss_grads(
+            LossAndGrad(loss_key=loss_key, clip_scale=100), f_log_psi=wf.logpsi
+        )
         self.train_stage = train.build()
 
 

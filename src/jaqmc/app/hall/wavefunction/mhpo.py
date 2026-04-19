@@ -17,7 +17,7 @@ from scipy import special as ss
 from jaqmc.app.hall.data import HallData
 from jaqmc.array_types import Params
 from jaqmc.utils.wiring import runtime_dep
-from jaqmc.wavefunction.backbone.psiformer import LayerNormMode, PsiformerBackbone
+from jaqmc.wavefunction.backbone.psiformer import PsiformerBackbone
 from jaqmc.wavefunction.base import ComplexWFOutput, Wavefunction
 from jaqmc.wavefunction.output.orbital import SplitChannelDense
 
@@ -108,9 +108,6 @@ class MHPO(Wavefunction[HallData, ComplexWFOutput]):
             num_layers=self.num_layers,
             num_heads=self.num_heads,
             heads_dim=self.heads_dim,
-            mlp_hidden_dims=(),
-            layer_norm_mode=LayerNormMode.post,
-            input_bias=False,
         )
         self.orbital_layer = MonopoleOrbitals(
             Q=reduced_flux / 2,
