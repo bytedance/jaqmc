@@ -5,6 +5,7 @@ import logging
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
+from zipfile import BadZipFile
 
 import h5py
 import jax
@@ -131,7 +132,7 @@ class NumPyCheckpointManager:
         for ckpt_path in ckpt_files:
             try:
                 return self.restore_from_file(ckpt_path, fallback)
-            except OSError:
+            except (OSError, EOFError, BadZipFile):
                 logger.warning("Fail to restore checkpoint %s", ckpt_path)
         return 0, fallback
 
