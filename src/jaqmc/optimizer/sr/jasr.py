@@ -16,6 +16,8 @@ from jax import scipy as jsp
 from jax.flatten_util import ravel_pytree
 from optax import tree_utils as otu
 
+from jaqmc.utils.chunked_vmap import chunked_vmap
+
 try:
     from jax import enable_x64 as _enable_x64
 except ImportError:
@@ -1043,24 +1045,6 @@ class PAxis:
             return 1
 
 
-def chunked_vmap(
-    fun,
-    in_axes: int | Sequence[Any] = 0,
-    out_axes: Any = 0,
-    chunk_size: int | None = None,
-):
-    """Chunked vmap implemented via ``lax.scan``.
-
-    Returns:
-        A wrapped function with the same signature as ``fun``.
-    """
-
-    def wrapped(*args):
-        return _chunked_vmap_wrapped(fun, in_axes, out_axes, chunk_size, *args)
-
-    return wrapped
-
-
 def tree_broadcast(prefix_tree, full_tree, **kw):
     # use jax.tree.broadcast if available
     if hasattr(jax.tree, "broadcast"):
@@ -1070,89 +1054,6 @@ def tree_broadcast(prefix_tree, full_tree, **kw):
         return jax.tree.map(lambda _: prefix_tree, full_tree)
     # otherwise, return prefix_tree as is
     return prefix_tree
-
-
-def _none_is_leaf(x):
-    return x is None
-
-
-def _mapped_axis_sizes(args, full_in_axes):
-    return jax.tree.leaves(
-        jax.tree.map(
-            lambda x, ax: x.shape[ax] if ax is not None else None,
-            args,
-            full_in_axes,
-            is_leaf=_none_is_leaf,
-        )
-    )
-
-
-def _validate_batch_sizes(axes_sizes):
-    if not axes_sizes:
-        raise ValueError("chunked_vmap requires at least one mapped axis")
-    total_size = axes_sizes[0]
-    for size in axes_sizes[1:]:
-        if size != total_size:
-            raise ValueError("Inconsistent batch sizes")
-    return total_size
-
-
-def _take_chunk_from_args(args, full_in_axes, start, size):
-    return jax.tree.map(
-        lambda x, ax: (
-            lax.dynamic_slice_in_dim(x, start, size, ax) if ax is not None else x
-        ),
-        args,
-        full_in_axes,
-        is_leaf=_none_is_leaf,
-    )
-
-
-def _reorg_chunked_output(scan, rem, ax, *, num_chunks, chunk_size):
-    if ax is None:
-        return scan[0]
-    scan = scan.reshape(num_chunks * chunk_size, *scan.shape[2:])
-    full = jnp.concatenate([scan, rem], axis=0)
-    return jnp.moveaxis(full, 0, ax)
-
-
-def _chunked_vmap_wrapped(fun, in_axes, out_axes, chunk_size, *args):
-    full_in_axes = tree_broadcast(in_axes, args, is_leaf=_none_is_leaf)
-    zero_out_axes = jax.tree.map(lambda _: 0, out_axes)
-    vmapped_f = jax.vmap(fun, in_axes=full_in_axes, out_axes=zero_out_axes)
-
-    axes_sizes = _mapped_axis_sizes(args, full_in_axes)
-    total_size = _validate_batch_sizes(axes_sizes)
-    if chunk_size is None or chunk_size >= total_size:
-        return jax.vmap(fun, in_axes=in_axes, out_axes=out_axes)(*args)
-
-    num_chunks = total_size // chunk_size
-    remainder = total_size % chunk_size
-
-    def scan_body(_, chunk_idx):
-        start = chunk_idx * chunk_size
-        chunk_args = _take_chunk_from_args(args, full_in_axes, start, chunk_size)
-        return None, vmapped_f(*chunk_args)
-
-    _, scan_ys = lax.scan(scan_body, None, jnp.arange(num_chunks))
-
-    start = num_chunks * chunk_size
-    rem_args = _take_chunk_from_args(args, full_in_axes, start, remainder)
-    rem_ys = vmapped_f(*rem_args)
-    full_out_axes = tree_broadcast(out_axes, rem_ys, is_leaf=_none_is_leaf)
-    return jax.tree.map(
-        lambda scan, rem, ax: _reorg_chunked_output(
-            scan,
-            rem,
-            ax,
-            num_chunks=num_chunks,
-            chunk_size=chunk_size,
-        ),
-        scan_ys,
-        rem_ys,
-        full_out_axes,
-        is_leaf=_none_is_leaf,
-    )
 
 
 def take_single_sample(data, in_axes, index: int = 0):

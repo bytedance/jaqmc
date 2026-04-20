@@ -17,7 +17,6 @@ from jaqmc.optimizer.sr.jasr import (
     active_leaf_indices,
     calc_gram_matrix,
     calc_gram_matrix_chunked,
-    chunked_vmap,
     estimate_required_damping,
     get_preset_params,
     get_structural_active_mask,
@@ -78,32 +77,6 @@ def _structural_mask_and_idx(log_psi_fn, params, samples, score_in_axes=0):
     mask = get_structural_active_mask(log_psi_fn, params, sample)
     idx = active_leaf_indices(params, mask)
     return mask, idx
-
-
-def test_chunked_vmap():
-    def f(inputs):
-        return {
-            "a": (inputs["x"][0] + 1, inputs["x"][1] - 1),
-            "b": jnp.sum(inputs["z"]),
-            "c": inputs["x"][0] ** 2 + inputs["y"],
-        }
-
-    inputs = {
-        "x": (jnp.arange(21), jnp.arange(21)),
-        "y": jnp.ones((3, 21)),
-        "z": jnp.arange(5),
-    }
-    in_axes = ({"x": 0, "y": 1, "z": None},)
-    out_axes = {"a": 0, "b": None, "c": 1}
-    if not hasattr(jax.tree, "broadcast"):
-        # no broadcast available, need to fully specify in_axes and out_axes
-        in_axes[0]["x"] = (0, 0)
-        out_axes["a"] = (0, 0)
-
-    y_ref = jax.vmap(f, in_axes=in_axes, out_axes=out_axes)(inputs)
-    y = chunked_vmap(f, in_axes=in_axes, out_axes=out_axes, chunk_size=6)(inputs)
-
-    chex.assert_trees_all_close(y, y_ref)
 
 
 @pytest.mark.parametrize("complex", [False, True])

@@ -10,6 +10,7 @@ from jax import numpy as jnp
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import BatchedData, Data
 from jaqmc.utils import parallel_jax
+from jaqmc.utils.chunked_vmap import chunked_vmap
 from jaqmc.utils.config import configurable_dataclass
 
 type EstimateFn = Callable[
@@ -105,6 +106,8 @@ class Estimator[DataT: Data]:
         DataT: Concrete one-walker ``Data`` subtype consumed by this estimator.
     """
 
+    chunk_size: int | None = None
+
     def init(self, data: DataT, rngs: PRNGKey) -> Any:
         """Initialize estimator state from an example data point.
 
@@ -170,9 +173,10 @@ class Estimator[DataT: Data]:
             values have a leading walker dimension.
         """
         rngs = jax.random.split(rngs, batched_data.batch_size)
-        return jax.vmap(
+        return chunked_vmap(
             self.evaluate_local,
             in_axes=(None, batched_data.vmap_axis, 0, None, 0),
+            chunk_size=self.chunk_size,
         )(params, batched_data.data, prev_local_stats, state, rngs)
 
     def reduce(self, local_stats: Mapping[str, Any]) -> dict[str, Any]:
