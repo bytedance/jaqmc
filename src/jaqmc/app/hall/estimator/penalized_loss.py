@@ -13,12 +13,12 @@ from typing import Any
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import Estimator
+from jaqmc.estimator.base import LocalEstimator
 from jaqmc.utils.config import configurable_dataclass
 
 
 @configurable_dataclass
-class PenalizedLoss(Estimator):
+class PenalizedLoss(LocalEstimator):
     """Adds angular momentum penalties to total energy for state selection.
 
     Reads ``total_energy``, ``angular_momentum_z``,

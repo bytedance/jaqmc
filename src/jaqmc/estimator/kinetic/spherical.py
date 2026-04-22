@@ -18,7 +18,7 @@ from jax.numpy import cos, sin, tan
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import Estimator
+from jaqmc.estimator.base import LocalEstimator
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.func_transform import with_imag, with_real
 from jaqmc.utils.wiring import runtime_dep
@@ -109,7 +109,7 @@ def _angular_momentum_square(f, Q: float):
 
 
 @configurable_dataclass
-class SphericalKinetic(Estimator):
+class SphericalKinetic(LocalEstimator):
     r"""Kinetic energy on a sphere with magnetic monopole.
 
     Uses the Hessian-based calculation following the formulas in

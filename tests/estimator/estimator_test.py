@@ -8,7 +8,13 @@ import numpy as np
 import pytest
 from jax import numpy as jnp
 
-from jaqmc.estimator import Estimator, EstimatorPipeline, FunctionEstimator
+from jaqmc.data import BatchedData, Data
+from jaqmc.estimator import (
+    Estimator,
+    EstimatorPipeline,
+    FunctionEstimator,
+    LocalEstimator,
+)
 
 
 def _dummy_evaluate(params, data, stats, state, rngs):
@@ -33,11 +39,48 @@ class _BatchEstimator(Estimator):
         return {k: v * 2 for k, v in mean_stats.items()}
 
 
+class _ToyData(Data):
+    x: jnp.ndarray
+    scale: jnp.ndarray
+
+
+class _LocalValueEstimator(LocalEstimator):
+    def evaluate_local(self, params, data, prev_local_stats, state, rngs):
+        del params, rngs
+        return {"value": data.x * data.scale + prev_local_stats["bias"]}, state
+
+
 def test_function_estimator_delegates_to_fn():
     est = FunctionEstimator(_dummy_evaluate)
     result, state = est.evaluate_local(None, None, {}, "s", None)
     assert result == {"value": 1.0}
     assert state == "s"
+
+
+def test_local_estimator_chunks_default_vmap():
+    batched_data = BatchedData(
+        _ToyData(x=jnp.arange(7.0), scale=jnp.array(2.0)),
+        fields_with_batch=["x"],
+    )
+    prev_local_stats = {"bias": jnp.arange(7.0) * 10}
+
+    full_est = _LocalValueEstimator()
+    chunked_est = _LocalValueEstimator(vmap_chunk_size=3)
+
+    full, _ = full_est.evaluate_batch(
+        None, batched_data, prev_local_stats, None, jax.random.PRNGKey(0)
+    )
+    chunked, _ = chunked_est.evaluate_batch(
+        None, batched_data, prev_local_stats, None, jax.random.PRNGKey(0)
+    )
+
+    np.testing.assert_allclose(chunked["value"], full["value"])
+
+
+def test_chunk_knob_only_lives_on_local_estimators():
+    assert "vmap_chunk_size" not in Estimator.__dataclass_fields__
+    assert "vmap_chunk_size" not in _BatchEstimator.__dataclass_fields__
+    assert "vmap_chunk_size" in LocalEstimator.__dataclass_fields__
 
 
 def _make_pipeline_and_state():

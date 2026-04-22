@@ -18,13 +18,13 @@ from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import Estimator
+from jaqmc.estimator.base import LocalEstimator
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
 
 
 @configurable_dataclass
-class SpinSquared(Estimator):
+class SpinSquared(LocalEstimator):
     r"""Estimator for the total spin operator :math:`S^2`.
 
     Computes the local value of :math:`S^2` for a single walker using

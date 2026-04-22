@@ -1,6 +1,7 @@
 # Copyright (c) 2025-2026 Bytedance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -53,7 +54,7 @@ def mean_reduce(
 
 
 @configurable_dataclass
-class Estimator[DataT: Data]:
+class Estimator[DataT: Data](ABC):
     """Base estimator with default no-op implementations.
 
     An estimator computes an observable quantity through a lifecycle
@@ -85,7 +86,11 @@ class Estimator[DataT: Data]:
        statistics.  Called only during evaluation digest, never inside
        JIT.
 
-    Subclass and override only the methods you need.
+    Subclass and override only the methods you need. Most estimators should
+    inherit from :class:`LocalEstimator`, which batches single-walker
+    ``evaluate_local`` implementations automatically. Inherit directly from
+    this class when the estimator owns full-batch logic through
+    ``evaluate_batch``.
 
     Runtime dependencies should be declared as
     :func:`~jaqmc.utils.wiring.runtime_dep` fields.
@@ -106,8 +111,6 @@ class Estimator[DataT: Data]:
         DataT: Concrete one-walker ``Data`` subtype consumed by this estimator.
     """
 
-    chunk_size: int | None = None
-
     def init(self, data: DataT, rngs: PRNGKey) -> Any:
         """Initialize estimator state from an example data point.
 
@@ -119,33 +122,7 @@ class Estimator[DataT: Data]:
         """
         return None
 
-    def evaluate_local(
-        self,
-        params: Params,
-        data: DataT,
-        prev_local_stats: Mapping[str, Any],
-        state: Any,
-        rngs: PRNGKey,
-    ) -> tuple[dict[str, Any], Any]:
-        """Compute local values for a single walker.
-
-        This is the main method to override.  The default
-        ``evaluate_batch`` vmaps this over the walker dimension.
-
-        Args:
-            params: Wavefunction parameters.
-            data: Data for a single walker.
-            prev_local_stats: Local values produced by earlier
-                estimators in the pipeline (single-walker).
-            state: Estimator state from ``init`` or previous step.
-            rngs: Random state.
-
-        Returns:
-            A tuple ``(local_stats, state)`` where ``local_stats``
-            maps string keys to per-walker scalar or array values.
-        """
-        return {}, state
-
+    @abstractmethod
     def evaluate_batch(
         self,
         params: Params,
@@ -156,9 +133,10 @@ class Estimator[DataT: Data]:
     ) -> tuple[dict[str, Any], Any]:
         """Compute local values over a batch of walkers.
 
-        By default, vmaps ``evaluate_local`` over the walker dimension.
-        Override directly for estimators that don't need per-walker
-        vmapping (e.g. histogram aggregation, stats-only estimators).
+        The base implementation is a no-op. Override this directly for
+        estimators that own full-batch logic (e.g. histogram aggregation,
+        stats-only estimators). Inherit from :class:`LocalEstimator` for the
+        common pattern where ``evaluate_local`` is vmapped over walkers.
 
         Args:
             params: Wavefunction parameters.
@@ -172,12 +150,6 @@ class Estimator[DataT: Data]:
             A tuple ``(local_stats, state)`` where ``local_stats``
             values have a leading walker dimension.
         """
-        rngs = jax.random.split(rngs, batched_data.batch_size)
-        return chunked_vmap(
-            self.evaluate_local,
-            in_axes=(None, batched_data.vmap_axis, 0, None, 0),
-            chunk_size=self.chunk_size,
-        )(params, batched_data.data, prev_local_stats, state, rngs)
 
     def reduce(self, local_stats: Mapping[str, Any]) -> dict[str, Any]:
         """Aggregate per-walker local values into per-step statistics.
@@ -238,7 +210,67 @@ class Estimator[DataT: Data]:
         return {}
 
 
-class FunctionEstimator(Estimator):
+@configurable_dataclass
+class LocalEstimator[DataT: Data](Estimator[DataT], ABC):
+    """Estimator whose single-walker ``evaluate_local`` is batched by vmap.
+
+    Args:
+        vmap_chunk_size: Number of walkers to evaluate per vmap chunk. Set to
+            ``None`` to evaluate the full batch at once.
+    """
+
+    vmap_chunk_size: int | None = None
+
+    @abstractmethod
+    def evaluate_local(
+        self,
+        params: Params,
+        data: DataT,
+        prev_local_stats: Mapping[str, Any],
+        state: Any,
+        rngs: PRNGKey,
+    ) -> tuple[dict[str, Any], Any]:
+        """Compute local values for a single walker.
+
+        This is the main method to override when inheriting from
+        :class:`LocalEstimator`, which vmaps it over the walker dimension.
+
+        Args:
+            params: Wavefunction parameters.
+            data: Data for a single walker.
+            prev_local_stats: Local values produced by earlier
+                estimators in the pipeline (single-walker).
+            state: Estimator state from ``init`` or previous step.
+            rngs: Random state.
+
+        Returns:
+            A tuple ``(local_stats, state)`` where ``local_stats``
+            maps string keys to per-walker scalar or array values.
+        """
+
+    def evaluate_batch(
+        self,
+        params: Params,
+        batched_data: BatchedData[DataT],
+        prev_local_stats: Mapping[str, Any],
+        state: Any,
+        rngs: PRNGKey,
+    ) -> tuple[dict[str, Any], Any]:
+        """Vmap ``evaluate_local`` over the walker dimension.
+
+        Returns:
+            A tuple ``(local_stats, state)`` where ``local_stats`` values have
+            a leading walker dimension.
+        """
+        rngs = jax.random.split(rngs, batched_data.batch_size)
+        return chunked_vmap(
+            self.evaluate_local,
+            in_axes=(None, batched_data.vmap_axis, 0, None, 0),
+            chunk_size=self.vmap_chunk_size,
+        )(params, batched_data.data, prev_local_stats, state, rngs)
+
+
+class FunctionEstimator(LocalEstimator):
     """Wraps a plain function as an :class:`Estimator`.
 
     The function is called as ``evaluate_local``; ``init``, ``reduce``,

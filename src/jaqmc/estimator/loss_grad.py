@@ -11,7 +11,7 @@ from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import Estimator, mean_reduce
+from jaqmc.estimator.base import LocalEstimator, mean_reduce
 from jaqmc.utils import parallel_jax
 from jaqmc.utils.array import match_first_axis_of
 from jaqmc.utils.clip import iqr_clip
@@ -22,7 +22,7 @@ from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
 
 
 @configurable_dataclass
-class LossAndGrad(Estimator):
+class LossAndGrad(LocalEstimator):
     r"""Estimator that computes the VMC loss and parameter gradients.
 
     The gradient of the variational energy with respect to wavefunction

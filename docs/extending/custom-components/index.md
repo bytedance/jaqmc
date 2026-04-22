@@ -16,10 +16,11 @@ A typical component has two kinds of fields:
 The {deco}`~jaqmc.utils.config.configurable_dataclass` decorator prepares a class for the config system. It applies `@dataclass` and sets up serialization so that {meth}`~jaqmc.utils.config.ConfigManager.get`, {meth}`~jaqmc.utils.config.ConfigManager.get_module`, and {meth}`~jaqmc.utils.config.ConfigManager.get_collection` can construct instances from YAML.
 
 ```python
+from jaqmc.estimator import LocalEstimator
 from jaqmc.utils.config import configurable_dataclass
 
 @configurable_dataclass
-class MyEstimator(Estimator):
+class MyEstimator(LocalEstimator):
     cutoff: float = 1e-8  # appears in YAML
 ```
 
@@ -30,10 +31,11 @@ This is equivalent to writing `@dataclass(kw_only=True)` plus the serialization 
 Use `runtime_dep()` to declare a field as a runtime dependency. These fields are hidden from serialization — they won't appear in YAML output or be read from config files.
 
 ```python
+from jaqmc.estimator import LocalEstimator
 from jaqmc.utils.wiring import runtime_dep
 
 @configurable_dataclass
-class MyEstimator(Estimator):
+class MyEstimator(LocalEstimator):
     cutoff: float = 1e-8                              # config field
     f_log_psi: SomeCallable = runtime_dep()            # required
     data_field: str = runtime_dep(default="electrons")  # optional
@@ -77,12 +79,12 @@ est.f_log_psi = wf.evaluate
 Here's {class}`~jaqmc.estimator.kinetic.EuclideanKinetic`, a built-in estimator that uses all three mechanisms:
 
 ```python
-from jaqmc.estimator import Estimator
+from jaqmc.estimator import LocalEstimator
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
 
 @configurable_dataclass
-class EuclideanKinetic(Estimator):
+class EuclideanKinetic(LocalEstimator):
     """Kinetic energy estimator in Euclidean geometry.
 
     Args:
@@ -160,28 +162,28 @@ writers
 :link: estimators
 :link-type: doc
 
-Compute physical observables. Implement `evaluate_local` for single-walker logic; the base class vmaps it over walkers.
+Compute physical observables.
 ::::
 
 ::::{grid-item-card} Optimizers
 :link: optimizers
 :link-type: doc
 
-Transform gradients into parameter updates. Implement the `OptimizerLike` protocol.
+Transform gradients into parameter updates.
 ::::
 
 ::::{grid-item-card} Samplers
 :link: samplers
 :link-type: doc
 
-Propose and accept/reject electron moves. Implement the `SamplerLike` protocol.
+Propose and accept/reject electron moves.
 ::::
 
 ::::{grid-item-card} Writers
 :link: writers
 :link-type: doc
 
-Record per-step statistics. Subclass `Writer` and implement `write` and `open`.
+Record per-step statistics.
 ::::
 
 :::::

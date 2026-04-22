@@ -16,10 +16,10 @@ from typing import Any
 
 from jaqmc.app.molecule.data import MoleculeData
 from jaqmc.array_types import Params, PRNGKey
-from jaqmc.estimator import Estimator
+from jaqmc.estimator import LocalEstimator
 
 
-class PotentialEnergy(Estimator):
+class PotentialEnergy(LocalEstimator):
     def evaluate_local(
         self,
         params: Params,
@@ -35,9 +35,9 @@ class PotentialEnergy(Estimator):
 
 What this example shows:
 
-- You write logic for **one walker** in `evaluate_local`.
-- JaQMC's base `Estimator` class batches that logic with `jax.vmap` in `evaluate_batch`.
-- Workflow stages may compile the batched computation with `jax.jit`.
+- You write logic for **one walker** in {meth}`~jaqmc.estimator.LocalEstimator.evaluate_local`.
+- JaQMC's {class}`~jaqmc.estimator.LocalEstimator` class batches that logic with {func}`jax.vmap` in {meth}`~jaqmc.estimator.LocalEstimator.evaluate_batch`.
+- Workflow stages may compile the batched computation with {func}`jax.jit`.
 
 Keep this "single walker -> `vmap` -> `jit`" model in mind while reading the rest of the page.
 
@@ -45,8 +45,8 @@ Keep this "single walker -> `vmap` -> `jit`" model in mind while reading the res
 
 Before you start extending JaQMC, make sure you are comfortable with:
 
-- `jax.numpy` (imported as `jnp` throughout JaQMC), so you are comfortable writing array-based code
-- `jax.jit`, `jax.vmap`, and `jax.grad`, because JaQMC relies heavily on compilation, batching, and automatic differentiation
+- {mod}`jax.numpy` (imported as `jnp` throughout JaQMC), so you are comfortable writing array-based code
+- {func}`jax.jit`, {func}`jax.vmap`, and {func}`jax.grad`, because JaQMC relies heavily on compilation, batching, and automatic differentiation
 - pytrees and PRNG keys, because JaQMC passes structured state and randomness through many interfaces
 - the basic Flax [`Module`](inv:flax:py:class#flax.linen.Module) / `init` / `apply` model, because JaQMC wavefunctions are Flax modules
 
@@ -71,7 +71,7 @@ A **walker** is one sampled electron configuration. The most important JaQMC-spe
 That pattern explains several design choices you will see in the docs:
 
 - A wavefunction `__call__` usually receives one JaQMC [Data](#api-wavefunctions-data) object, not a batch.
-- Estimators often implement `evaluate_local` for one walker, while the base class handles batching.
+- Estimators often inherit from {class}`~jaqmc.estimator.LocalEstimator` and implement {meth}`~jaqmc.estimator.LocalEstimator.evaluate_local` for one walker, while `LocalEstimator` handles batching.
 - Runtime state and parameters must be JAX-friendly pytrees so they can pass through transforms cleanly.
 
 If that pattern feels strange at first, focus on understanding `vmap` before worrying about more advanced JAX topics.

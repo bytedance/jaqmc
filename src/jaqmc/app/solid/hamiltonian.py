@@ -7,7 +7,7 @@ from typing import Any
 from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
-from jaqmc.estimator import Estimator
+from jaqmc.estimator import LocalEstimator
 from jaqmc.estimator.ewald import EwaldSum
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
@@ -16,7 +16,7 @@ from .data import SolidData
 
 
 @configurable_dataclass
-class PotentialEnergy(Estimator):
+class PotentialEnergy(LocalEstimator):
     """Potential energy estimator for solid systems using Ewald summation.
 
     Args:
@@ -29,7 +29,7 @@ class PotentialEnergy(Estimator):
         self.ewald = EwaldSum(self.supercell_lattice)
         return None
 
-    def evaluate(
+    def evaluate_local(
         self,
         params: Params,
         data: SolidData,

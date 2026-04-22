@@ -12,12 +12,12 @@ from jax.numpy import cos, sin
 from jaqmc.app.hall.config import InteractionType
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import Estimator
+from jaqmc.estimator.base import LocalEstimator
 from jaqmc.utils.config import configurable_dataclass
 
 
 @configurable_dataclass
-class SpherePotential(Estimator):
+class SpherePotential(LocalEstimator):
     r"""Potential energy on the Haldane sphere.
 
     Converts spherical coordinates to Cartesian, computes pairwise

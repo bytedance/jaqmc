@@ -11,7 +11,7 @@ from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import Estimator
+from jaqmc.estimator.base import LocalEstimator
 from jaqmc.utils import parallel_jax
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.func_transform import (
@@ -26,7 +26,7 @@ from ._common import LaplacianMode, _apply_kinetic_formula, _flatten_positions
 
 
 @configurable_dataclass
-class EuclideanKinetic(Estimator):
+class EuclideanKinetic(LocalEstimator):
     """Kinetic energy estimator in Euclidean geometry.
 
     The most computationally expensive default energy component. The

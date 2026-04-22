@@ -5,18 +5,21 @@ API reference for built-in estimators. For background, formulas, and configurati
 ## Base classes
 
 ```{eval-rst}
-.. autoclass:: jaqmc.estimator.base.Estimator
-   :members: init, evaluate_local, evaluate_batch, reduce, finalize_stats, finalize_state
+.. autoclass:: jaqmc.estimator.Estimator
+   :members: init, evaluate_batch, reduce, finalize_stats, finalize_state
 
-.. autoclass:: jaqmc.estimator.base.FunctionEstimator
+.. autoclass:: jaqmc.estimator.LocalEstimator
+   :members: evaluate_local, evaluate_batch
+
+.. autoclass:: jaqmc.estimator.FunctionEstimator
    :members:
 
-.. autoclass:: jaqmc.estimator.base.EstimatorPipeline
+.. autoclass:: jaqmc.estimator.EstimatorPipeline
    :members: init, evaluate, finalize_stats, digest
 
-.. autotype:: jaqmc.estimator.base.EstimatorLike
+.. autotype:: jaqmc.estimator.EstimatorLike
 
-.. autotype:: jaqmc.estimator.base.EstimateFn
+.. autotype:: jaqmc.estimator.EstimateFn
 ```
 
 ## Built-in estimators

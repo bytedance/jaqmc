@@ -19,7 +19,7 @@ from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import Estimator
+from jaqmc.estimator.base import LocalEstimator
 from jaqmc.geometry.pbc import build_distance_fn
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
@@ -30,7 +30,7 @@ from .quadrature import get_quadrature
 
 
 @configurable_dataclass
-class ECPEnergy(Estimator):
+class ECPEnergy(LocalEstimator):
     r"""ECP energy estimator.
 
     Computes both local and nonlocal effective core potential contributions.

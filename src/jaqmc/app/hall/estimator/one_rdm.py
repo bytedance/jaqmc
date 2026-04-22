@@ -30,7 +30,7 @@ from scipy import special as ss
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import Estimator, mean_reduce
+from jaqmc.estimator.base import LocalEstimator, mean_reduce
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
@@ -92,7 +92,7 @@ def _uniform_sample_sphere(key: PRNGKey) -> jnp.ndarray:
 
 
 @configurable_dataclass
-class OneRDM(Estimator):
+class OneRDM(LocalEstimator):
     r"""One-body reduced density matrix on the Haldane sphere.
 
     Computes the 1-RDM in the monopole harmonic basis

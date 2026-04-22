@@ -8,12 +8,12 @@ from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import Estimator, mean_reduce
+from jaqmc.estimator.base import LocalEstimator, mean_reduce
 from jaqmc.utils.config import configurable_dataclass
 
 
 @configurable_dataclass
-class TotalEnergy(Estimator):
+class TotalEnergy(LocalEstimator):
     """Estimator that computes total energy from component energies.
 
     Energy components use the ``energy:`` prefix convention (e.g.
