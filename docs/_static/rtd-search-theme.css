@@ -1,0 +1,43 @@
+readthedocs-search {
+  --readthedocs-search-backdrop-color: color-mix(
+    in srgb,
+    var(--pst-color-black) 35%,
+    transparent
+  );
+  --readthedocs-search-color: var(--pst-color-text-base);
+  --readthedocs-search-link-color: var(--pst-color-link);
+
+  --readthedocs-search-content-background-color: var(--pst-color-background);
+  --readthedocs-search-content-border-color: var(--pst-color-border);
+  --readthedocs-search-filters-border-color: var(--pst-color-border);
+  --readthedocs-search-footer-background-color: var(--pst-color-surface);
+  --readthedocs-search-footer-color: var(--pst-color-text-base);
+  --readthedocs-search-footer-code-background-color: var(
+    --pst-color-on-background
+  );
+  --readthedocs-search-footer-code-border-color: var(--pst-color-border);
+  --readthedocs-search-input-background-color: var(--pst-color-surface);
+
+  --readthedocs-search-result-highlight-color: var(
+    --readthedocs-search-result-section-highlight-color,
+    var(--pst-color-primary)
+  );
+  --readthedocs-search-result-background-color: transparent;
+  --readthedocs-search-result-color: var(
+    --readthedocs-search-result-section-color,
+    var(--pst-color-text-muted)
+  );
+  --readthedocs-search-result-icon-color: var(--pst-color-text-muted);
+  --readthedocs-search-result-heading-color: var(--pst-color-heading);
+  --readthedocs-search-result-subheading-color: var(
+    --readthedocs-search-result-section-subheading-color,
+    var(--pst-color-text-muted)
+  );
+  --readthedocs-search-result-active-background-color: var(
+    --pst-color-surface
+  );
+  --readthedocs-search-result-border-color: var(--pst-color-border);
+
+  --readthedocs-search-badge-background-color: var(--pst-color-primary-bg);
+  --readthedocs-search-badge-color: var(--pst-color-text-base);
+}
