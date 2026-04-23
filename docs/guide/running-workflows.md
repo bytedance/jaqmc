@@ -64,6 +64,25 @@ For most production runs, the highest-value decisions are how long to train, whe
 keep pretraining, and whether you need a different optimizer or wavefunction. Everything
 else is usually a second-order adjustment.
 
+#### Fit larger runs in memory
+
+If a run does not fit in device memory, first decide whether you can change the walker
+count. Lowering `workflow.batch_size` reduces memory, but it also increases variance and
+can hurt optimization quality. To keep the same number of walkers, set `vmap_chunk_size`
+on a local estimator so the work is evaluated in smaller pieces. That trades speed for
+lower peak memory.
+
+The tightest part of the model varies by system, but the kinetic energy estimator is
+often the right place to start:
+
+```bash
+jaqmc <app> train ... \
+  estimators.energy.kinetic.vmap_chunk_size=128
+```
+
+Use the largest chunk size that still fits. Smaller chunks cut peak memory further, but
+they add overhead.
+
 (recipe-resume-evaluate)=
 ### Resume, branch, or evaluate
 
