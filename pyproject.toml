@@ -68,7 +68,7 @@ jaqmc = "jaqmc.app.cli:cli"
 [project.urls]
 Repository = "https://github.com/bytedance/jaqmc.git"
 Issues = "https://github.com/bytedance/jaqmc/issues"
-Documentation = "https://bytedance.github.io/jaqmc"
+Documentation = "https://jaqmc.readthedocs.io/latest"
 
 [dependency-groups]
 lint = [

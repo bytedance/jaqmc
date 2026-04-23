@@ -73,7 +73,7 @@ html_js_files = []
 if os.environ.get("READTHEDOCS"):
     html_js_files.append("readthedocs.js")
 html_logo = "_static/jaqmc-light-large.svg"
-html_baseurl = "https://bytedance.github.io/jaqmc/"
+html_baseurl = "https://jaqmc.readthedocs.io/latest/"
 html_theme_options = {
     "repository_url": "https://github.com/bytedance/jaqmc",
     "use_source_button": True,

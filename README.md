@@ -3,7 +3,7 @@
 <p align="center">
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.12+-blue.svg"></a>
-  <a href="https://bytedance.github.io/jaqmc/"><img src="https://img.shields.io/badge/documentation-teal.svg"></a>
+  <a href="https://jaqmc.readthedocs.io/latest/"><img src="https://img.shields.io/badge/documentation-teal.svg"></a>
 </p>
 
 
@@ -97,13 +97,13 @@ jaqmc hydrogen-atom train train.optim.learning_rate.rate=0.01 train.run.iteratio
 jaqmc molecule train system.module=atom system.symbol=Li
 ```
 
-See the [documentation](https://bytedance.github.io/jaqmc/getting-started/quick-start.html) for detailed guides on installation, molecular simulations, and writing custom workflows.
+See the [documentation](https://jaqmc.readthedocs.io/latest/getting-started/quick-start.html) for detailed guides on installation, molecular simulations, and writing custom workflows.
 
 ## Where to Go Next
 
-- **Train a real system**: See [Molecules](https://bytedance.github.io/jaqmc/systems/molecule/index.html), [Solids](https://bytedance.github.io/jaqmc/systems/solid/index.html), or [Quantum Hall](https://bytedance.github.io/jaqmc/systems/hall/index.html).
-- **Understand the framework**: Read [Core Concepts](https://bytedance.github.io/jaqmc/getting-started/concepts.html).
-- **Extend JaQMC**: Start from [Extending JaQMC](https://bytedance.github.io/jaqmc/extending/index.html).
+- **Train a real system**: See [Molecules](https://jaqmc.readthedocs.io/latest/systems/molecule/index.html), [Solids](https://jaqmc.readthedocs.io/latest/systems/solid/index.html), or [Quantum Hall](https://jaqmc.readthedocs.io/latest/systems/hall/index.html).
+- **Understand the framework**: Read [Core Concepts](https://jaqmc.readthedocs.io/latest/getting-started/concepts.html).
+- **Extend JaQMC**: Start from [Extending JaQMC](https://jaqmc.readthedocs.io/latest/extending/index.html).
 - **Contribute code**: See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Development
@@ -142,4 +142,4 @@ If you use JaQMC in your research, please cite the following paper, which introd
 }
 ```
 
-See [Citing JaQMC](https://bytedance.github.io/jaqmc/citing.html) for additional citations for specific techniques.
+See [Citing JaQMC](https://jaqmc.readthedocs.io/latest/citing.html) for additional citations for specific techniques.
