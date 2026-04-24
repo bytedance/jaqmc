@@ -13,9 +13,6 @@ class AtomicSystemConfig:
         atoms: List of atoms in the system.
         electron_spins: Tuple of two integers representing the
             number of up and down electrons.
-        basis: The basis set for Hartree-Fock pretrain. Can be a string
-            (e.g., "sto-3g", "ccecpccpvdz") or a dict mapping element
-            symbols to basis names (e.g., {"Fe": "ccecpccpvdz", "O": "cc-pvdz"}).
         ecp: Effective core potential specification. Can be None (no ECP),
             a string (same ECP for all atoms, e.g., "ccecp"), or a dict
             mapping element symbols to ECP names (e.g., {"Fe": "ccecp"}).
@@ -27,7 +24,6 @@ class AtomicSystemConfig:
     """
 
     atoms: list[Atom]
-    basis: str | dict[str, str] = "sto-3g"
     ecp: str | dict[str, str] | None = None
     electron_spins: tuple[int, int]
     fixed_spins_per_atom: list[tuple[int, int]] | None = None

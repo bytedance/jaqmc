@@ -185,6 +185,16 @@ Initializes the neural network to approximate Hartree-Fock orbitals before VMC
 training. It uses the same run, sampler, and writer schemas as the train stage,
 but with a different optimizer default and a workflow-wired supervised loss.
 
+### Reference (`pretrain.reference.*`)
+
+The Hartree-Fock reference is the PySCF calculation JaQMC uses to generate the
+target orbitals for pretraining. Most runs can keep the default settings.
+
+```{eval-rst}
+.. config-defaults:: jaqmc.app.molecule.config.base.MoleculePretrainReferenceConfig
+   :prefix: pretrain.reference
+```
+
 ### Run options (`pretrain.run.*`)
 
 ```{eval-rst}

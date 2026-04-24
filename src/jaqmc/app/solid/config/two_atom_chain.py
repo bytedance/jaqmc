@@ -26,7 +26,6 @@ def two_atom_chain(
     supercell: int = 1,
     vacuum_separation: float = 100.0,
     spin: int = 0,
-    basis: str = "sto-3g",
     ecp: Any = None,
     electron_init_width: float = 1.0,
 ):
@@ -40,7 +39,6 @@ def two_atom_chain(
         vacuum_separation: Lattice constant in y and z directions (in Bohr)
             to isolate the 1D chain.
         spin: Total spin polarization (n_up - n_down) for the primitive cell.
-        basis: Basis set name for HF pretrain.
         ecp: Effective core potential specification. Can be ``None``
             (all-electron), a string (e.g., ``"ccecp"``), or a
             per-element mapping (e.g., ``{"Li": "ccecp"}``).
@@ -91,7 +89,6 @@ def two_atom_chain(
         lattice_vectors=lattice_vectors,
         supercell_matrix=[[supercell, 0, 0], [0, 1, 0], [0, 0, 1]],
         electron_spins=(n_up, n_down),
-        basis=basis,
         ecp=ecp,
         electron_init_width=electron_init_width,
     )

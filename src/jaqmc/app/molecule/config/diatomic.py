@@ -51,7 +51,6 @@ def diatomic_config(
     formula: str = "H2",
     bond_length: float = 1.4,
     unit: LengthUnit = LengthUnit.bohr,
-    basis: str | dict[str, str] = "sto-3g",
     ecp: str | dict[str, str] | None = None,
     spin: int = 0,
     electron_init_width: float = 1.0,
@@ -66,8 +65,6 @@ def diatomic_config(
         bond_length: Distance between the two atoms.
         unit: Length unit for ``bond_length`` and atom coordinates.
             Either ``"bohr"`` or ``"angstrom"``.
-        basis: Basis set name, or per-element mapping
-            (e.g., ``{"Li": "ccecpccpvdz", "H": "cc-pvdz"}``).
         ecp: Effective core potential specification. Can be ``None``
             (all-electron), a string (e.g., ``"ccecp"``), or a
             per-element mapping (e.g., ``{"Li": "ccecp"}``).
@@ -117,6 +114,5 @@ def diatomic_config(
         atoms=atoms,
         electron_spins=(n_alpha, n_beta),
         electron_init_width=electron_init_width,
-        basis=basis,
         ecp=ecp,
     )

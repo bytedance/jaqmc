@@ -5,7 +5,8 @@ boundary conditions. Most runs start from a YAML definition and a
 single `jaqmc molecule train` command. JaQMC then follows the standard
 molecular workflow:
 
-1. **Hartree-Fock (HF)** computes reference orbitals with PySCF.
+1. **Hartree-Fock (HF)** computes a reference electronic-structure solution with
+   PySCF.
 2. **Pretraining** matches the neural wavefunction to those orbitals.
 3. **VMC training** performs the main energy optimization.
 
@@ -76,14 +77,13 @@ that generate the underlying configuration for you.
 ### Single Atoms
 
 For a single atom, `system.module=atom` is a shortcut. You provide the element
-symbol and optional HF settings, and JaQMC fills in the matching electron spin
-configuration automatically.
+symbol, and JaQMC fills in the matching electron spin configuration
+automatically.
 
 ```yaml
 system:
   module: atom
   symbol: Li         # Element symbol (H, He, Li, Be, ...)
-  basis: sto-3g      # Basis set for SCF initialization
   # ecp: ccecp       # Optional: effective core potential
 ```
 
@@ -106,7 +106,6 @@ system:
   bond_length: 3.015  # Distance between atoms
   unit: bohr          # Length unit for bond_length
   spin: 0             # n_up - n_down for the full molecule
-  basis: cc-pvdz
 ```
 
 Save as `li_h_diatomic.yml`, then run:
@@ -118,32 +117,56 @@ jaqmc molecule train --yml li_h_diatomic.yml workflow.save_path=./runs/li_h_diat
 (molecule-basis-sets-and-ecps)=
 ## Basis Sets and ECPs
 
-The `basis` parameter controls the basis set used for the HF calculation. Any basis set supported by PySCF works:
+The examples above keep the Hartree-Fock reference at its default settings so
+you can focus on defining the system. When you do need to change the reference
+calculation itself, add a `pretrain.reference` section. That is where you set
+the HF basis and method. The `system` section still describes the physical
+system, including `system.ecp`.
+
+For example, to use a different HF basis:
+
+```yaml
+pretrain:
+  reference:
+    basis: cc-pvdz
+```
+
+Any basis set supported by PySCF works:
 
 - Minimal: `sto-3g` (default, fast)
 - Split-valence: `6-31g`, `6-311g`
 - Correlation-consistent: `cc-pvdz`, `cc-pvtz`, `cc-pvqz`
 
-For heavy elements (transition metals, lanthanides), use an effective core potential (ECP) to replace core electrons with a pseudopotential, reducing the number of electrons treated explicitly:
+For heavy elements (transition metals, lanthanides), use an effective core
+potential (ECP) to replace core electrons with a pseudopotential, reducing the
+number of electrons treated explicitly:
 
 ```yaml
 system:
   module: atom
   symbol: Fe
-  basis: ccecpccpvdz
   ecp: ccecp
+pretrain:
+  reference:
+    basis: ccecpccpvdz
 ```
 
 Both `basis` and `ecp` can be specified per element:
 
 ```yaml
+pretrain:
+  reference:
+    basis:
+      Fe: ccecpccpvdz
+      O: cc-pvdz
 system:
-  basis:
-    Fe: ccecpccpvdz
-    O: cc-pvdz
   ecp:
     Fe: ccecp
 ```
+
+If you need more control, the same `pretrain.reference` section also lets you
+change the HF method and pass extra PySCF options. See <project:train.md> for
+the full reference.
 
 ## Estimators
 

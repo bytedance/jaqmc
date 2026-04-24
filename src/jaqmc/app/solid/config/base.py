@@ -2,14 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import field
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
 from jaqmc.utils.atomic.atomic_system import AtomicSystemConfig
+from jaqmc.utils.atomic.pretrain import PretrainReferenceConfig
 from jaqmc.utils.config import configurable_dataclass
 
-__all__ = ["SolidConfig"]
+__all__ = ["SolidConfig", "SolidPretrainReferenceConfig"]
 
 
 @configurable_dataclass
@@ -60,3 +61,9 @@ class SolidConfig(AtomicSystemConfig):
             self.scale = round(np.linalg.det(supercell_arr))
         else:
             self.supercell_lattice = lattice_arr
+
+
+@configurable_dataclass
+class SolidPretrainReferenceConfig(PretrainReferenceConfig):
+    method: Literal["KRHF", "KUHF"] = "KUHF"
+    "Variants of Hartree-Fock method."

@@ -5,7 +5,8 @@ boundary conditions. Most runs start from a YAML definition and a
 single `jaqmc solid train` command. JaQMC then follows the same three-stage
 workflow used for [molecules](../molecule/index.md):
 
-1. **Hartree-Fock (HF)** computes reference orbitals with PySCF.
+1. **Hartree-Fock (HF)** computes a reference electronic-structure solution with
+   PySCF.
 2. **Pretraining** matches the neural wavefunction to those orbitals.
 3. **VMC training** performs the main energy optimization.
 
@@ -47,7 +48,6 @@ system:
     - symbol: H
       coords: [3.78, 3.78, 3.78]
   electron_spins: [2, 2]     # [n_up, n_down] per primitive cell
-  basis: sto-3g
 ```
 
 Then run training:
@@ -88,7 +88,6 @@ system:
   lattice_constant: 4.0     # in angstrom by default
   unit: angstrom            # or "bohr"
   # supercell: [2, 2, 2]    # Optional diagonal supercell shorthand
-  basis: sto-3g
 ```
 
 Save as `rock_salt.yml`, then run:
@@ -111,7 +110,6 @@ system:
   unit: bohr                 # or "angstrom"
   spin: 0                    # n_up - n_down per primitive cell
   # supercell: 4             # Optional repetition along the chain direction
-  basis: sto-3g
 ```
 
 Save as `two_atom_chain.yml`, then run:
@@ -120,8 +118,18 @@ Save as `two_atom_chain.yml`, then run:
 jaqmc solid train --yml two_atom_chain.yml workflow.save_path=./runs/two_atom_chain
 ```
 
+The examples above also keep the Hartree-Fock reference at its default
+settings. If you need a different HF basis or method, add a
+`pretrain.reference` section, for example:
+
+```yaml
+pretrain:
+  reference:
+    basis: cc-pvdz
+```
+
 Basis sets and ECPs work the same as for
-[molecules](#molecule-basis-sets-and-ecps).
+<project:#molecule-basis-sets-and-ecps>.
 
 ## Supercell Expansion
 

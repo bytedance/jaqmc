@@ -27,6 +27,7 @@
 
 import logging
 from collections.abc import Mapping, Sequence
+from typing import Any
 
 import numpy as np
 import pyscf.gto
@@ -121,7 +122,9 @@ class MolecularSCF:
         ecp: str | Mapping[str, str] | None = None,
         core_electrons: Mapping[str, int] | None = None,
         pyscf_mol: pyscf.gto.Mole | None = None,
-        restricted: bool = True,
+        restricted: bool = False,
+        verbose: int = 4,
+        pyscf_options: Mapping[str, Any] | None = None,
     ):
         pyscf.lib.param.TMPDIR = None
 
@@ -152,6 +155,7 @@ class MolecularSCF:
             self._mol.spin = nelectrons[0] - nelectrons[1]
             self._mol.charge = charge
             self._mol.ecp = ecp
+            self._mol.verbose = verbose
             self._mol.build()
             if self._mol.nelectron != sum(nelectrons):
                 raise RuntimeError("PySCF molecule not consistent with QMC molecule.")
@@ -166,6 +170,12 @@ class MolecularSCF:
         self.eval_aos = AtomicOrbitalEvaluator.from_pyscf(self._mol)
         self.restricted = restricted
 
+        for k, v in (pyscf_options or {}).items():
+            if k not in self.mean_field._keys:
+                logger.warning("Ignoring option %s as it's not used by PySCF", k)
+            else:
+                setattr(self.mean_field, k, v)
+
     def run(self, dm0: np.ndarray | None = None):
         """Runs the Hartree-Fock calculation.
 
@@ -176,6 +186,7 @@ class MolecularSCF:
             A pyscf scf object (i.e. pyscf.scf.rhf.RHF, pyscf.scf.uhf.UHF or
             pyscf.scf.rohf.ROHF depending on the spin and restricted settings).
         """
+        logger.info("Start %s", type(self.mean_field).__name__)
         try:
             self.mean_field.kernel(dm0=dm0)
         except TypeError:
@@ -185,6 +196,7 @@ class MolecularSCF:
             )
             # 1e solvers (e.g. uhf.HF1e) do not take any keyword arguments.
             self.mean_field.kernel()
+        logger.info("Complete %s", type(self.mean_field).__name__)
         return self.mean_field
 
     def eval_mos(self, positions: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
@@ -321,8 +333,10 @@ class PeriodicSCF:
         ecp: str | Mapping[str, str] | None = None,
         core_electrons: Mapping[str, int] | None = None,
         pyscf_cell: pyscf.pbc.gto.Cell | None = None,
-        restricted: bool = True,
+        restricted: bool = False,
         rcut: float | None = None,
+        verbose: int = 4,
+        pyscf_options: Mapping[str, Any] | None = None,
     ):
         pyscf.lib.param.TMPDIR = None
 
@@ -353,6 +367,7 @@ class PeriodicSCF:
             self._cell.spin = nelectrons[0] - nelectrons[1]
             self._cell.charge = charge
             self._cell.ecp = ecp
+            self._cell.verbose = verbose
             self._cell.build()
 
         # Set up k-points
@@ -371,6 +386,12 @@ class PeriodicSCF:
         self.restricted = restricted
         self.eval_aos = PBCAtomicOrbitalEvaluator.from_pyscf(self._cell, rcut=rcut)
         self._mo_coeff: tuple[list, list] | None = None
+
+        for k, v in (pyscf_options or {}).items():
+            if k not in self.mean_field._keys:
+                logger.warning("Ignoring option %s as it's not used by PySCF", k)
+            else:
+                setattr(self.mean_field, k, v)
 
     def run(self, dm0: np.ndarray | None = None):
         """Run the k-point HF calculation.

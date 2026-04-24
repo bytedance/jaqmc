@@ -30,7 +30,7 @@ from jaqmc.workflow.stage.evaluation import EvaluationWorkStage
 from jaqmc.workflow.stage.vmc import VMCWorkStage
 from jaqmc.workflow.vmc import VMCWorkflow
 
-from .config import SolidConfig
+from .config import SolidConfig, SolidPretrainReferenceConfig
 from .data import data_init
 from .hamiltonian import PotentialEnergy
 from .wavefunction import SolidWavefunction
@@ -59,21 +59,25 @@ class SolidTrainWorkflow(VMCWorkflow):
 
     def __init__(self, cfg: ConfigManager) -> None:
         super().__init__(cfg)
-        system_config, wf, scf, sampling_proposal = configure_system(cfg)
+        system_config, wf, sampling_proposal = configure_system(cfg)
+
+        pretrain_config = cfg.get("pretrain.reference", SolidPretrainReferenceConfig)
+        self.scf = make_scf(pretrain_config, system_config)
 
         nspins = (
             system_config.electron_spins[0] * system_config.scale,
             system_config.electron_spins[1] * system_config.scale,
         )
-        self.scf = scf
         self.wf = wf
         self.data_init = partial(data_init, system_config)
 
         loss_estimator = make_pretrain_loss(
-            orbitals_fn=wf.orbitals, scf=scf, nspins=nspins, full_det=wf.full_det
+            orbitals_fn=wf.orbitals, scf=self.scf, nspins=nspins, full_det=wf.full_det
         )
         f_log_amplitude = make_pretrain_log_amplitude(
-            wf.logpsi, lambda data: scf.eval_slater(data.electrons, nspins).real
+            wf.logpsi,
+            lambda data: self.scf.eval_slater(data.electrons, nspins).real,
+            scf_fraction=pretrain_config.sample_fraction,
         )
         sampler = cfg.get("sampler", MCMCSampler(sampling_proposal=sampling_proposal))
 
@@ -87,7 +91,7 @@ class SolidTrainWorkflow(VMCWorkflow):
         train.configure_sample_plan(wf.logpsi, {"electrons": sampler})
         train.configure_optimizer(default=KFACOptimizer, f_log_psi=wf.logpsi)
         estimators = make_estimators(
-            cfg, wf, scf, system_config, always_enable_energy=True
+            cfg, wf, system_config, self.scf._cell._ecp, always_enable_energy=True
         )
         train.configure_estimators(**estimators)
         train.configure_loss_grads(f_log_psi=wf.logpsi)
@@ -104,17 +108,19 @@ class SolidEvalWorkflow(EvaluationWorkflow):
 
     def __init__(self, cfg: ConfigManager) -> None:
         super().__init__(cfg)
-        system_config, wf, scf, sampling_proposal = configure_system(cfg)
+        system_config, wf, sampling_proposal = configure_system(cfg)
 
-        self.scf = scf
         self.wf = wf
         self.data_init = partial(data_init, system_config)
 
         evaluation = EvaluationWorkStage.builder(cfg, wf, name="evaluation")
         sampler = cfg.get("sampler", MCMCSampler(sampling_proposal=sampling_proposal))
         evaluation.configure_sample_plan(wf.logpsi, {"electrons": sampler})
+
+        reference_config = cfg.get("reference", SolidPretrainReferenceConfig)
+        self.scf = make_scf(reference_config, system_config)
         eval_estimators: dict[str, EstimatorLike] = make_estimators(
-            cfg, wf, scf, system_config
+            cfg, wf, system_config, self.scf._cell._ecp
         )
         evaluation.configure_estimators(**eval_estimators)
         self.evaluation_stage = evaluation.build()
@@ -127,7 +133,7 @@ class SolidEvalWorkflow(EvaluationWorkflow):
 
 def configure_system(
     cfg: ConfigManagerLike,
-) -> tuple[SolidConfig, SolidWavefunction, PeriodicSCF, Callable]:
+) -> tuple[SolidConfig, SolidWavefunction, Callable]:
     """Build the shared system objects for solid workflows.
 
     Returns:
@@ -155,40 +161,46 @@ def configure_system(
     wf.primitive_lattice = lattice_vectors
     wf.simulation_lattice = supercell_lattice
 
-    # Compute k-points for PeriodicSCF
-    S = jnp.array(system_config.supercell_matrix)
-    prim_rec_vecs = get_reciprocal_vectors(lattice_vectors)
-    kpts_folding = get_supercell_kpts(S, prim_rec_vecs)
-    twist = jnp.array(system_config.twist)
-    sim_rec_vecs = get_reciprocal_vectors(supercell_lattice)
-    k_twist = jnp.dot(twist, sim_rec_vecs)
-    kpts = kpts_folding + k_twist[None, :]
-
-    core_electrons = get_core_electrons(system_config.atoms, system_config.ecp)
-    scf = PeriodicSCF(
-        atoms=system_config.atoms,
-        nelectrons=system_config.electron_spins,
-        lattice_vectors=np.asarray(lattice_vectors),
-        kpts=np.asarray(kpts),
-        basis=system_config.basis,
-        ecp=system_config.ecp,
-        core_electrons=core_electrons,
-    )
-
     sampling_proposal = make_pbc_gaussian_proposal(supercell_lattice)
 
     if not isinstance(wf, Wavefunction) or not isinstance(wf, SolidWavefunction):
         raise TypeError(
             f"Wavefunction must implement SolidWavefunction, got {type(wf).__name__}"
         )
-    return system_config, wf, scf, sampling_proposal
+    return system_config, wf, sampling_proposal
+
+
+def make_scf(
+    pretrain_config: SolidPretrainReferenceConfig, system_config: SolidConfig
+) -> PeriodicSCF:
+
+    S = jnp.array(system_config.supercell_matrix)
+    prim_rec_vecs = get_reciprocal_vectors(jnp.array(system_config.lattice_vectors))
+    kpts_folding = get_supercell_kpts(S, prim_rec_vecs)
+    twist = jnp.array(system_config.twist)
+    sim_rec_vecs = get_reciprocal_vectors(jnp.array(system_config.supercell_lattice))
+    k_twist = jnp.dot(twist, sim_rec_vecs)
+    kpts = kpts_folding + k_twist[None, :]
+
+    return PeriodicSCF(
+        system_config.atoms,
+        system_config.electron_spins,
+        lattice_vectors=np.asarray(system_config.lattice_vectors),
+        kpts=np.asarray(kpts),
+        basis=pretrain_config.basis,
+        restricted=pretrain_config.method == "KRHF",
+        ecp=system_config.ecp,
+        core_electrons=get_core_electrons(system_config.atoms, system_config.ecp),
+        verbose=pretrain_config.verbose,
+        pyscf_options=pretrain_config.extra,
+    )
 
 
 def make_estimators(
     cfg: ConfigManagerLike,
     wf: SolidWavefunction,
-    scf: PeriodicSCF,
     system_config: SolidConfig,
+    ecp_coefficients: dict[str, Any] | None = None,
     always_enable_energy: bool = False,
 ) -> dict[str, EstimatorLike]:
     estimators: dict[str, EstimatorLike] = {}
@@ -200,12 +212,12 @@ def make_estimators(
         estimators["kinetic"] = cfg.get(
             "estimators.energy.kinetic", EuclideanKinetic(f_log_psi=wf.logpsi)
         )
-        if system_config.ecp is not None:
-            logger.info("ECP enabled for elements: %s", list(scf._cell._ecp.keys()))
+        if ecp_coefficients:
+            logger.info("ECP enabled for elements: %s", list(ecp_coefficients.keys()))
             estimators["ecp"] = cfg.get(
                 "estimators.energy.ecp",
                 ECPEnergy(
-                    ecp_coefficients=scf._cell._ecp,
+                    ecp_coefficients=ecp_coefficients,
                     atom_symbols=[atom.symbol for atom in system_config.atoms]
                     * system_config.scale,
                     phase_logpsi=wf.phase_logpsi,

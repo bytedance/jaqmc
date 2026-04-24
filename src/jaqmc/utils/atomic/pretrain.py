@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 import jax
+import serde
 from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
@@ -14,10 +15,31 @@ from jaqmc.data import Data
 from jaqmc.estimator import FunctionEstimator
 from jaqmc.estimator.base import Estimator
 from jaqmc.utils import parallel_jax
+from jaqmc.utils.config import configurable_dataclass
 from jaqmc.wavefunction import NumericWavefunctionEvaluate
 from jaqmc.wavefunction.base import WavefunctionEvaluate
 
 from .scf import MolecularSCF, PeriodicSCF
+
+
+@configurable_dataclass
+class PretrainReferenceConfig:
+    """Configuration for the Hartree-Fock reference used during pretraining.
+
+    Args:
+        basis: The basis set for Hartree-Fock pretrain. Can be a string
+            (e.g., "sto-3g", "ccecpccpvdz") or a dict mapping element
+            symbols to basis names (e.g., {"Fe": "ccecpccpvdz", "O": "cc-pvdz"}).
+        sample_fraction: Mixing fraction for SCF during pretrain sampling.
+            (0.0 = pure NN, 1.0 = pure SCF.)
+        extra: Extra options for the PySCF mean-field object.
+            When specifying in CLI, all unknown/extra fields are captured.
+    """
+
+    basis: str | Mapping[str, str] | None = "cc-pVDZ"
+    sample_fraction: float = 1.0
+    verbose: int = 4
+    extra: dict[str, Any] = serde.field(flatten=True, default_factory=dict)
 
 
 def make_pretrain_log_amplitude[DataT: Data](
