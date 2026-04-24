@@ -21,13 +21,10 @@ def chunked_vmap(
     Args:
         fun: Function to vectorize.
         in_axes: Axis specification for mapped inputs, following ``jax.vmap``.
-            This may be a prefix tree; the implementation broadcasts it to
-            every input leaf before slicing chunk inputs. On older JAX without
-            ``jax.tree.broadcast``, nested prefix axes must already match the
-            full input tree.
+            This may be a prefix tree.
         out_axes: Axis specification for mapped outputs, following ``jax.vmap``.
             Chunk outputs are collected by ``lax.scan`` and then restored to
-            this layout. Literal ``None`` output leaves are preserved.
+            this layout. Literal ``None`` output leaves are preserved as is.
         chunk_size: Positive number of mapped inputs to evaluate per chunk. If
             ``None``, or at least the mapped batch size, evaluation delegates
             to plain ``jax.vmap``.
@@ -115,18 +112,21 @@ def _none_is_leaf(x):
 
 
 def _mapped_axis_sizes(args, full_in_axes):
-    """Return the batch size of each mapped input leaf.
+    """Return only mapped-axis batch sizes from ``args``.
 
-    Unmapped leaves produce ``None`` before the final flattening step. Since
-    JAX treats ``None`` as an empty pytree by default, those placeholders drop
-    out of the returned list, leaving only mapped input sizes.
+    For each input leaf, this computes ``x.shape[ax]`` when ``ax`` is mapped
+    and uses ``None`` when ``ax`` is ``None`` (unmapped). The final
+    ``jax.tree.leaves`` call drops those ``None`` placeholders by default, so
+    the returned list contains sizes for mapped leaves only.
+
+    Example:
+        Axis sizes ``[8, None, 4]`` become ``[8, 4]``.
 
     Returns:
-        A list containing one batch size for each mapped input leaf.
+        A list of mapped-axis batch sizes, one entry per mapped input leaf.
     """
-    # Unmapped leaves produce None here. The final jax.tree.leaves call uses
-    # JAX's default pytree treatment, where None has no leaves, so only mapped
-    # input sizes remain for validation.
+    # Build per-leaf mapped sizes, using None as a placeholder for unmapped
+    # leaves. jax.tree.leaves then drops None entries by default.
     return jax.tree.leaves(
         jax.tree.map(
             lambda x, ax: x.shape[ax] if ax is not None else None,
