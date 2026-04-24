@@ -83,7 +83,9 @@ class TestPretrainOrbitalShape:
             orbitals_fn=wf.orbitals, scf=scf, nspins=nspins, full_det=wf.full_det
         )
         loss_estimator.init(data, TEST_KEY)
-        stats, _ = loss_estimator.evaluate_local(params, data, {}, None, TEST_KEY)
+        stats, _ = loss_estimator.evaluate_single_walker(
+            params, data, {}, None, TEST_KEY
+        )
 
         assert jnp.isfinite(stats["loss"])
         assert stats["loss"] > 0, "Random params should not match SCF orbitals exactly"

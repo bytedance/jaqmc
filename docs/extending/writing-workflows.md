@@ -58,7 +58,7 @@ The simplest estimator is a plain function with signature `(params, data, stats,
 :pyobject: potential_energy
 ```
 
-The signature ``(params, data, stats, state, rngs)`` is the standard estimator interface. ``stats`` (called ``prev_local_stats`` in the {class}`~jaqmc.estimator.base.Estimator` class interface) contains values from other estimators in the current step (for derived quantities like total energy), and ``state`` carries mutable state across iterations. Simple estimators like this one can ignore most parameters — ``del`` marks them as intentionally unused.
+The signature ``(params, data, stats, state, rngs)`` is the standard estimator interface. ``stats`` (called ``prev_walker_stats`` in the {class}`~jaqmc.estimator.base.Estimator` class interface) contains values from other estimators in the current step (for derived quantities like total energy), and ``state`` carries mutable state across iterations. Simple estimators like this one can ignore most parameters — ``del`` marks them as intentionally unused.
 
 The ``energy:`` prefix is a naming convention: any estimator that returns a key starting with ``energy:`` contributes to the total energy, which becomes the VMC optimization target. A {class}`~jaqmc.estimator.total_energy.TotalEnergy` estimator auto-sums all ``energy:``-prefixed keys into a ``total_energy`` value — you'll use it in Step 5.
 

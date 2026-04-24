@@ -78,8 +78,8 @@ def _expected_s2_constant_wf(n_up, n_down):
 def test_s2_constant_wavefunction(n_up, n_down):
     """S^2 with constant wavefunction matches analytical formula."""
     est, data, key = _make_spin_estimator(n_up, n_down)
-    stats, _ = est.evaluate_local(
-        params={}, data=data, prev_local_stats={}, state=None, rngs=key
+    stats, _ = est.evaluate_single_walker(
+        params={}, data=data, prev_walker_stats={}, state=None, rngs=key
     )
     expected = _expected_s2_constant_wf(n_up, n_down)
     np.testing.assert_allclose(float(stats["spin:s2"]), expected, atol=1e-5)
@@ -99,8 +99,8 @@ def test_s2_fully_polarized():
     data = _ElectronData(electrons=jnp.ones((n_up, 3)))
     key = jax.random.key(0)
     est.init(data, key)
-    stats, _ = est.evaluate_local(
-        params={}, data=data, prev_local_stats={}, state=None, rngs=key
+    stats, _ = est.evaluate_single_walker(
+        params={}, data=data, prev_walker_stats={}, state=None, rngs=key
     )
     expected = 1.5 * 2.5  # S_z=3/2, S^2=S_z(S_z+1)
     np.testing.assert_allclose(float(stats["spin:s2"]), expected, atol=1e-5)
@@ -113,8 +113,8 @@ def test_s2_singlet_identical_orbitals():
     S^2 = 0*(0+1) + 1 - 1*1 = 0 (singlet).
     """
     est, data, key = _make_spin_estimator(1, 1)
-    stats, _ = est.evaluate_local(
-        params={}, data=data, prev_local_stats={}, state=None, rngs=key
+    stats, _ = est.evaluate_single_walker(
+        params={}, data=data, prev_walker_stats={}, state=None, rngs=key
     )
     np.testing.assert_allclose(float(stats["spin:s2"]), 0.0, atol=1e-5)
 

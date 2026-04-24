@@ -87,15 +87,15 @@ class HistogramEstimator(Estimator):
             "compensation": jnp.zeros((n, *shape)),
         }
 
-    def evaluate_batch(
+    def evaluate_batch_walkers(
         self,
         params: Params,
         batched_data: BatchedData,
-        prev_local_stats: Mapping[str, Any],
+        prev_walker_stats: Mapping[str, Any],
         state: dict[str, jnp.ndarray],
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], dict[str, jnp.ndarray]]:
-        del params, prev_local_stats, rngs
+        del params, prev_walker_stats, rngs
         bins, ranges = self._histogram_spec()
         values = self.extract(batched_data.data)
         ndim = len(ranges)
@@ -108,7 +108,8 @@ class HistogramEstimator(Estimator):
         new_comp = (new_sum - state["histogram"]) - adjusted
         return {}, {"histogram": new_sum, "compensation": new_comp}
 
-    def reduce(self, local_stats: Mapping[str, Any]) -> dict[str, Any]:
+    def reduce(self, walker_stats: Mapping[str, Any]) -> dict[str, Any]:
+        del walker_stats
         return {}
 
     def finalize_stats(

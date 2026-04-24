@@ -18,13 +18,13 @@ from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import LocalEstimator
+from jaqmc.estimator.base import PerWalkerEstimator
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
 
 
 @configurable_dataclass
-class SpinSquared(LocalEstimator):
+class SpinSquared(PerWalkerEstimator):
     r"""Estimator for the total spin operator :math:`S^2`.
 
     Computes the local value of :math:`S^2` for a single walker using
@@ -69,15 +69,15 @@ class SpinSquared(LocalEstimator):
         self._vmapped_phase_logpsi = jax.vmap(self.phase_logpsi, in_axes=(None, 0))
         return None
 
-    def evaluate_local(
+    def evaluate_single_walker(
         self,
         params: Params,
         data: Data,
-        prev_local_stats: Mapping[str, Any],
+        prev_walker_stats: Mapping[str, Any],
         state: None,
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], None]:
-        del prev_local_stats, rngs
+        del prev_walker_stats, rngs
         s2 = self._sz * (self._sz + 1) + self._sum_wf_ratios(params, data)
         return {"spin:s2": s2}, state
 

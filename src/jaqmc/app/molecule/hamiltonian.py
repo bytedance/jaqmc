@@ -6,8 +6,8 @@ from jax import numpy as jnp
 from jaqmc.geometry import obc
 
 
-def potential_energy(params, data, prev_local_stats, state, rngs):
-    del params, rngs, prev_local_stats
+def potential_energy(params, data, prev_walker_stats, state, rngs):
+    del params, rngs, prev_walker_stats
     nelec = data.electrons.shape[0]
     natom = data.atoms.shape[0]
     r_ae = obc.pair_displacements_between(data.electrons, data.atoms)[1]

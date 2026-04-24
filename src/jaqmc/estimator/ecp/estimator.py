@@ -19,7 +19,7 @@ from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import LocalEstimator
+from jaqmc.estimator.base import PerWalkerEstimator
 from jaqmc.geometry.pbc import build_distance_fn
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
@@ -30,7 +30,7 @@ from .quadrature import get_quadrature
 
 
 @configurable_dataclass
-class ECPEnergy(LocalEstimator):
+class ECPEnergy(PerWalkerEstimator):
     r"""ECP energy estimator.
 
     Computes both local and nonlocal effective core potential contributions.
@@ -113,15 +113,15 @@ class ECPEnergy(LocalEstimator):
         )
         return None
 
-    def evaluate_local(
+    def evaluate_single_walker(
         self,
         params: Params,
         data: Data,
-        prev_local_stats: Mapping[str, Any],
+        prev_walker_stats: Mapping[str, Any],
         state: None,
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], None]:
-        del prev_local_stats
+        del prev_walker_stats
 
         electrons = data[self.electrons_field]
         atoms = data[self.atoms_field]
@@ -241,7 +241,7 @@ class ECPRadial:
         #
         # PySCF uses l=-1 for the local channel and l=0,1,2,... for
         # semi-local channels.  We map l → channel_idx = l + 1 so that
-        # channel 0 is always the local potential (used by evaluate_local
+        # channel 0 is always the local potential (used by evaluate_single_walker
         # as `radial_values[..., 0]`) and channels 1+ are nonlocal.
         for i, atom_idx in enumerate(ecp_atom_indices):
             sym = atom_symbols[atom_idx]

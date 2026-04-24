@@ -18,35 +18,35 @@ type EstimateFn = Callable[
     [Params, Data, Mapping[str, Any], Any, PRNGKey],
     tuple[dict[str, Any], Any],
 ]
-"""Signature for a plain function usable as an estimator's ``evaluate_local``."""
+"""Signature for a plain function usable as ``evaluate_single_walker``."""
 
 type EstimatorLike = Estimator | EstimateFn
 """Anything accepted where an :class:`Estimator` is expected."""
 
 
 def mean_reduce(
-    local_stats: Mapping[str, Any], include_variance: bool = True
+    walker_stats: Mapping[str, Any], include_variance: bool = True
 ) -> dict[str, Any]:
-    """Reduce per-walker local values to step-level mean (and variance).
+    """Reduce per-walker values to step-level mean (and variance).
 
     Computes the mean over walkers and across devices.  When
     ``include_variance`` is True, appends ``{key}_var`` entries with
     the corresponding variance.
 
     Args:
-        local_stats: Per-walker values (leading walker dimension).
+        walker_stats: Per-walker values (leading walker dimension).
         include_variance: Whether to include ``_var`` keys.
 
     Returns:
         Step-level statistics (walker dimension consumed).
     """
     stats = parallel_jax.pmean(
-        jax.tree.map(lambda x: jnp.nanmean(x, axis=0), local_stats)
+        jax.tree.map(lambda x: jnp.nanmean(x, axis=0), walker_stats)
     )
     if include_variance:
         var_stats = jax.tree.map(
             lambda x, mean_x: parallel_jax.pmean(jnp.nanmean(x**2, axis=0)) - mean_x**2,
-            local_stats,
+            walker_stats,
             stats,
         )
         stats.update({f"{k}_var": v for k, v in var_stats.items()})
@@ -62,11 +62,11 @@ class Estimator[DataT: Data](ABC):
 
     **Stats path** (per-step statistics → final values):
 
-    1. **evaluate** (``evaluate_local`` / ``evaluate_batch``) — compute
-       per-walker local values.  For example, a kinetic energy estimator
+    1. **evaluate** (``evaluate_single_walker`` / ``evaluate_batch_walkers``)
+       — compute per-walker values. For example, a kinetic energy estimator
        returns one energy scalar per walker.
 
-    2. **reduce** — aggregate local values across walkers into per-step
+    2. **reduce** — aggregate per-walker values across walkers into per-step
        statistics.  The default computes mean and variance over walkers
        (via ``mean_reduce``).  The output is what gets written to disk
        at each step.
@@ -87,10 +87,10 @@ class Estimator[DataT: Data](ABC):
        JIT.
 
     Subclass and override only the methods you need. Most estimators should
-    inherit from :class:`LocalEstimator`, which batches single-walker
-    ``evaluate_local`` implementations automatically. Inherit directly from
+    inherit from :class:`PerWalkerEstimator`, which batches single-walker
+    ``evaluate_single_walker`` implementations automatically. Inherit directly from
     this class when the estimator owns full-batch logic through
-    ``evaluate_batch``.
+    ``evaluate_batch_walkers``.
 
     Runtime dependencies should be declared as
     :func:`~jaqmc.utils.wiring.runtime_dep` fields.
@@ -114,60 +114,60 @@ class Estimator[DataT: Data](ABC):
     def init(self, data: DataT, rngs: PRNGKey) -> Any:
         """Initialize estimator state from an example data point.
 
-        Called once before the first ``evaluate`` call.
+        Called once before the first ``evaluate_batch_walkers`` call.
 
         Returns:
-            State to thread through evaluate calls, or ``None``
+            State to thread through evaluation calls, or ``None``
             if no state is needed.
         """
         return None
 
     @abstractmethod
-    def evaluate_batch(
+    def evaluate_batch_walkers(
         self,
         params: Params,
         batched_data: BatchedData[DataT],
-        prev_local_stats: Mapping[str, Any],
+        prev_walker_stats: Mapping[str, Any],
         state: Any,
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], Any]:
-        """Compute local values over a batch of walkers.
+        """Compute per-walker values over a batch of walkers.
 
         The base implementation is a no-op. Override this directly for
         estimators that own full-batch logic (e.g. histogram aggregation,
-        stats-only estimators). Inherit from :class:`LocalEstimator` for the
-        common pattern where ``evaluate_local`` is vmapped over walkers.
+        stats-only estimators). Inherit from :class:`PerWalkerEstimator` for the
+        common pattern where ``evaluate_single_walker`` is vmapped over walkers.
 
         Args:
             params: Wavefunction parameters.
             batched_data: Batched sampled data.
-            prev_local_stats: Local values produced by earlier
+            prev_walker_stats: Per-walker values produced by earlier
                 estimators in the pipeline (with walker dimension).
             state: Estimator state.
             rngs: Random state.
 
         Returns:
-            A tuple ``(local_stats, state)`` where ``local_stats``
+            A tuple ``(walker_stats, state)`` where ``walker_stats``
             values have a leading walker dimension.
         """
 
-    def reduce(self, local_stats: Mapping[str, Any]) -> dict[str, Any]:
-        """Aggregate per-walker local values into per-step statistics.
+    def reduce(self, walker_stats: Mapping[str, Any]) -> dict[str, Any]:
+        """Aggregate per-walker values into per-step statistics.
 
-        Called once per step after ``evaluate_batch``.  The output is
+        Called once per step after ``evaluate_batch_walkers``. The output is
         what gets recorded by writers at each step.
 
         The default computes the mean (and variance) over walkers via
         ``mean_reduce``.
 
         Args:
-            local_stats: This estimator's output from
-                ``evaluate_batch`` (values have a walker dimension).
+            walker_stats: This estimator's output from
+                ``evaluate_batch_walkers`` (values have a walker dimension).
 
         Returns:
             Step-level statistics (walker dimension consumed).
         """
-        return mean_reduce(local_stats)
+        return mean_reduce(walker_stats)
 
     def finalize_stats(
         self, batched_stats: Mapping[str, Any], state: Any
@@ -211,8 +211,8 @@ class Estimator[DataT: Data](ABC):
 
 
 @configurable_dataclass
-class LocalEstimator[DataT: Data](Estimator[DataT], ABC):
-    """Estimator whose single-walker ``evaluate_local`` is batched by vmap.
+class PerWalkerEstimator[DataT: Data](Estimator[DataT], ABC):
+    """Estimator whose ``evaluate_single_walker`` is batched over walkers by vmap.
 
     Args:
         vmap_chunk_size: Number of walkers to evaluate per vmap chunk. Set to
@@ -222,73 +222,73 @@ class LocalEstimator[DataT: Data](Estimator[DataT], ABC):
     vmap_chunk_size: int | None = None
 
     @abstractmethod
-    def evaluate_local(
+    def evaluate_single_walker(
         self,
         params: Params,
         data: DataT,
-        prev_local_stats: Mapping[str, Any],
+        prev_walker_stats: Mapping[str, Any],
         state: Any,
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], Any]:
-        """Compute local values for a single walker.
+        """Compute per-walker values for a single walker.
 
         This is the main method to override when inheriting from
-        :class:`LocalEstimator`, which vmaps it over the walker dimension.
+        :class:`PerWalkerEstimator`, which vmaps it over the walker dimension.
 
         Args:
             params: Wavefunction parameters.
             data: Data for a single walker.
-            prev_local_stats: Local values produced by earlier
+            prev_walker_stats: Per-walker values produced by earlier
                 estimators in the pipeline (single-walker).
             state: Estimator state from ``init`` or previous step.
             rngs: Random state.
 
         Returns:
-            A tuple ``(local_stats, state)`` where ``local_stats``
+            A tuple ``(walker_stats, state)`` where ``walker_stats``
             maps string keys to per-walker scalar or array values.
         """
 
-    def evaluate_batch(
+    def evaluate_batch_walkers(
         self,
         params: Params,
         batched_data: BatchedData[DataT],
-        prev_local_stats: Mapping[str, Any],
+        prev_walker_stats: Mapping[str, Any],
         state: Any,
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], Any]:
-        """Vmap ``evaluate_local`` over the walker dimension.
+        """Vmap ``evaluate_single_walker`` over the walker dimension.
 
         Returns:
-            A tuple ``(local_stats, state)`` where ``local_stats`` values have
+            A tuple ``(walker_stats, state)`` where ``walker_stats`` values have
             a leading walker dimension.
         """
         rngs = jax.random.split(rngs, batched_data.batch_size)
         return chunked_vmap(
-            self.evaluate_local,
+            self.evaluate_single_walker,
             in_axes=(None, batched_data.vmap_axis, 0, None, 0),
             chunk_size=self.vmap_chunk_size,
-        )(params, batched_data.data, prev_local_stats, state, rngs)
+        )(params, batched_data.data, prev_walker_stats, state, rngs)
 
 
-class FunctionEstimator(LocalEstimator):
+class FunctionEstimator(PerWalkerEstimator):
     """Wraps a plain function as an :class:`Estimator`.
 
-    The function is called as ``evaluate_local``; ``init``, ``reduce``,
+    The function is called as ``evaluate_single_walker``; ``init``, ``reduce``,
     ``finalize_stats``, and ``finalize_state`` use the base-class defaults.
     """
 
     def __init__(self, fn: EstimateFn) -> None:
         self._fn = fn
 
-    def evaluate_local(self, params, data, prev_local_stats, state, rngs):
-        return self._fn(params, data, prev_local_stats, state, rngs)
+    def evaluate_single_walker(self, params, data, prev_walker_stats, state, rngs):
+        return self._fn(params, data, prev_walker_stats, state, rngs)
 
 
 class EstimatorPipeline:
     """Chains named estimators into an evaluate → reduce → finalize pipeline.
 
     Each estimator runs in insertion order. Later estimators can read
-    earlier estimators' local values via ``prev_local_stats``.
+    earlier estimators' per-walker values via ``prev_walker_stats``.
     Key ownership is tracked so that :meth:`finalize_stats` dispatches each
     subset of statistics to the correct estimator.
 
@@ -335,7 +335,7 @@ class EstimatorPipeline:
         state: dict[str, Any],
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Compute averaged local values of the observables.
+        """Compute averaged per-walker values of the observables.
 
         Args:
             params: Wavefunction parameters.
@@ -347,14 +347,14 @@ class EstimatorPipeline:
             A tuple ``(step_stats, state)``, where ``step_stats`` is a flat
             dictionary merging each estimator's :meth:`~Estimator.reduce` output.
         """
-        local_stats: dict[str, Any] = {}
+        walker_stats: dict[str, Any] = {}
         step_stats: dict[str, Any] = {}
         for name, estimator in self.estimators.items():
             rngs, sub_rngs = jax.random.split(rngs)
-            stats_parts, state[name] = estimator.evaluate_batch(
-                params, batched_data, local_stats, state[name], sub_rngs
+            stats_parts, state[name] = estimator.evaluate_batch_walkers(
+                params, batched_data, walker_stats, state[name], sub_rngs
             )
-            local_stats.update(stats_parts)
+            walker_stats.update(stats_parts)
             reduced = estimator.reduce(stats_parts)
             self._reduce_keys[name] = frozenset(reduced.keys())
             step_stats.update(reduced)

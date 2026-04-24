@@ -8,12 +8,12 @@ from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import LocalEstimator, mean_reduce
+from jaqmc.estimator.base import PerWalkerEstimator, mean_reduce
 from jaqmc.utils.config import configurable_dataclass
 
 
 @configurable_dataclass
-class TotalEnergy(LocalEstimator):
+class TotalEnergy(PerWalkerEstimator):
     """Estimator that computes total energy from component energies.
 
     Energy components use the ``energy:`` prefix convention (e.g.
@@ -27,17 +27,17 @@ class TotalEnergy(LocalEstimator):
     Args:
         output_name: Name of the output total energy field.
         components: Stat keys to sum. When None (default), auto-derives
-            from ``prev_local_stats`` keys starting with ``energy:``.
+            from ``prev_walker_stats`` keys starting with ``energy:``.
     """
 
     output_name: str = "total_energy"
     components: list[str] | None = None
 
-    def evaluate_local(
+    def evaluate_single_walker(
         self,
         params: Params,
         data: Data,
-        prev_local_stats: Mapping[str, Any],
+        prev_walker_stats: Mapping[str, Any],
         state: None,
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], None]:
@@ -45,26 +45,26 @@ class TotalEnergy(LocalEstimator):
         keys = (
             self.components
             if self.components is not None
-            else [k for k in prev_local_stats if k.startswith("energy:")]
+            else [k for k in prev_walker_stats if k.startswith("energy:")]
         )
         total = 0
         for name in keys:
-            if not jnp.isscalar(energy_part := prev_local_stats[name]):
+            if not jnp.isscalar(energy_part := prev_walker_stats[name]):
                 raise ValueError(
                     f"Expected {name} to be a scalar, but got shape "
                     f"{energy_part.shape}. If you're using a custom kinetic "
-                    "energy estimator, make sure evaluate_local returns a "
+                    "energy estimator, make sure evaluate_single_walker returns a "
                     "scalar per walker."
                 )
             total += energy_part
         return {self.output_name: total}, state
 
-    def reduce(self, local_stats: Mapping[str, Any]) -> dict[str, Any]:
+    def reduce(self, walker_stats: Mapping[str, Any]) -> dict[str, Any]:
         key = self.output_name
-        energy = local_stats[key]
+        energy = walker_stats[key]
         if jnp.iscomplexobj(energy):
             return {
-                **mean_reduce(local_stats, include_variance=False),
+                **mean_reduce(walker_stats, include_variance=False),
                 **mean_reduce({f"{key}_real": energy.real}),
             }
-        return mean_reduce(local_stats)
+        return mean_reduce(walker_stats)

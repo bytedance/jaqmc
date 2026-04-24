@@ -179,7 +179,7 @@ print(f"  electron position: {single_data.electrons}")
 
 ## 4. Computing Physical Observables
 
-JaQMC provides built-in estimators for computing physical observables. Each estimator implements `evaluate_local` for a single walker, and `evaluate_batch` automatically vmaps it over the batch of walkers.
+JaQMC provides built-in estimators for computing physical observables. Each estimator implements `evaluate_single_walker` for a single walker, and `evaluate_batch_walkers` automatically vmaps it over the batch of walkers.
 
 We'll use the built-in {class}`~jaqmc.estimator.kinetic.EuclideanKinetic` estimator and the `potential_energy` function. {class}`~jaqmc.estimator.base.EstimatorPipeline` accepts both {class}`~jaqmc.estimator.base.Estimator` subclass instances and plain functions with the estimator signature:
 
@@ -197,7 +197,7 @@ estimator_state = pipeline.init(batched_data, jax.random.PRNGKey(0))
 
 ### Using `shard_map` for device-parallel evaluation
 
-Internally, `evaluate_batch` uses `jax.vmap` to map `evaluate_local` over all walkers. However, the restored checkpoint data carries [named sharding](inv:jax:*:doc#notebooks/shard_map) metadata (e.g. `qmc_batch_axis`) from training, while freshly created arrays like random keys do not. Mixing these inside a single `vmap` triggers a JAX error about inconsistent axis specs.
+Internally, `evaluate_batch_walkers` uses `jax.vmap` to map `evaluate_single_walker` over all walkers. However, the restored checkpoint data carries [named sharding](inv:jax:*:doc#notebooks/shard_map) metadata (e.g. `qmc_batch_axis`) from training, while freshly created arrays like random keys do not. Mixing these inside a single `vmap` triggers a JAX error about inconsistent axis specs.
 
 The solution is the same one the training loop uses: wrap the call in `jit_sharded`, which combines `jax.jit` with [`shard_map`](inv:jax:*:doc#notebooks/shard_map). Inside a `shard_map`, each device only sees its own **local shard** — plain arrays with no global sharding metadata — so the `vmap` inside `evaluate_batch` works without conflict.
 
@@ -259,7 +259,7 @@ print(f"  Potential var: {final_stats['energy:potential_var']:.6f}")
 
 The local energy $E_L(r) = H\psi(r)/\psi(r)$ should be constant everywhere for an exact eigenstate. Plotting it against electron-nucleus distance reveals how well the wavefunction performs at different regions.
 
-We use the same `jit_sharded` pattern to vmap `evaluate_local` over walkers:
+We use the same `jit_sharded` pattern to vmap `evaluate_single_walker` over walkers:
 
 ```{code-cell} ipython3
 ---
@@ -268,7 +268,9 @@ slideshow:
   slide_type: ''
 ---
 def compute_local_energy(params, data):
-    kinetic_stats, _ = kinetic_est.evaluate_local(params, data, {}, None, jax.random.PRNGKey(0))
+    kinetic_stats, _ = kinetic_est.evaluate_single_walker(
+        params, data, {}, None, jax.random.PRNGKey(0)
+    )
     potential_stats, _ = potential_energy(params, data, {}, None, jax.random.PRNGKey(0))
     return kinetic_stats["energy:kinetic"] + potential_stats["energy:potential"]
 

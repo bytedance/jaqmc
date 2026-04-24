@@ -12,12 +12,12 @@ from jax.numpy import cos, sin
 from jaqmc.app.hall.config import InteractionType
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import LocalEstimator
+from jaqmc.estimator.base import PerWalkerEstimator
 from jaqmc.utils.config import configurable_dataclass
 
 
 @configurable_dataclass
-class SpherePotential(LocalEstimator):
+class SpherePotential(PerWalkerEstimator):
     r"""Potential energy on the Haldane sphere.
 
     Converts spherical coordinates to Cartesian, computes pairwise
@@ -35,15 +35,15 @@ class SpherePotential(LocalEstimator):
     radius: float = 1.0
     interaction_strength: float = 1.0
 
-    def evaluate_local(
+    def evaluate_single_walker(
         self,
         params: Params,
         data: Data,
-        prev_local_stats: Mapping[str, Any],
+        prev_walker_stats: Mapping[str, Any],
         state: None,
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], None]:
-        del params, prev_local_stats, rngs
+        del params, prev_walker_stats, rngs
         electrons = data["electrons"]
         theta, phi = electrons[..., 0], electrons[..., 1]
 

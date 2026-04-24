@@ -6,10 +6,10 @@ API reference for built-in estimators. For background, formulas, and configurati
 
 ```{eval-rst}
 .. autoclass:: jaqmc.estimator.Estimator
-   :members: init, evaluate_batch, reduce, finalize_stats, finalize_state
+   :members: init, evaluate_batch_walkers, reduce, finalize_stats, finalize_state
 
-.. autoclass:: jaqmc.estimator.LocalEstimator
-   :members: evaluate_local, evaluate_batch
+.. autoclass:: jaqmc.estimator.PerWalkerEstimator
+   :members: evaluate_single_walker, evaluate_batch_walkers
 
 .. autoclass:: jaqmc.estimator.FunctionEstimator
    :members:

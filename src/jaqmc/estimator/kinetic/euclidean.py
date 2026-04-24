@@ -11,7 +11,7 @@ from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import LocalEstimator
+from jaqmc.estimator.base import PerWalkerEstimator
 from jaqmc.utils import parallel_jax
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.func_transform import (
@@ -26,7 +26,7 @@ from ._common import LaplacianMode, _apply_kinetic_formula, _flatten_positions
 
 
 @configurable_dataclass
-class EuclideanKinetic(LocalEstimator):
+class EuclideanKinetic(PerWalkerEstimator):
     """Kinetic energy estimator in Euclidean geometry.
 
     The most computationally expensive default energy component. The
@@ -68,15 +68,15 @@ class EuclideanKinetic(LocalEstimator):
                 "Sparsity threshold is only supported in forward_laplacian mode."
             )
 
-    def evaluate_local(
+    def evaluate_single_walker(
         self,
         params: Params,
         data: Data,
-        prev_local_stats: Mapping[str, Any],
+        prev_walker_stats: Mapping[str, Any],
         state: None,
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], None]:
-        del prev_local_stats, rngs
+        del prev_walker_stats, rngs
         if self.mode == LaplacianMode.forward_laplacian:
             return self._evaluate_forward_laplacian(params, data, state)
         return self._evaluate_standard(params, data, state)

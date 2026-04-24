@@ -34,7 +34,7 @@ For a beginner, the simplest way to think about it is: "`Data` holds the arrays
 my components read while the run is executing."
 
 Most high-level extension hooks use `Data` in its single-walker form. A
-wavefunction or `evaluate_local` implementation usually receives one walker's
+wavefunction or `evaluate_single_walker` implementation usually receives one walker's
 values in that object.
 
 It is not limited to electron coordinates. Built-in apps already use

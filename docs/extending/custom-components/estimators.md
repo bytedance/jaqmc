@@ -6,7 +6,7 @@ calculations: you describe what to compute for one sampled configuration, and
 JaQMC maps that calculation over the walker batch.
 
 The sections below build in order: a plain function, then a configurable
-`LocalEstimator`, then runtime dependencies, then the full-batch `Estimator`
+`PerWalkerEstimator`, then runtime dependencies, then the full-batch `Estimator`
 when the whole walker batch is required. After that, a short reference section
 pulls the options together; the last section shows how to register the
 estimator in a real workflow and config.
@@ -35,7 +35,7 @@ estimators = {"dipole": dipole_moment, ...}
 JaQMC wraps the function as a
 {class}`~jaqmc.estimator.base.FunctionEstimator`. The function receives one
 walker's `Data`, not a batch. The wrapper batches it over walkers during
-`evaluate_batch`. If you need the exact `Data` versus `BatchedData` convention,
+`evaluate_batch_walkers`. If you need the exact `Data` versus `BatchedData` convention,
 see <project:../runtime-data-conventions.md>.
 
 This form is a good fit for small, fixed observables. If the estimator needs
@@ -44,21 +44,21 @@ user-tunable fields or setup work, use a class instead.
 ## Make It Configurable
 
 When users should be able to adjust estimator settings from YAML, use
-{class}`~jaqmc.estimator.base.LocalEstimator`. It is the base class for
-single-walker estimators: you implement `evaluate_local`, and `LocalEstimator`
-provides the batched `evaluate_batch` implementation.
+{class}`~jaqmc.estimator.base.PerWalkerEstimator`. It is the base class for
+single-walker estimators: you implement `evaluate_single_walker`, and
+`PerWalkerEstimator` provides the batched `evaluate_batch_walkers` implementation.
 
 ```python
 from dataclasses import field
 
 from jax import numpy as jnp
 
-from jaqmc.estimator import LocalEstimator
+from jaqmc.estimator import PerWalkerEstimator
 from jaqmc.utils.config import configurable_dataclass
 
 
 @configurable_dataclass
-class DipoleEstimator(LocalEstimator):
+class DipoleEstimator(PerWalkerEstimator):
     """Estimates the electric dipole moment.
 
     Args:
@@ -67,8 +67,10 @@ class DipoleEstimator(LocalEstimator):
 
     reference_point: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
 
-    def evaluate_local(self, params, data, prev_local_stats, state, rngs):
-        del params, prev_local_stats, rngs
+    def evaluate_single_walker(
+        self, params, data, prev_walker_stats, state, rngs
+    ):
+        del params, prev_walker_stats, rngs
         ref = jnp.array(self.reference_point)
         dipole = -jnp.sum(data.electrons - ref, axis=0)
         return {
@@ -88,7 +90,7 @@ train:
       reference_point: [1.0, 0.0, 0.0]
 ```
 
-Because this estimator inherits from `LocalEstimator`, users also get
+Because this estimator inherits from `PerWalkerEstimator`, users also get
 `vmap_chunk_size`. The default `null` evaluates the whole walker batch in one
 vmap. On memory-limited runs, users can set an integer to evaluate fewer
 walkers at a time:
@@ -101,7 +103,7 @@ train:
 ```
 
 That knob is specific to the local-vmap path. Estimators that implement their
-own full-batch `evaluate_batch` do not inherit it, because JaQMC cannot know how
+own full-batch `evaluate_batch_walkers` do not inherit it, because JaQMC cannot know how
 to split their batch logic safely.
 
 ## Add Runtime Dependencies
@@ -127,13 +129,13 @@ from typing import Any
 
 from jax import numpy as jnp
 
-from jaqmc.estimator import LocalEstimator
+from jaqmc.estimator import PerWalkerEstimator
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
 
 
 @configurable_dataclass
-class DipoleEstimator(LocalEstimator):
+class DipoleEstimator(PerWalkerEstimator):
     """Estimates the electric dipole moment.
 
     Args:
@@ -146,8 +148,10 @@ class DipoleEstimator(LocalEstimator):
     atom_charges: Any = runtime_dep()
     atom_positions: Any = runtime_dep()
 
-    def evaluate_local(self, params, data, prev_local_stats, state, rngs):
-        del params, prev_local_stats, rngs
+    def evaluate_single_walker(
+        self, params, data, prev_walker_stats, state, rngs
+    ):
+        del params, prev_walker_stats, rngs
         ref = jnp.array(self.reference_point)
         elec = -jnp.sum(data.electrons - ref, axis=0)
         nuc = jnp.sum(self.atom_charges[:, None] * (self.atom_positions - ref), axis=0)
@@ -175,7 +179,7 @@ est = cfg.get("estimators.dipole", DipoleEstimator())
 wire(est, atom_charges=system.charges, atom_positions=system.positions)
 ```
 
-Only `reference_point` and inherited `LocalEstimator` config fields appear in
+Only `reference_point` and inherited `PerWalkerEstimator` config fields appear in
 YAML. Runtime dependencies remain workflow-owned:
 
 ```yaml
@@ -197,7 +201,7 @@ those values across the full walker batch. Some observables are more natural
 when the implementation can see the leading batch axis in one go: histograms,
 pair-correlation accumulators, and stateful evaluation summaries are typical
 examples. For those cases, inherit directly from
-{class}`~jaqmc.estimator.base.Estimator` and implement `evaluate_batch`.
+{class}`~jaqmc.estimator.base.Estimator` and implement `evaluate_batch_walkers`.
 
 The method receives
 {class}`~jaqmc.data.BatchedData`, so fields listed in
@@ -226,15 +230,17 @@ class RadiusHistogram(Estimator):
         del data, rngs
         return jnp.zeros(self.bins)
 
-    def evaluate_batch(self, params, batched_data, prev_local_stats, state, rngs):
-        del params, prev_local_stats, rngs
+    def evaluate_batch_walkers(
+        self, params, batched_data, prev_walker_stats, state, rngs
+    ):
+        del params, prev_walker_stats, rngs
         electrons = batched_data.data.electrons
         radii = jnp.linalg.norm(electrons, axis=-1).reshape(-1)
         counts = jnp.histogram(radii, self.bins, (0.0, self.max_radius))[0]
         return {}, state + counts
 
-    def reduce(self, local_stats):
-        del local_stats
+    def reduce(self, walker_stats):
+        del walker_stats
         return {}
 
     def finalize_state(self, state, *, n_steps):
@@ -259,8 +265,8 @@ The choice comes down to what shape of data the estimator really needs:
 | Need | Use | Implement |
 |------|-----|-----------|
 | Fixed single-walker calculation | Plain function | Function body |
-| Configurable single-walker calculation | `LocalEstimator` | `evaluate_local` |
-| Full-batch or state-accumulating calculation | `Estimator` | `evaluate_batch` |
+| Configurable single-walker calculation | `PerWalkerEstimator` | `evaluate_single_walker` |
+| Full-batch or state-accumulating calculation | `Estimator` | `evaluate_batch_walkers` |
 
 ### Lifecycle hooks
 
@@ -269,13 +275,13 @@ After you choose the interface, override only the methods your estimator needs:
 | Method | When to override |
 |--------|------------------|
 | `init(self, data, rngs)` | You need derived state before the first step, such as precomputed index arrays. |
-| `evaluate_local` | You inherit from `LocalEstimator` and compute one walker's local values. |
-| `evaluate_batch` | You inherit from `Estimator` and need the whole walker batch at once. |
+| `evaluate_single_walker` | You inherit from `PerWalkerEstimator` and compute one walker's values. |
+| `evaluate_batch_walkers` | You inherit from `Estimator` and need the whole walker batch at once. |
 | `reduce` | The default mean-with-variance is not appropriate. |
 | `finalize_stats` | Final values require nonlinear combinations of step-level statistics. |
 | `finalize_state` | Final values come from accumulated estimator state. |
 
-For most custom observables, `LocalEstimator.evaluate_local` is the only method
+For most custom observables, `PerWalkerEstimator.evaluate_single_walker` is the only method
 you need to implement.
 
 ### Keys and run order
@@ -289,7 +295,7 @@ Two conventions matter for the keys you return and for cross-estimator use:
   energy terms; a non-energy key such as `energy:dipole` will change the
   optimization target.
 - **Pipeline order**: Estimators run in insertion order. Each estimator receives
-  `prev_local_stats`, the local values from preceding estimators. If your
+  `prev_walker_stats`, the per-walker values from preceding estimators. If your
   estimator depends on another estimator's output, place it later in the
   estimator dict.
 

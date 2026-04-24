@@ -71,9 +71,9 @@ class TestMonopoleHarmonics:
         assert jnp.allclose(Y_000(coords), expected, atol=1e-6)
 
 
-class TestOneRDMEvaluateLocal:
+class TestOneRDMEvaluateSingleWalker:
     def test_output_shape(self):
-        """evaluate_local should return a complex (norbs, norbs) matrix."""
+        """evaluate_single_walker should return a complex (norbs, norbs) matrix."""
         flux = 2
         nelec = 3
         log_psi = _make_lll(nelec, Q=flux / 2)
@@ -82,14 +82,16 @@ class TestOneRDMEvaluateLocal:
         data = HallData(electrons=_sample(jax.random.PRNGKey(0), 1, nelec)[0])
         estimator.init(data, jax.random.PRNGKey(1))
 
-        stats, _ = estimator.evaluate_local(None, data, {}, None, jax.random.PRNGKey(2))
+        stats, _ = estimator.evaluate_single_walker(
+            None, data, {}, None, jax.random.PRNGKey(2)
+        )
         assert "one_rdm" in stats
         norbs = flux + 1
         assert stats["one_rdm"].shape == (norbs, norbs)
         assert jnp.iscomplexobj(stats["one_rdm"])
 
     def test_jit_compatible(self):
-        """evaluate_local should work under jax.jit."""
+        """evaluate_single_walker should work under jax.jit."""
         flux = 2
         nelec = 3
         log_psi = _make_lll(nelec, Q=flux / 2)
@@ -98,7 +100,9 @@ class TestOneRDMEvaluateLocal:
         data = HallData(electrons=_sample(jax.random.PRNGKey(0), 1, nelec)[0])
         estimator.init(data, jax.random.PRNGKey(1))
 
-        jitted = jax.jit(lambda d, k: estimator.evaluate_local(None, d, {}, None, k))
+        jitted = jax.jit(
+            lambda d, k: estimator.evaluate_single_walker(None, d, {}, None, k)
+        )
         stats, _ = jitted(data, jax.random.PRNGKey(2))
         assert stats["one_rdm"].shape == (flux + 1, flux + 1)
 
@@ -137,14 +141,14 @@ class TestOneRDMSmoke:
             key, sample_key, eval_key = jax.random.split(key, 3)
             electrons = _sample(sample_key, n_walkers, nelec)
             eval_keys = jax.random.split(eval_key, n_walkers)
-            local_stats, _ = jax.vmap(
-                lambda elec, k: estimator.evaluate_local(
+            walker_stats, _ = jax.vmap(
+                lambda elec, k: estimator.evaluate_single_walker(
                     None, HallData(electrons=elec), {}, None, k
                 ),
                 in_axes=(0, 0),
             )(electrons, eval_keys)
             # Compute mean manually (reduce needs shard_map context for pmean)
-            step_stats = jax.tree.map(lambda x: jnp.nanmean(x, axis=0), local_stats)
+            step_stats = jax.tree.map(lambda x: jnp.nanmean(x, axis=0), walker_stats)
             all_step_stats.append(step_stats)
 
         batched_stats = jax.tree.map(lambda *xs: jnp.stack(xs), *all_step_stats)
@@ -164,8 +168,8 @@ class TestOneRDMSmoke:
 
 
 class TestOneRDMPipeline:
-    def test_evaluate_batch_and_finalize_stats(self):
-        """OneRDM integrates with evaluate_batch and finalize_stats lifecycle."""
+    def test_evaluate_batch_walkers_and_finalize_stats(self):
+        """OneRDM integrates with the batched evaluator and finalize_stats."""
         flux = 2
         nelec = 3
         n_walkers = 8
@@ -181,16 +185,16 @@ class TestOneRDMPipeline:
 
         state = estimator.init(batched_data.unbatched_example(), jax.random.PRNGKey(1))
 
-        # evaluate_batch vmaps evaluate_local over walkers
-        local_stats, state = estimator.evaluate_batch(
+        # evaluate_batch_walkers vmaps evaluate_single_walker over walkers
+        walker_stats, state = estimator.evaluate_batch_walkers(
             None, batched_data, {}, state, jax.random.PRNGKey(2)
         )
 
         norbs = flux + 1
-        assert local_stats["one_rdm"].shape == (n_walkers, norbs, norbs)
+        assert walker_stats["one_rdm"].shape == (n_walkers, norbs, norbs)
 
         # Manual reduce (skip pmean which needs shard_map context)
-        step_stats = jax.tree.map(lambda x: jnp.nanmean(x, axis=0), local_stats)
+        step_stats = jax.tree.map(lambda x: jnp.nanmean(x, axis=0), walker_stats)
         assert step_stats["one_rdm"].shape == (norbs, norbs)
 
         # Finalize with batch dim of 1

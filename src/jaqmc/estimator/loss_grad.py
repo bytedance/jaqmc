@@ -11,7 +11,7 @@ from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import LocalEstimator, mean_reduce
+from jaqmc.estimator.base import PerWalkerEstimator, mean_reduce
 from jaqmc.utils import parallel_jax
 from jaqmc.utils.array import match_first_axis_of
 from jaqmc.utils.clip import iqr_clip
@@ -22,7 +22,7 @@ from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
 
 
 @configurable_dataclass
-class LossAndGrad(LocalEstimator):
+class LossAndGrad(PerWalkerEstimator):
     r"""Estimator that computes the VMC loss and parameter gradients.
 
     The gradient of the variational energy with respect to wavefunction
@@ -39,7 +39,7 @@ class LossAndGrad(LocalEstimator):
     The computation proceeds in three stages across the estimator
     lifecycle:
 
-    1. ``evaluate_local`` — evaluates :math:`\log\psi` and its
+    1. ``evaluate_single_walker`` — evaluates :math:`\log\psi` and its
        parameter gradient for each walker, and reads the loss value.
     2. ``reduce`` — applies IQR clipping to the local energies for
        outlier robustness, then forms the per-walker product
@@ -48,7 +48,7 @@ class LossAndGrad(LocalEstimator):
        to assemble the final gradient.
 
     Args:
-        loss_key: Key in prev_local_stats to use as the loss.
+        loss_key: Key in prev_walker_stats to use as the loss.
         clip_scale: Multiplier on the interquartile range (IQR) that sets
             the clipping window for local energies. A walker whose energy
             falls outside :math:`[Q_1 - s \cdot \text{IQR},\;
@@ -64,11 +64,11 @@ class LossAndGrad(LocalEstimator):
     clip_scale: float = 5.0
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
 
-    def evaluate_local(
+    def evaluate_single_walker(
         self,
         params: Params,
         data: Data,
-        prev_local_stats: Mapping[str, Any],
+        prev_walker_stats: Mapping[str, Any],
         state: None,
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], None]:
@@ -78,30 +78,30 @@ class LossAndGrad(LocalEstimator):
         # Without this, JAX assumes grads share params' non-varying sharding,
         # which confuses the compiler (known bug in JAX 0.8.1).
         primals, grads = value_and_grad_f(parallel_jax.pvary(params), data)
-        if not jnp.isscalar(prev_local_stats[self.loss_key]):
+        if not jnp.isscalar(prev_walker_stats[self.loss_key]):
             raise ValueError(
                 "Expected scalar loss value (i.e. ndim=0), got shape "
-                f"{prev_local_stats[self.loss_key].shape}."
+                f"{prev_walker_stats[self.loss_key].shape}."
             )
         # We copy over loss stats because we need to do customized reduce
         return {
             "logpsi": primals,
             "grad_logpsi": grads,
-            "loss": prev_local_stats[self.loss_key],
+            "loss": prev_walker_stats[self.loss_key],
         }, state
 
-    def reduce(self, local_stats: Mapping[str, Any]) -> dict[str, Any]:
-        clipped_loss = iqr_clip(local_stats["loss"], scale=self.clip_scale)
+    def reduce(self, walker_stats: Mapping[str, Any]) -> dict[str, Any]:
+        clipped_loss = iqr_clip(walker_stats["loss"], scale=self.clip_scale)
         grad_logpsi_and_loss = jax.tree.map(
             lambda x: jnp.real(jnp.conj(x) * match_first_axis_of(clipped_loss, x)),
-            local_stats["grad_logpsi"],
+            walker_stats["grad_logpsi"],
         )
         return mean_reduce(
             {
                 "grad_logpsi_and_loss": grad_logpsi_and_loss,
-                "loss": local_stats["loss"],
+                "loss": walker_stats["loss"],
                 "clipped_loss": clipped_loss,
-                "grad_logpsi": local_stats["grad_logpsi"],
+                "grad_logpsi": walker_stats["grad_logpsi"],
             }
         )
 

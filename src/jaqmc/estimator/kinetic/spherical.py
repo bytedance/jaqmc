@@ -18,7 +18,7 @@ from jax.numpy import cos, sin, tan
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import LocalEstimator
+from jaqmc.estimator.base import PerWalkerEstimator
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.func_transform import with_imag, with_real
 from jaqmc.utils.wiring import runtime_dep
@@ -109,7 +109,7 @@ def _angular_momentum_square(f, Q: float):
 
 
 @configurable_dataclass
-class SphericalKinetic(LocalEstimator):
+class SphericalKinetic(PerWalkerEstimator):
     r"""Kinetic energy on a sphere with magnetic monopole.
 
     Uses the Hessian-based calculation following the formulas in
@@ -142,15 +142,15 @@ class SphericalKinetic(LocalEstimator):
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
     data_field: str = runtime_dep(default="electrons")
 
-    def evaluate_local(
+    def evaluate_single_walker(
         self,
         params: Params,
         data: Data,
-        prev_local_stats: Mapping[str, Any],
+        prev_walker_stats: Mapping[str, Any],
         state: None,
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], None]:
-        del prev_local_stats, rngs
+        del prev_walker_stats, rngs
         if self.mode == LaplacianMode.forward_laplacian:
             return self._evaluate_forward_laplacian(params, data, state)
         return self._evaluate_hessian(params, data, state)

@@ -13,17 +13,17 @@ from typing import Any
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import LocalEstimator
+from jaqmc.estimator.base import PerWalkerEstimator
 from jaqmc.utils.config import configurable_dataclass
 
 
 @configurable_dataclass
-class PenalizedLoss(LocalEstimator):
+class PenalizedLoss(PerWalkerEstimator):
     """Adds angular momentum penalties to total energy for state selection.
 
     Reads ``total_energy``, ``angular_momentum_z``,
     ``angular_momentum_z_square``, and ``angular_momentum_square`` from
-    ``prev_local_stats`` and outputs a ``penalized_loss`` key.
+    ``prev_walker_stats`` and outputs a ``penalized_loss`` key.
 
     Args:
         lz_center: Target :math:`L_z` value.
@@ -35,28 +35,28 @@ class PenalizedLoss(LocalEstimator):
     lz_penalty: float = 0.0
     l2_penalty: float = 0.0
 
-    def evaluate_local(
+    def evaluate_single_walker(
         self,
         params: Params,
         data: Data,
-        prev_local_stats: Mapping[str, Any],
+        prev_walker_stats: Mapping[str, Any],
         state: None,
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], None]:
         del params, data, rngs
 
-        loss = prev_local_stats["total_energy"]
+        loss = prev_walker_stats["total_energy"]
 
         if self.lz_penalty:
-            lz = prev_local_stats["angular_momentum_z"]
-            lz_sq = prev_local_stats["angular_momentum_z_square"]
+            lz = prev_walker_stats["angular_momentum_z"]
+            lz_sq = prev_walker_stats["angular_momentum_z_square"]
             # (Lz - lz_center)^2 = Lz^2 - 2*lz_center*Lz + lz_center^2
             loss = loss + self.lz_penalty * (
                 lz_sq - 2 * self.lz_center * lz + self.lz_center**2
             )
 
         if self.l2_penalty:
-            l2 = prev_local_stats["angular_momentum_square"]
+            l2 = prev_walker_stats["angular_momentum_square"]
             loss = loss + self.l2_penalty * l2
 
         return {"penalized_loss": loss}, state

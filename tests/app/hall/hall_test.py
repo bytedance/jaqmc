@@ -43,7 +43,7 @@ def _make_lll(nelec: int, Q: int):
 
 
 def _eval_single(estimator, data):
-    return estimator.evaluate_local(None, data, {}, None, None)[0]
+    return estimator.evaluate_single_walker(None, data, {}, None, None)[0]
 
 
 class TestHallData:
@@ -166,18 +166,18 @@ class TestSpherePotential:
         )
         electrons = jnp.array([[0.0, 0.0], [jnp.pi, 0.0]])
         data = HallData(electrons=electrons)
-        stats, _ = estimator.evaluate_local(None, data, {}, None, None)
+        stats, _ = estimator.evaluate_single_walker(None, data, {}, None, None)
         assert jnp.allclose(stats["energy:potential"], 0.5, atol=1e-5)
 
 
 class TestPenalizedLoss:
-    """PenalizedLoss: pure arithmetic on prev_local_stats."""
+    """PenalizedLoss: pure arithmetic on prev_walker_stats."""
 
     def test_no_penalty(self):
         """With zero penalties, loss == total_energy."""
         est = PenalizedLoss(lz_penalty=0.0, l2_penalty=0.0)
         stats = {"total_energy": 5.0}
-        out, _ = est.evaluate_local(None, None, stats, None, None)
+        out, _ = est.evaluate_single_walker(None, None, stats, None, None)
         np.testing.assert_allclose(out["penalized_loss"], 5.0)
 
     def test_lz_penalty_only(self):
@@ -189,7 +189,7 @@ class TestPenalizedLoss:
             "angular_momentum_z_square": 9.0,
         }
         # penalty = 2.0 * (9 - 2*1*3 + 1^2) = 2.0 * 4 = 8
-        out, _ = est.evaluate_local(None, None, stats, None, None)
+        out, _ = est.evaluate_single_walker(None, None, stats, None, None)
         np.testing.assert_allclose(out["penalized_loss"], 18.0)
 
     def test_both_penalties(self):
@@ -201,7 +201,7 @@ class TestPenalizedLoss:
             "angular_momentum_z_square": 4.0,
             "angular_momentum_square": 6.0,
         }
-        out, _ = est.evaluate_local(None, None, stats, None, None)
+        out, _ = est.evaluate_single_walker(None, None, stats, None, None)
         # energy(1) + lz_penalty(4) + l2_penalty(3) = 8
         np.testing.assert_allclose(out["penalized_loss"], 8.0)
 

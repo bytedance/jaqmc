@@ -37,7 +37,7 @@ To add another console field, use the statistic key that the estimator writes, n
 train.writers.console.fields="pmove:.2f,energy=total_energy:.6f,A=observable_a:.6f"
 ```
 
-For most estimators, the key is the output key in the estimator code. If a custom estimator returns `{"observable_a": value}` from `evaluate_local` and uses the default reducer, the scalar mean is written as `observable_a` and the variance is written as `observable_a_var`.
+For most estimators, the key is the output key in the estimator code. If a custom estimator returns `{"observable_a": value}` from `evaluate_single_walker` and uses the default reducer, the scalar mean is written as `observable_a` and the variance is written as `observable_a_var`.
 
 If you're unsure which key to use, inspect an existing run's output files. The CSV header lists scalar keys that can be printed in the console:
 

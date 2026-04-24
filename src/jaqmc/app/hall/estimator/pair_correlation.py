@@ -40,15 +40,15 @@ class PairCorrelation(Estimator):
     def init(self, data: Data, rngs: PRNGKey) -> jnp.ndarray:
         return jnp.zeros(self.bins)
 
-    def evaluate_batch(
+    def evaluate_batch_walkers(
         self,
         params: Any,
         batched_data: BatchedData,
-        prev_local_stats: Mapping[str, Any],
+        prev_walker_stats: Mapping[str, Any],
         state: jnp.ndarray,
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], jnp.ndarray]:
-        del params, prev_local_stats, rngs
+        del params, prev_walker_stats, rngs
         electrons = batched_data.data.electrons
         batch_size, nelec, _ = electrons.shape
         theta, phi = electrons[..., 0], electrons[..., 1]
@@ -72,7 +72,8 @@ class PairCorrelation(Estimator):
         # to a density.  Division by number of evaluation steps is NOT included.
         return {}, state + to_add * 4 * self.bins / batch_size / nelec**2 / jnp.pi
 
-    def reduce(self, local_stats: Mapping[str, Any]) -> dict[str, Any]:
+    def reduce(self, walker_stats: Mapping[str, Any]) -> dict[str, Any]:
+        del walker_stats
         return {}
 
     def finalize_stats(

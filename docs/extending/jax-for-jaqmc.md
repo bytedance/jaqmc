@@ -16,27 +16,27 @@ from typing import Any
 
 from jaqmc.app.molecule.data import MoleculeData
 from jaqmc.array_types import Params, PRNGKey
-from jaqmc.estimator import LocalEstimator
+from jaqmc.estimator import PerWalkerEstimator
 
 
-class PotentialEnergy(LocalEstimator):
-    def evaluate_local(
+class PotentialEnergy(PerWalkerEstimator):
+    def evaluate_single_walker(
         self,
         params: Params,
         data: MoleculeData,
-        prev_local_stats: Mapping[str, Any],
+        prev_walker_stats: Mapping[str, Any],
         state: object,
         rngs: PRNGKey,
     ) -> tuple[dict[str, jnp.ndarray], object]:
-        del params, prev_local_stats, rngs
+        del params, prev_walker_stats, rngs
         r = jnp.linalg.norm(data["electrons"][0] - data["atoms"][0])
         return {"energy:potential": -1.0 / r}, state
 ```
 
 What this example shows:
 
-- You write logic for **one walker** in {meth}`~jaqmc.estimator.LocalEstimator.evaluate_local`.
-- JaQMC's {class}`~jaqmc.estimator.LocalEstimator` class batches that logic with {func}`jax.vmap` in {meth}`~jaqmc.estimator.LocalEstimator.evaluate_batch`.
+- You write logic for **one walker** in {meth}`~jaqmc.estimator.PerWalkerEstimator.evaluate_single_walker`.
+- JaQMC's {class}`~jaqmc.estimator.PerWalkerEstimator` class batches that logic with {func}`jax.vmap` in {meth}`~jaqmc.estimator.PerWalkerEstimator.evaluate_batch_walkers`.
 - Workflow stages may compile the batched computation with {func}`jax.jit`.
 
 Keep this "single walker -> `vmap` -> `jit`" model in mind while reading the rest of the page.
@@ -71,7 +71,7 @@ A **walker** is one sampled electron configuration. The most important JaQMC-spe
 That pattern explains several design choices you will see in the docs:
 
 - A wavefunction `__call__` usually receives one JaQMC [Data](#api-wavefunctions-data) object, not a batch.
-- Estimators often inherit from {class}`~jaqmc.estimator.LocalEstimator` and implement {meth}`~jaqmc.estimator.LocalEstimator.evaluate_local` for one walker, while `LocalEstimator` handles batching.
+- Estimators often inherit from {class}`~jaqmc.estimator.PerWalkerEstimator` and implement {meth}`~jaqmc.estimator.PerWalkerEstimator.evaluate_single_walker` for one walker, while `PerWalkerEstimator` handles batching.
 - Runtime state and parameters must be JAX-friendly pytrees so they can pass through transforms cleanly.
 
 If that pattern feels strange at first, focus on understanding `vmap` before worrying about more advanced JAX topics.

@@ -56,8 +56,10 @@ def test_forward_laplacian_vs_scan_equivalence(n_particles, n_dims, coeff):
         mode=LaplacianMode.forward_laplacian, f_log_psi=log_psi, data_field="positions"
     )
 
-    stats_scan, _ = estimator_scan.evaluate_local(params, data, {}, None, key)
-    stats_fwd_lap, _ = estimator_fwd_lap.evaluate_local(params, data, {}, None, key)
+    stats_scan, _ = estimator_scan.evaluate_single_walker(params, data, {}, None, key)
+    stats_fwd_lap, _ = estimator_fwd_lap.evaluate_single_walker(
+        params, data, {}, None, key
+    )
 
     ke_scan = float(stats_scan["energy:kinetic"])
     ke_fwd_lap = float(stats_fwd_lap["energy:kinetic"])
@@ -95,8 +97,10 @@ def test_forward_laplacian_kinetic_with_complex_wavefunction():
         mode=LaplacianMode.scan, f_log_psi=log_psi_complex, data_field="positions"
     )
 
-    stats_fwd_lap, _ = estimator_fwd_lap.evaluate_local(params, data, {}, None, key)
-    stats_scan, _ = estimator_scan.evaluate_local(params, data, {}, None, key)
+    stats_fwd_lap, _ = estimator_fwd_lap.evaluate_single_walker(
+        params, data, {}, None, key
+    )
+    stats_scan, _ = estimator_scan.evaluate_single_walker(params, data, {}, None, key)
 
     # Kinetic energy can be complex for complex wavefunctions
     ke_fwd_lap = stats_fwd_lap["energy:kinetic"]
@@ -140,8 +144,10 @@ def test_forward_laplacian_kinetic_edge_cases():
 
     # Test zero positions
     data = SimpleData(positions=jnp.zeros((3, 3)))
-    stats_fwd_lap, _ = estimator_fwd_lap.evaluate_local(params, data, {}, None, key)
-    stats_scan, _ = estimator_scan.evaluate_local(params, data, {}, None, key)
+    stats_fwd_lap, _ = estimator_fwd_lap.evaluate_single_walker(
+        params, data, {}, None, key
+    )
+    stats_scan, _ = estimator_scan.evaluate_single_walker(params, data, {}, None, key)
 
     ke_fwd_lap = float(stats_fwd_lap["energy:kinetic"])
     ke_scan = float(stats_scan["energy:kinetic"])
@@ -156,8 +162,10 @@ def test_forward_laplacian_kinetic_edge_cases():
 
     # Test very small positions
     data = SimpleData(positions=jnp.ones((3, 3)) * 1e-10)
-    stats_fwd_lap, _ = estimator_fwd_lap.evaluate_local(params, data, {}, None, key)
-    stats_scan, _ = estimator_scan.evaluate_local(params, data, {}, None, key)
+    stats_fwd_lap, _ = estimator_fwd_lap.evaluate_single_walker(
+        params, data, {}, None, key
+    )
+    stats_scan, _ = estimator_scan.evaluate_single_walker(params, data, {}, None, key)
 
     ke_fwd_lap = float(stats_fwd_lap["energy:kinetic"])
     ke_scan = float(stats_scan["energy:kinetic"])
@@ -174,8 +182,10 @@ def test_forward_laplacian_kinetic_edge_cases():
 
     # Test single particle, single dimension
     data = SimpleData(positions=jnp.array([[0.5]]))
-    stats_fwd_lap, _ = estimator_fwd_lap.evaluate_local(params, data, {}, None, key)
-    stats_scan, _ = estimator_scan.evaluate_local(params, data, {}, None, key)
+    stats_fwd_lap, _ = estimator_fwd_lap.evaluate_single_walker(
+        params, data, {}, None, key
+    )
+    stats_scan, _ = estimator_scan.evaluate_single_walker(params, data, {}, None, key)
 
     ke_fwd_lap = float(stats_fwd_lap["energy:kinetic"])
     ke_scan = float(stats_scan["energy:kinetic"])

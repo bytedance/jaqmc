@@ -16,11 +16,11 @@ A typical component has two kinds of fields:
 The {deco}`~jaqmc.utils.config.configurable_dataclass` decorator prepares a class for the config system. It applies `@dataclass` and sets up serialization so that {meth}`~jaqmc.utils.config.ConfigManager.get`, {meth}`~jaqmc.utils.config.ConfigManager.get_module`, and {meth}`~jaqmc.utils.config.ConfigManager.get_collection` can construct instances from YAML.
 
 ```python
-from jaqmc.estimator import LocalEstimator
+from jaqmc.estimator import PerWalkerEstimator
 from jaqmc.utils.config import configurable_dataclass
 
 @configurable_dataclass
-class MyEstimator(LocalEstimator):
+class MyEstimator(PerWalkerEstimator):
     cutoff: float = 1e-8  # appears in YAML
 ```
 
@@ -31,11 +31,11 @@ This is equivalent to writing `@dataclass(kw_only=True)` plus the serialization 
 Use `runtime_dep()` to declare a field as a runtime dependency. These fields are hidden from serialization — they won't appear in YAML output or be read from config files.
 
 ```python
-from jaqmc.estimator import LocalEstimator
+from jaqmc.estimator import PerWalkerEstimator
 from jaqmc.utils.wiring import runtime_dep
 
 @configurable_dataclass
-class MyEstimator(LocalEstimator):
+class MyEstimator(PerWalkerEstimator):
     cutoff: float = 1e-8                              # config field
     f_log_psi: SomeCallable = runtime_dep()            # required
     data_field: str = runtime_dep(default="electrons")  # optional
@@ -79,12 +79,12 @@ est.f_log_psi = wf.evaluate
 Here's {class}`~jaqmc.estimator.kinetic.EuclideanKinetic`, a built-in estimator that uses all three mechanisms:
 
 ```python
-from jaqmc.estimator import LocalEstimator
+from jaqmc.estimator import PerWalkerEstimator
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
 
 @configurable_dataclass
-class EuclideanKinetic(LocalEstimator):
+class EuclideanKinetic(PerWalkerEstimator):
     """Kinetic energy estimator in Euclidean geometry.
 
     Args:
@@ -96,7 +96,9 @@ class EuclideanKinetic(LocalEstimator):
     f_log_psi: WavefunctionEvaluate = runtime_dep()   # required runtime dep
     data_field: str = runtime_dep(default="electrons")  # optional runtime dep
 
-    def evaluate_local(self, params, data, prev_local_stats, state, rngs):
+    def evaluate_single_walker(
+        self, params, data, prev_walker_stats, state, rngs
+    ):
         # Uses self.f_log_psi to compute the Laplacian of log|psi|
         ...
         return {"energy:kinetic": kinetic_energy}, state

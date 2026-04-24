@@ -7,7 +7,7 @@ from .base import (
     EstimatorLike,
     EstimatorPipeline,
     FunctionEstimator,
-    LocalEstimator,
+    PerWalkerEstimator,
 )
 
 __all__ = [
@@ -16,5 +16,5 @@ __all__ = [
     "EstimatorLike",
     "EstimatorPipeline",
     "FunctionEstimator",
-    "LocalEstimator",
+    "PerWalkerEstimator",
 ]

@@ -48,22 +48,22 @@ def test_chunked_vmap_handles_exact_chunk_partition():
 
 
 def test_chunked_vmap_preserves_none_output_leaf():
-    def evaluate_local(params, data, prev_local_stats, state, rng):
-        del params, prev_local_stats, rng
+    def evaluate_single_walker(params, data, prev_walker_stats, state, rng):
+        del params, prev_walker_stats, rng
         return {"energy:kinetic": data * 2}, state
 
     params = {"w": jnp.array([1.0])}
     data = jnp.arange(10.0)
-    prev_local_stats = {}
+    prev_walker_stats = {}
     state = None
     rngs = jax.random.split(jax.random.PRNGKey(0), 10)
     in_axes = (None, 0, 0, None, 0)
 
-    y_ref = jax.vmap(evaluate_local, in_axes=in_axes)(
-        params, data, prev_local_stats, state, rngs
+    y_ref = jax.vmap(evaluate_single_walker, in_axes=in_axes)(
+        params, data, prev_walker_stats, state, rngs
     )
-    y = chunked_vmap(evaluate_local, in_axes=in_axes, chunk_size=4)(
-        params, data, prev_local_stats, state, rngs
+    y = chunked_vmap(evaluate_single_walker, in_axes=in_axes, chunk_size=4)(
+        params, data, prev_walker_stats, state, rngs
     )
 
     chex.assert_trees_all_close(y, y_ref)

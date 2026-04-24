@@ -13,7 +13,7 @@ from jaqmc.estimator import (
     Estimator,
     EstimatorPipeline,
     FunctionEstimator,
-    LocalEstimator,
+    PerWalkerEstimator,
 )
 
 
@@ -22,17 +22,20 @@ def _dummy_evaluate(params, data, stats, state, rngs):
 
 
 class _BatchEstimator(Estimator):
-    """Estimator that overrides evaluate_batch to skip vmap."""
+    """Estimator that overrides evaluate_batch_walkers to skip vmap."""
 
     def __init__(self, key: str, value: float):
         self._key = key
         self._value = value
 
-    def evaluate_batch(self, params, batched_data, prev_local_stats, state, rngs):
+    def evaluate_batch_walkers(
+        self, params, batched_data, prev_walker_stats, state, rngs
+    ):
+        del batched_data, prev_walker_stats
         return {self._key: jnp.array(self._value)}, state
 
-    def reduce(self, local_stats):
-        return local_stats
+    def reduce(self, walker_stats):
+        return walker_stats
 
     def finalize_stats(self, batch_stats, state):
         mean_stats = jax.tree.map(lambda x: jnp.nanmean(x, axis=0), batch_stats)
@@ -44,15 +47,15 @@ class _ToyData(Data):
     scale: jnp.ndarray
 
 
-class _LocalValueEstimator(LocalEstimator):
-    def evaluate_local(self, params, data, prev_local_stats, state, rngs):
+class _LocalValueEstimator(PerWalkerEstimator):
+    def evaluate_single_walker(self, params, data, prev_walker_stats, state, rngs):
         del params, rngs
-        return {"value": data.x * data.scale + prev_local_stats["bias"]}, state
+        return {"value": data.x * data.scale + prev_walker_stats["bias"]}, state
 
 
 def test_function_estimator_delegates_to_fn():
     est = FunctionEstimator(_dummy_evaluate)
-    result, state = est.evaluate_local(None, None, {}, "s", None)
+    result, state = est.evaluate_single_walker(None, None, {}, "s", None)
     assert result == {"value": 1.0}
     assert state == "s"
 
@@ -62,16 +65,16 @@ def test_local_estimator_chunks_default_vmap():
         _ToyData(x=jnp.arange(7.0), scale=jnp.array(2.0)),
         fields_with_batch=["x"],
     )
-    prev_local_stats = {"bias": jnp.arange(7.0) * 10}
+    prev_walker_stats = {"bias": jnp.arange(7.0) * 10}
 
     full_est = _LocalValueEstimator()
     chunked_est = _LocalValueEstimator(vmap_chunk_size=3)
 
-    full, _ = full_est.evaluate_batch(
-        None, batched_data, prev_local_stats, None, jax.random.PRNGKey(0)
+    full, _ = full_est.evaluate_batch_walkers(
+        None, batched_data, prev_walker_stats, None, jax.random.PRNGKey(0)
     )
-    chunked, _ = chunked_est.evaluate_batch(
-        None, batched_data, prev_local_stats, None, jax.random.PRNGKey(0)
+    chunked, _ = chunked_est.evaluate_batch_walkers(
+        None, batched_data, prev_walker_stats, None, jax.random.PRNGKey(0)
     )
 
     np.testing.assert_allclose(chunked["value"], full["value"])
@@ -80,7 +83,7 @@ def test_local_estimator_chunks_default_vmap():
 def test_chunk_knob_only_lives_on_local_estimators():
     assert "vmap_chunk_size" not in Estimator.__dataclass_fields__
     assert "vmap_chunk_size" not in _BatchEstimator.__dataclass_fields__
-    assert "vmap_chunk_size" in LocalEstimator.__dataclass_fields__
+    assert "vmap_chunk_size" in PerWalkerEstimator.__dataclass_fields__
 
 
 def _make_pipeline_and_state():

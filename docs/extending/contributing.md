@@ -136,32 +136,32 @@ For true multi-process tests (e.g. testing distributed training), see `tests/dis
 
 Estimator tests should cover the following scenarios:
 
-**1. ``evaluate_local`` returns the right keys and shapes:**
+**1. ``evaluate_single_walker`` returns the right keys and shapes:**
 
 ```python
-def test_evaluate_local_shape():
+def test_evaluate_single_walker_shape():
     est = MyEstimator()
     data = ...  # single-walker data
     state = est.init(data, jax.random.PRNGKey(0))
-    stats, state = est.evaluate_local(
+    stats, state = est.evaluate_single_walker(
         None, data, {}, state, jax.random.PRNGKey(1)
     )
     assert "my_key" in stats
     assert stats["my_key"].shape == ()  # scalar per walker
 ```
 
-**2. JIT compatibility** — wrap `evaluate_local` in `jax.jit` and check that it produces finite values. This catches issues with dynamic shapes or Python control flow that JAX cannot trace.
+**2. JIT compatibility** — wrap `evaluate_single_walker` in `jax.jit` and check that it produces finite values. This catches issues with dynamic shapes or Python control flow that JAX cannot trace.
 
-**3. Batched evaluation** — call `evaluate_batch` on a batch of walkers and verify the output has a leading batch dimension:
+**3. Batched evaluation** — call `evaluate_batch_walkers` on a batch of walkers and verify the output has a leading batch dimension:
 
 ```python
-def test_evaluate_batch():
+def test_evaluate_batch_walkers():
     est = MyEstimator()
     state = est.init(single_walker_data, jax.random.PRNGKey(0))
-    local_stats, state = est.evaluate_batch(
+    walker_stats, state = est.evaluate_batch_walkers(
         None, batched_data, {}, state, jax.random.PRNGKey(1)
     )
-    assert local_stats["my_key"].shape == (n_walkers,)
+    assert walker_stats["my_key"].shape == (n_walkers,)
 ```
 
 **4. Physics correctness** — if possible, provide an analytic wavefunction with a known exact value and assert the estimator reproduces it. See `tests/hall_test.py::TestSphericalKinetic` for an example that uses a closed-form Laughlin wavefunction to verify kinetic energy.

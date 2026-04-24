@@ -30,7 +30,7 @@ from scipy import special as ss
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import LocalEstimator, mean_reduce
+from jaqmc.estimator.base import PerWalkerEstimator, mean_reduce
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
@@ -92,7 +92,7 @@ def _uniform_sample_sphere(key: PRNGKey) -> jnp.ndarray:
 
 
 @configurable_dataclass
-class OneRDM(LocalEstimator):
+class OneRDM(PerWalkerEstimator):
     r"""One-body reduced density matrix on the Haldane sphere.
 
     Computes the 1-RDM in the monopole harmonic basis
@@ -123,15 +123,15 @@ class OneRDM(LocalEstimator):
         assert len(self._orbitals) == norbs
         return None
 
-    def evaluate_local(
+    def evaluate_single_walker(
         self,
         params: Params,
         data: Data,
-        prev_local_stats: Mapping[str, Any],
+        prev_walker_stats: Mapping[str, Any],
         state: Any,
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], Any]:
-        del prev_local_stats
+        del prev_walker_stats
         electrons = data[self.data_field]
         nelec = electrons.shape[0]
 
@@ -169,7 +169,7 @@ class OneRDM(LocalEstimator):
 
         return {"one_rdm": one_rdm}, state
 
-    def reduce(self, local_stats: Mapping[str, Any]) -> dict[str, Any]:
+    def reduce(self, walker_stats: Mapping[str, Any]) -> dict[str, Any]:
         """Mean over walkers without variance (complex matrix).
 
         Uses the default ``mean_reduce`` but skips variance since the
@@ -179,7 +179,7 @@ class OneRDM(LocalEstimator):
         Returns:
             Step-level mean of the 1-RDM across walkers.
         """
-        return mean_reduce(local_stats, include_variance=False)
+        return mean_reduce(walker_stats, include_variance=False)
 
     def finalize_stats(
         self, batched_stats: Mapping[str, Any], state: Any

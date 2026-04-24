@@ -107,11 +107,11 @@ def make_pretrain_loss(
     def evaluate(
         params: Params,
         data: Data,
-        prev_local_stats: Mapping[str, Any],
+        prev_walker_stats: Mapping[str, Any],
         state: None,
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], None]:
-        del prev_local_stats, rngs
+        del prev_walker_stats, rngs
         # By default the sharding of grads will follow params in JAX. However, grads is
         # varying but params is not varying, and this can confuse the JAX compiler.
         # This can cause bug in JAX 0.8.1. To fix this, simply add pvary to params.

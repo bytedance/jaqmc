@@ -7,7 +7,7 @@ from typing import Any
 from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
-from jaqmc.estimator import LocalEstimator
+from jaqmc.estimator import PerWalkerEstimator
 from jaqmc.estimator.ewald import EwaldSum
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
@@ -16,7 +16,7 @@ from .data import SolidData
 
 
 @configurable_dataclass
-class PotentialEnergy(LocalEstimator):
+class PotentialEnergy(PerWalkerEstimator):
     """Potential energy estimator for solid systems using Ewald summation.
 
     Args:
@@ -29,15 +29,15 @@ class PotentialEnergy(LocalEstimator):
         self.ewald = EwaldSum(self.supercell_lattice)
         return None
 
-    def evaluate_local(
+    def evaluate_single_walker(
         self,
         params: Params,
         data: SolidData,
-        prev_local_stats: Mapping[str, Any],
+        prev_walker_stats: Mapping[str, Any],
         state: None,
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], None]:
-        del params, rngs, prev_local_stats
+        del params, rngs, prev_walker_stats
 
         electrons = data.electrons.reshape(-1, 3)
         atoms = data.atoms.reshape(-1, 3)

@@ -81,7 +81,7 @@ class TestKahanSummation:
         }
 
         for _ in range(100):
-            _, state = est.evaluate_batch(None, batched, {}, state, KEY)
+            _, state = est.evaluate_batch_walkers(None, batched, {}, state, KEY)
 
         expected = float(2**24) + 100
         np.testing.assert_allclose(float(state["histogram"][0, 0]), expected, rtol=1e-6)
@@ -115,7 +115,7 @@ class TestSphericalDensity:
         batched = _make_batched(electrons)
         data = _TestData(electrons=jnp.zeros((1, 2)))
         state = est.init(data, KEY)
-        _, state = est.evaluate_batch(None, batched, {}, state, KEY)
+        _, state = est.evaluate_batch_walkers(None, batched, {}, state, KEY)
         hist = state["histogram"][0]  # single-device histogram
         _assert_bin(hist, 0, 1.0)
         _assert_bin(hist, 2, 1.0)
@@ -128,7 +128,7 @@ class TestSphericalDensity:
         batched = _make_batched(electrons)
         data = _TestData(electrons=jnp.zeros((1, 2)))
         state = est.init(data, KEY)
-        _, state = est.evaluate_batch(None, batched, {}, state, KEY)
+        _, state = est.evaluate_batch_walkers(None, batched, {}, state, KEY)
         _assert_bin(state["histogram"][0], (0, 1), 1.0)
 
     def test_multi_step_accumulation(self):
@@ -139,7 +139,7 @@ class TestSphericalDensity:
         data = _TestData(electrons=jnp.zeros((1, 2)))
         state = est.init(data, KEY)
         for _ in range(3):
-            _, state = est.evaluate_batch(None, batched, {}, state, KEY)
+            _, state = est.evaluate_batch_walkers(None, batched, {}, state, KEY)
         _assert_bin(state["histogram"][0], 0, 3.0)
 
     def test_reduce_returns_empty(self):
@@ -170,7 +170,7 @@ class TestCartesianDensity:
         batched = _make_batched(electrons)
         data = _TestData(electrons=jnp.zeros((1, 3)))
         state = est.init(data, KEY)
-        _, state = est.evaluate_batch(None, batched, {}, state, KEY)
+        _, state = est.evaluate_batch_walkers(None, batched, {}, state, KEY)
         _assert_bin(state["histogram"][0], 5, 1.0)
 
     def test_direction_normalization(self):
@@ -184,7 +184,7 @@ class TestCartesianDensity:
         batched = _make_batched(electrons)
         data = _TestData(electrons=jnp.zeros((1, 3)))
         state = est.init(data, KEY)
-        _, state = est.evaluate_batch(None, batched, {}, state, KEY)
+        _, state = est.evaluate_batch_walkers(None, batched, {}, state, KEY)
         _assert_bin(state["histogram"][0], 5, 1.0)
 
     def test_oblique_direction(self):
@@ -198,7 +198,7 @@ class TestCartesianDensity:
         batched = _make_batched(electrons)
         data = _TestData(electrons=jnp.zeros((1, 3)))
         state = est.init(data, KEY)
-        _, state = est.evaluate_batch(None, batched, {}, state, KEY)
+        _, state = est.evaluate_batch_walkers(None, batched, {}, state, KEY)
         _assert_bin(state["histogram"][0], 8, 1.0)
 
     def test_2d_histogram(self):
@@ -213,7 +213,7 @@ class TestCartesianDensity:
         batched = _make_batched(electrons)
         data = _TestData(electrons=jnp.zeros((1, 3)))
         state = est.init(data, KEY)
-        _, state = est.evaluate_batch(None, batched, {}, state, KEY)
+        _, state = est.evaluate_batch_walkers(None, batched, {}, state, KEY)
         n = jax.device_count()
         assert state["histogram"].shape == (n, 4, 4)
         _assert_bin(state["histogram"][0], (1, 2), 1.0)
@@ -231,7 +231,7 @@ class TestCartesianDensity:
         batched = _make_batched(electrons)
         data = _TestData(electrons=jnp.zeros((1, 3)))
         state = est.init(data, KEY)
-        _, state = est.evaluate_batch(None, batched, {}, state, KEY)
+        _, state = est.evaluate_batch_walkers(None, batched, {}, state, KEY)
         # Only x and z remain -> 2D histogram
         n = jax.device_count()
         assert state["histogram"].shape == (n, 4, 4)
@@ -250,7 +250,7 @@ class TestCartesianDensity:
         batched = _make_batched(electrons)
         data = _TestData(electrons=jnp.zeros((1, 3)))
         state = est.init(data, KEY)
-        _, state = est.evaluate_batch(None, batched, {}, state, KEY)
+        _, state = est.evaluate_batch_walkers(None, batched, {}, state, KEY)
         n = jax.device_count()
         assert state["histogram"].shape == (n, 10)
         _assert_bin(state["histogram"][0], 5, 1.0)
@@ -274,7 +274,7 @@ class TestFractionalDensity:
         batched = _make_batched(electrons)
         data = _TestData(electrons=jnp.zeros((1, 3)))
         state = est.init(data, KEY)
-        _, state = est.evaluate_batch(None, batched, {}, state, KEY)
+        _, state = est.evaluate_batch_walkers(None, batched, {}, state, KEY)
         _assert_bin(state["histogram"][0], 5, 1.0)
 
     def test_non_orthogonal_cell(self):
@@ -296,7 +296,7 @@ class TestFractionalDensity:
         batched = _make_batched(electrons)
         data = _TestData(electrons=jnp.zeros((1, 3)))
         state = est.init(data, KEY)
-        _, state = est.evaluate_batch(None, batched, {}, state, KEY)
+        _, state = est.evaluate_batch_walkers(None, batched, {}, state, KEY)
         _assert_bin(state["histogram"][0], 5, 1.0)
 
     def test_wrapping(self):
@@ -311,7 +311,7 @@ class TestFractionalDensity:
         batched = _make_batched(electrons)
         data = _TestData(electrons=jnp.zeros((1, 3)))
         state = est.init(data, KEY)
-        _, state = est.evaluate_batch(None, batched, {}, state, KEY)
+        _, state = est.evaluate_batch_walkers(None, batched, {}, state, KEY)
         _assert_bin(state["histogram"][0], 5, 1.0)
 
     def test_2d_axes(self):
@@ -329,7 +329,7 @@ class TestFractionalDensity:
         batched = _make_batched(electrons)
         data = _TestData(electrons=jnp.zeros((1, 3)))
         state = est.init(data, KEY)
-        _, state = est.evaluate_batch(None, batched, {}, state, KEY)
+        _, state = est.evaluate_batch_walkers(None, batched, {}, state, KEY)
         n = jax.device_count()
         assert state["histogram"].shape == (n, 5, 5)
         _assert_bin(state["histogram"][0], (1, 3), 1.0)
@@ -349,7 +349,7 @@ class TestFractionalDensity:
         batched = _make_batched(electrons)
         data = _TestData(electrons=jnp.zeros((1, 3)))
         state = est.init(data, KEY)
-        _, state = est.evaluate_batch(None, batched, {}, state, KEY)
+        _, state = est.evaluate_batch_walkers(None, batched, {}, state, KEY)
         n = jax.device_count()
         assert state["histogram"].shape == (n, 10)
         _assert_bin(state["histogram"][0], 5, 1.0)
