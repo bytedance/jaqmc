@@ -96,8 +96,8 @@ class VMCWorkflow(Workflow):
         # We must use the same seed across all processes to ensure that replicated
         # parameters are initialized identically. Generation of different keys on
         # different devices (across processes) happens later. So no fold_in here.
-        rngs = jax.random.PRNGKey(self.config.seed or int(time.time()))
-        rngs = multihost_utils.broadcast_one_to_all(rngs)
+        seed = self.config.seed if self.config.seed is not None else int(time.time())
+        rngs = multihost_utils.broadcast_one_to_all(jax.random.PRNGKey(seed))
         context = self.run_context
 
         rngs, data_rngs = jax.random.split(rngs)
