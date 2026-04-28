@@ -76,6 +76,26 @@ def _extract_spin_blocks(
     return alpha_matrix, beta_matrix
 
 
+def _slogdet_spin_block(matrix: NDArray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """``jnp.linalg.slogdet`` for one spin block.
+
+    An empty block (shape ``(..., 0, 0)``) contributes determinant one
+    (``log|det| = 0``, ``sign = 1``). Avoiding ``slogdet`` on empty matrices also
+    sidesteps JAX ``diagonal``/``platform_dependent`` inconsistencies under manual
+    partitioning (see JaQMC ``qmc_batch_axis`` + JAX 0.6.x).
+
+    Returns:
+        Same as ``jnp.linalg.slogdet``: ``(sign, log_abs_det)`` with batch shape
+        ``matrix.shape[:-2]``.
+    """
+    if matrix.shape[-1] == 0:
+        leading = matrix.shape[:-2]
+        ones = jnp.ones(leading, dtype=matrix.dtype)
+        zeros = jnp.zeros(leading, dtype=matrix.dtype)
+        return ones, zeros
+    return jnp.linalg.slogdet(matrix)
+
+
 def _eval_slater_from_orbitals(
     alpha_matrix: NDArray, beta_matrix: NDArray
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
@@ -88,8 +108,8 @@ def _eval_slater_from_orbitals(
     Returns:
         Tuple of (sign, log_abs_det) for the Slater determinant.
     """
-    sign_alpha, logdet_alpha = jnp.linalg.slogdet(alpha_matrix)
-    sign_beta, logdet_beta = jnp.linalg.slogdet(beta_matrix)
+    sign_alpha, logdet_alpha = _slogdet_spin_block(alpha_matrix)
+    sign_beta, logdet_beta = _slogdet_spin_block(beta_matrix)
     return sign_alpha * sign_beta, logdet_alpha + logdet_beta
 
 
