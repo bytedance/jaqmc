@@ -40,6 +40,12 @@ system:
   electron_spins: [5, 5]  # [n_up, n_down]
 ```
 
+`electron_spins` gives `[n_up, n_down]` for the electrons included in the QMC
+simulation. This water example is all-electron, so `[5, 5]` includes all ten
+electrons. If you later add an ECP, leave out the core electrons it replaces;
+`electron_spins` should count only the valence electrons JaQMC samples
+explicitly.
+
 Then run training:
 
 ```bash
@@ -78,7 +84,8 @@ that generate the underlying configuration for you.
 
 For a single atom, `system.module=atom` is a shortcut. You provide the element
 symbol, and JaQMC fills in the matching electron spin configuration
-automatically.
+automatically. By default it uses the all-electron count; when `system.ecp` is
+set, it uses the valence count instead.
 
 ```yaml
 system:
@@ -96,8 +103,9 @@ jaqmc molecule train --yml atom_li.yml workflow.save_path=./runs/atom_li
 ### Diatomic Molecules
 
 For common two-atom systems, `system.module=diatomic` is a shortcut. You provide
-the chemical formula, bond length, and optional total spin; JaQMC places the
-atoms along the z-axis and computes `electron_spins` for you.
+the chemical formula, bond length, and optional spin for the simulated
+electrons. JaQMC places the atoms along the z-axis and computes
+`electron_spins` for you.
 
 ```yaml
 system:
@@ -105,7 +113,7 @@ system:
   formula: LiH        # Chemical formula (H2, LiH, N2, ClF, ...)
   bond_length: 3.015  # Distance between atoms
   unit: bohr          # Length unit for bond_length
-  spin: 0             # n_up - n_down for the full molecule
+  spin: 0             # n_up - n_down for electrons being simulated
 ```
 
 Save as `li_h_diatomic.yml`, then run:
@@ -114,32 +122,57 @@ Save as `li_h_diatomic.yml`, then run:
 jaqmc molecule train --yml li_h_diatomic.yml workflow.save_path=./runs/li_h_diatomic
 ```
 
-(molecule-basis-sets-and-ecps)=
-## Basis Sets and ECPs
+(molecule-ecps)=
+## Effective core potentials
 
-The examples above keep the Hartree-Fock reference at its default settings so
-you can focus on defining the system. When you do need to change the reference
-calculation itself, add a `pretrain.reference` section. That is where you set
-the HF basis and method. The `system` section still describes the physical
-system, including `system.ecp`.
+Most examples above are all-electron calculations: JaQMC represents every
+electron in the molecule explicitly. For heavier elements, you may instead
+replace core electrons with an effective core potential (ECP). The core
+electrons no longer appear as QMC electrons; their effect enters through the
+pseudopotential, while JaQMC samples the remaining valence electrons.
 
-For example, to use a different HF basis:
+Enable an ECP by setting `system.ecp`:
+
+```yaml
+system:
+  ecp: ccecp
+```
+
+Use an ECP designed for correlated many-body calculations rather than a
+DFT-only pseudopotential. The correlation-consistent ECP family, `ccecp`, is the
+usual choice for QMC runs.
+
+Once an ECP is enabled, `electron_spins` describes the electrons being sampled,
+not the full electron count of the physical atoms. The `atom` and `diatomic`
+shortcuts use `system.ecp` to choose the valence count automatically. If you
+define `atoms` and `electron_spins` directly, set `electron_spins` to the
+valence-electron system you want to simulate.
+
+For mixed systems, apply ECPs only to the elements that need them:
+
+```yaml
+system:
+  ecp:
+    Fe: ccecp
+```
+
+(molecule-pretrain-reference)=
+## Pretrain reference settings
+
+`pretrain.reference.*` configures the PySCF Hartree-Fock calculation used to
+generate the target orbitals for pretraining. In most runs, the basis is the
+only reference setting you need to choose. The default is cc-pVDZ, and you can
+change it with:
 
 ```yaml
 pretrain:
   reference:
-    basis: cc-pvdz
+    basis: sto-3g
 ```
 
-Any basis set supported by PySCF works:
-
-- Minimal: `sto-3g` (default, fast)
-- Split-valence: `6-31g`, `6-311g`
-- Correlation-consistent: `cc-pvdz`, `cc-pvtz`, `cc-pvqz`
-
-For heavy elements (transition metals, lanthanides), use an effective core
-potential (ECP) to replace core electrons with a pseudopotential, reducing the
-number of electrons treated explicitly:
+If the system uses an ECP, choose a pretrain basis that matches that
+pseudopotential. For example, with ccECP use the corresponding ccECP basis
+family:
 
 ```yaml
 system:
@@ -151,22 +184,42 @@ pretrain:
     basis: ccecpccpvdz
 ```
 
-Both `basis` and `ecp` can be specified per element:
+For mixed systems, keep the same per-element split between the physical system
+and the HF reference: put ECPs in `system.ecp`, and put matching PySCF basis
+choices in `pretrain.reference.basis`.
 
 ```yaml
+system:
+  ecp:
+    Fe: ccecp
 pretrain:
   reference:
     basis:
       Fe: ccecpccpvdz
       O: cc-pvdz
-system:
-  ecp:
-    Fe: ccecp
 ```
 
-If you need more control, the same `pretrain.reference` section also lets you
-change the HF method and pass extra PySCF options. See <project:train.md> for
-the full reference.
+When the HF calculation itself needs tuning, use the `pretrain.reference.*`
+block for PySCF solver settings. JaQMC supports
+`pretrain.reference.method` (`UHF` or `RHF`) and forwards additional keys to the
+selected PySCF mean-field object.
+
+```yaml
+pretrain:
+  reference:
+    method: RHF
+    basis: cc-pvdz
+    conv_tol: 1.0e-10
+    max_cycle: 200
+    diis_space: 12
+```
+
+Use these extra keys for SCF convergence and solver behavior tuning, such as
+`conv_tol`, `max_cycle`, and related PySCF options. If a key is not supported by
+the selected PySCF object, JaQMC ignores it and logs a warning.
+
+For authoritative key definitions and defaults under `pretrain.reference.*`, see
+<project:train.md>.
 
 ## Estimators
 

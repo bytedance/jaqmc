@@ -50,6 +50,13 @@ system:
   electron_spins: [2, 2]     # [n_up, n_down] per primitive cell
 ```
 
+`electron_spins` is counted per primitive cell and describes the electrons JaQMC
+samples explicitly. In an all-electron solid, that is the full electron count
+per primitive cell. With an ECP, core electrons are replaced by the
+pseudopotential, so `electron_spins` should count only the valence electrons.
+If you later expand to a supercell, JaQMC multiplies these primitive-cell counts
+by the number of primitive cells in the supercell.
+
 Then run training:
 
 ```bash
@@ -78,7 +85,9 @@ that generate the underlying configuration for you.
 
 For FCC rock-salt structures such as LiH or NaCl, `system.module=rock_salt` is
 a shortcut. You provide the species and lattice constant, and JaQMC builds the
-primitive cell and fills in the corresponding electron counts automatically.
+primitive cell and fills in the corresponding electron counts automatically. It
+uses all-electron counts by default; when `system.ecp` is set, it uses valence
+counts instead.
 
 ```yaml
 system:
@@ -99,8 +108,9 @@ jaqmc solid train --yml rock_salt.yml workflow.save_path=./runs/rock_salt
 ### Two-Atom Chain
 
 For simple one-dimensional test systems, `system.module=two_atom_chain` is a
-shortcut. You provide the element, bond length, and optional spin; JaQMC builds
-a primitive cell with two atoms along the chain direction.
+shortcut. You provide the element, bond length, and optional spin for the
+simulated electrons. JaQMC builds a primitive cell with two atoms along the
+chain direction.
 
 ```yaml
 system:
@@ -118,18 +128,56 @@ Save as `two_atom_chain.yml`, then run:
 jaqmc solid train --yml two_atom_chain.yml workflow.save_path=./runs/two_atom_chain
 ```
 
-The examples above also keep the Hartree-Fock reference at its default
-settings. If you need a different HF basis or method, add a
-`pretrain.reference` section, for example:
+(solid-ecps)=
+## Effective core potentials
+
+Solids use the same ECP mechanism as molecules: core electrons are replaced by a
+pseudopotential, and JaQMC samples only the remaining valence electrons. Set
+`system.ecp` to apply an ECP. A mapping lets you apply it only to selected
+elements:
+
+```yaml
+system:
+  ecp:
+    Li: ccecp
+```
+
+The `rock_salt` and `two_atom_chain` shortcuts use `system.ecp` to choose
+valence electron counts automatically. If you define `atoms` and
+`electron_spins` directly, set `electron_spins` to the valence-electron count per
+primitive cell.
+
+See <project:#molecule-ecps> for the broader ECP setup guidance.
+
+(solid-pretrain-reference)=
+## Pretrain reference settings
+
+`pretrain.reference.*` configures the PySCF Hartree-Fock calculation used for
+pretraining. For most solid runs, the basis is the only reference setting you
+need to choose. The default is cc-pVDZ, and you can change it with:
 
 ```yaml
 pretrain:
   reference:
-    basis: cc-pvdz
+    basis: sto-3g
 ```
 
-Basis sets and ECPs work the same as for
-<project:#molecule-basis-sets-and-ecps>.
+If the system uses an ECP, choose a pretrain basis that matches that
+pseudopotential:
+
+```yaml
+system:
+  ecp:
+    Li: ccecp
+pretrain:
+  reference:
+    basis:
+      Li: ccecpccpvdz
+      H: cc-pvdz
+```
+
+The available reference settings are shared with molecule runs; see
+<project:#molecule-pretrain-reference> for the detailed discussion.
 
 ## Supercell Expansion
 

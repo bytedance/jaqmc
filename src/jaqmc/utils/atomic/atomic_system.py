@@ -11,8 +11,10 @@ class AtomicSystemConfig:
 
     Args:
         atoms: List of atoms in the system.
-        electron_spins: Tuple of two integers representing the
-            number of up and down electrons.
+        electron_spins: Tuple of two integers representing the number of
+            explicitly simulated up and down electrons. In all-electron systems
+            this is the full electron count; with ECPs it is the valence count
+            after core electrons are replaced by the pseudopotential.
         ecp: Effective core potential specification. Can be None (no ECP),
             a string (same ECP for all atoms, e.g., "ccecp"), or a dict
             mapping element symbols to ECP names (e.g., {"Fe": "ccecp"}).
