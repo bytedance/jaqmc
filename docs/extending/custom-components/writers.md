@@ -57,6 +57,7 @@ class MyWriter(Writer):
 - {class}`~jaqmc.writer.console.ConsoleWriter` — simplest writer. Shows `to_scalar()` usage and selective field display.
 - {class}`~jaqmc.writer.csv.CSVWriter` — file-based writer. Shows `open()` with file handle management and header writing.
 - {class}`~jaqmc.writer.hdf5.HDF5Writer` — chunked array writes. Shows `initial_step` handling for checkpoint truncation.
+- {class}`~jaqmc.writer.wandb.WandbWriter` — external service writer. Shows scalar filtering, W&B run lifecycle, and an optional dependency that must be installed separately.
 
 ## See Also
 

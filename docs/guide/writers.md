@@ -5,12 +5,14 @@ Writers record statistics produced during training. The built-in writers are:
 - **Console** — Prints selected fields to the terminal.
 - **CSV** — Appends scalar statistics to a CSV file (e.g., `train_stats.csv`) in the output directory.
 - **HDF5** — Appends all statistics (including array-valued fields) to an HDF5 file (e.g., `train_stats.h5`) in the output directory.
+- **W&B** — Sends scalar statistics to Weights & Biases.
 
 Which writers are active depends on the workflow. Use `--dry-run` to see the resolved config — the `writers` section shows what is enabled. To disable a writer, set it to `null`; to re-enable one that isn't active, set its module path:
 
 ```bash
 train.writers.hdf5=null                              # disable HDF5 for train
 train.writers.csv.module=jaqmc.writer.csv:CSVWriter   # enable CSV for train
+train.writers.wandb.module=jaqmc.writer.wandb:WandbWriter  # enable W&B for train
 pretrain.writers.console.interval=10                  # configure pretrain's console writer
 ```
 
@@ -46,6 +48,32 @@ head -n 1 runs/my-run/train_stats.csv
 ```
 
 Array-valued outputs, such as histograms, do not appear in CSV and cannot be printed in the console. Use the HDF5 file to inspect those keys instead.
+
+## Weights & Biases
+
+The W&B writer logs real-valued scalar statistics to Weights & Biases. It is
+not enabled by default.
+
+Install `wandb` manually in the same Python environment where JaQMC is
+installed:
+
+```bash
+uv pip install wandb
+# or, after activating the JaQMC environment:
+pip install wandb
+```
+
+Then enable the writer and set the W&B project metadata you want:
+
+```bash
+train.writers.wandb.module=jaqmc.writer.wandb:WandbWriter
+train.writers.wandb.project=my-project
+train.writers.wandb.run_name=my-run
+```
+
+When enabled, the W&B writer creates a W&B run for the stage and logs the stage
+name as the W&B job type. In advanced programmatic setups, if a W&B run is
+already active before JaQMC starts the stage, the writer reuses that run.
 
 ## Output Files
 
