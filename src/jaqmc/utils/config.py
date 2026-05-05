@@ -27,6 +27,11 @@ logger = logging.LoggerAdapter(
     logging.getLogger(__name__), extra={"category": "config"}
 )
 
+
+class ConfigError(ValueError):
+    """Raised when JaQMC configuration is invalid."""
+
+
 # =============================================================================
 # Public API: Decorators and field helpers
 # =============================================================================
@@ -365,14 +370,14 @@ class ConfigManager(ConfigManagerLike):
         any unused configuration keys.
 
         Args:
-            raise_on_unused: If True, raises `SystemExit` if there are any
+            raise_on_unused: If True, raises :class:`ConfigError` if there are any
                 unused configuration keys in the input.
             verbose: If True, includes docstrings and source information in
                 the logged YAML output.
             compare_yaml: YAML from previous from to log the difference.
 
         Raises:
-            SystemExit: If `raise_on_unused` is True and unused keys are found.
+            ConfigError: If `raise_on_unused` is True and unused keys are found.
         """
         yaml_content = self.to_yaml(verbose=verbose)
         logger.info(
@@ -383,21 +388,27 @@ class ConfigManager(ConfigManagerLike):
         )
         unused_yaml = _find_unused_yaml_path(self._visited_paths, self._user_config)
         unused_cli = _find_unused_yaml_path(self._visited_paths, self._cli_config)
-        if unused_yaml:
+        if (unused_yaml or unused_cli) and raise_on_unused:
+            lines = ["Unused config keys detected:"]
+            if unused_yaml:
+                lines.append(f"- from YAML/API: {unused_yaml}")
+            if unused_cli:
+                lines.append(f"- from CLI: {unused_cli}")
+            lines.append(
+                "\nRemove these keys, or set `workflow.config.ignore_extra=true` to "
+                "ignore extra config. If you call `cfg.finalize()` manually, use "
+                "`raise_on_unused=False`."
+            )
+            raise ConfigError("\n".join(lines))
+        elif unused_yaml:
             logger.warning(
                 "The following configs are specified via YAML/API but not used: %s",
                 sorted(unused_yaml),
             )
-        if unused_cli:
+        elif unused_cli:
             logger.warning(
                 "The following configs are specified via CLI but not used: %s",
                 sorted(unused_cli),
-            )
-        if (unused_yaml or unused_cli) and raise_on_unused:
-            raise SystemExit(
-                "Stopping due to invalid configs specified. Please consider using "
-                "`raise_on_unused=False` if you are calling `cfg.finalize` manually, "
-                "or pass workflow.config.ignore_extra=True if you are using CLI."
             )
         if compare_yaml is not None:
             diff = "\n".join(
@@ -451,7 +462,9 @@ class ConfigManager(ConfigManagerLike):
                 else default_module[: default_module.rfind(".")]
             )
             module_name = self._get_primitive(f"{name}.module", default_module)
-            make_module = resolve_object(module_name, package=module_base)
+            make_module = self._resolve_config_module(
+                f"{name}.module", module_name, package=module_base
+            )
         else:
             default_module_name = (
                 f"{default_module.__module__}:{default_module.__name__}"
@@ -463,7 +476,9 @@ class ConfigManager(ConfigManagerLike):
             )
             module_name = self._get_primitive(f"{name}.module", default_module_name)
             if module_name != default_module_name:
-                make_module = resolve_object(module_name, package=module_base)
+                make_module = self._resolve_config_module(
+                    f"{name}.module", module_name, package=module_base
+                )
             else:
                 make_module = default_module
         if is_dataclass(make_module):
@@ -489,8 +504,15 @@ class ConfigManager(ConfigManagerLike):
         for k, v in module_configs.items():
             if v is None:
                 continue
+            if not isinstance(v, dict):
+                raise ConfigError(
+                    f"Invalid config at '{name}.{k}': expected a mapping, "
+                    f"got {type(v).__name__}."
+                )
+            if "module" not in v:
+                raise ConfigError(f"Missing required config key '{name}.{k}.module'.")
             module_path = v["module"]
-            make_module = resolve_object(module_path)
+            make_module = self._resolve_config_module(f"{name}.{k}.module", module_path)
             if is_dataclass(make_module):
                 default_item = default_dict.get(k, {})
                 default_config = {
@@ -594,6 +616,11 @@ class ConfigManager(ConfigManagerLike):
         base_config = serde.to_dict(default) if not inspect.isclass(default) else {}
 
         config_data = user_config if user_config is not _MISSING else {}
+        if user_config is not _MISSING and not isinstance(config_data, dict):
+            raise ConfigError(
+                f"Invalid config at '{name}': expected a mapping, "
+                f"got {type(config_data).__name__}."
+            )
         if isinstance(config_data, dict):
             config_data = {k: v for k, v in config_data.items() if k != "module"}
         else:
@@ -603,7 +630,7 @@ class ConfigManager(ConfigManagerLike):
         try:
             result = serde.from_dict(cls, merged)
         except serde.SerdeError as e:
-            raise serde.SerdeError(f"Invalid config at '{name}': {e}") from None
+            raise ConfigError(f"Invalid config at '{name}': {e}") from None
 
         if not inspect.isclass(default):
             _copy_runtime_fields(default, result)
@@ -614,6 +641,21 @@ class ConfigManager(ConfigManagerLike):
         _set_path(self.resolved_config, name, resolved)
 
         return cast(DataclassT, result)
+
+    def _resolve_config_module(
+        self,
+        path: str,
+        module_name: str,
+        *,
+        package: str | None = None,
+    ) -> Any:
+        try:
+            return resolve_object(module_name, package=package)
+        except (AttributeError, ModuleNotFoundError, OSError, ValueError) as e:
+            raise ConfigError(
+                f"Invalid config at '{path}': could not resolve module "
+                f"'{module_name}': {e}"
+            ) from None
 
     def _get_callable[CallableT: Callable](
         self,
@@ -676,7 +718,13 @@ def _get_path(data: dict[str, Any], path: list[str], default: Any = None) -> Any
 def _dotlist_to_dict(dotlist: list[str]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for entry in dotlist:
+        if "=" not in entry:
+            raise ConfigError(
+                f"Invalid CLI override '{entry}': expected the form key=value."
+            )
         key, _, raw_value = entry.partition("=")
+        if not key:
+            raise ConfigError(f"Invalid CLI override '{entry}': key must not be empty.")
         _set_path(result, key, yaml.safe_load(raw_value))
     return result
 

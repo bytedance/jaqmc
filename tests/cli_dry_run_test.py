@@ -318,3 +318,83 @@ def test_cli_verbose_config_dotlist(caplog: pytest.LogCaptureFixture) -> None:
     assert result.exit_code == 0, result.output
     assert "verbose: true" in caplog.text
     assert "Base configuration for workflows." in caplog.text
+
+
+def test_cli_invalid_dotlist_shows_click_error() -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "hall",
+            "train",
+            "--dry-run",
+            "workflow.batch_size",
+            "train.run.iterations=1",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Invalid CLI override 'workflow.batch_size'" in result.output
+
+
+def test_cli_unused_key_lists_exact_path() -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "hall",
+            "train",
+            "--dry-run",
+            "workflo.batch_size=4",
+            "train.run.iterations=1",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Unused config keys detected" in result.output
+    assert "workflo.batch_size" in result.output
+
+
+def test_cli_yaml_root_type_error(tmp_path: Path) -> None:
+    config_path = tmp_path / "bad.yml"
+    config_path.write_text("- not\n- a\n- mapping\n", encoding="utf8")
+
+    result = CliRunner().invoke(
+        cli,
+        ["hall", "train", "--yml", str(config_path), "--dry-run"],
+    )
+
+    assert result.exit_code == 1
+    assert f"Invalid YAML config in '{config_path}'" in result.output
+
+
+def test_cli_missing_required_field_uses_wrapped_pyserde_message() -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "hall",
+            "evaluate",
+            "--dry-run",
+            "workflow.batch_size=4",
+            "run.iterations=1",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Invalid config at 'workflow': missing required field" in result.output
+
+
+def test_cli_unknown_field_uses_wrapped_pyserde_message() -> None:
+    result = CliRunner().invoke(
+        cli,
+        [
+            "hall",
+            "evaluate",
+            "--dry-run",
+            "workflow.batch_size=4",
+            "workflow.source_path=source",
+            "workflow.source_pat=source",
+            "run.iterations=1",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Invalid config at 'workflow': unknown fields:" in result.output

@@ -8,7 +8,13 @@ from typing import Any
 import pytest
 import yaml
 
-from jaqmc.utils.config import ConfigManager, configurable_dataclass, module_config
+from jaqmc.utils.config import (
+    ConfigError,
+    ConfigManager,
+    configurable_dataclass,
+    module_config,
+)
+from jaqmc.workflow.evaluation import EvaluationWorkflowConfig
 
 
 @dataclass
@@ -265,7 +271,9 @@ def test_get_collection_dataclass_defaults(mocker):
 def test_get_collection_dataclass_module_override_ignores_old_defaults(mocker):
     mocker.patch(
         "jaqmc.utils.config.resolve_object",
-        side_effect=lambda path: {"path1": SimpleConfig, "path2": OtherConfig}[path],
+        side_effect=lambda path, package: {"path1": SimpleConfig, "path2": OtherConfig}[
+            path
+        ],
     )
 
     cfg = ConfigManager({"collection": {"item1": {"module": "path2"}}})
@@ -291,11 +299,71 @@ def test_finalize_unused():
     cfg.get("used", 0)
 
     # Should exit if unused keys exist and raise_on_unused is True (default)
-    with pytest.raises(SystemExit):
+    with pytest.raises(ConfigError, match=r"YAML.*unused"):
         cfg.finalize()
 
     # Should not raise if we ignore it
     cfg.finalize(raise_on_unused=False)
+
+
+def test_dotlist_missing_equals_raises_config_error():
+    with pytest.raises(
+        ConfigError,
+        match=(
+            r"Invalid CLI override 'workflow.batch_size': "
+            r"expected the form key=value"
+        ),
+    ):
+        ConfigManager({}, dotlist=["workflow.batch_size"])
+
+
+def test_get_dataclass_missing_required_field_message():
+    cfg = ConfigManager({})
+
+    with pytest.raises(
+        ConfigError,
+        match=(
+            r"Invalid config at 'workflow': missing required field "
+            r"'source_path' while deserializing EvaluationWorkflowConfig"
+        ),
+    ):
+        cfg.get("workflow", EvaluationWorkflowConfig)
+
+
+def test_get_dataclass_unknown_field_uses_pyserde_message():
+    cfg = ConfigManager({"workflow": {"source_pat": "runs/train"}})
+
+    with pytest.raises(
+        ConfigError,
+        match=(
+            r"Invalid config at 'workflow': unknown fields: \{'source_pat'\}, "
+            r"expected one of"
+        ),
+    ):
+        cfg.get("workflow", EvaluationWorkflowConfig)
+
+
+def test_get_dataclass_rejects_non_mapping():
+    cfg = ConfigManager({"workflow": 123})
+
+    with pytest.raises(
+        ConfigError,
+        match=r"Invalid config at 'workflow': expected a mapping, got int",
+    ):
+        cfg.get("workflow", EvaluationWorkflowConfig)
+
+
+def test_get_module_wraps_resolution_errors():
+    cfg = ConfigManager({"wf": {"module": "does.not.exist"}})
+
+    with pytest.raises(
+        ConfigError,
+        match=(
+            r"Invalid config at 'wf.module': could not resolve module "
+            r"'does.not.exist'"
+        ),
+    ):
+        cfg.get_module("wf", "jaqmc.app.hall.wavefunction.mhpo")
 
 
 def test_to_yaml_with_comments():
