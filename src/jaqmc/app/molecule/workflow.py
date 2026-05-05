@@ -45,7 +45,12 @@ class MoleculeTrainWorkflow(VMCWorkflow):
         return {
             "pretrain": {
                 "run": {"iterations": 2_000},
-                "optim": {"learning_rate": {"rate": 3e-4}},
+                "optim": {
+                    "learning_rate": {
+                        "module": "jaqmc.optimizer.schedule:Constant",
+                        "rate": 3e-4,
+                    }
+                },
             },
             "train": {
                 "run": {"iterations": 200_000},
