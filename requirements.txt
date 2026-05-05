@@ -181,7 +181,7 @@ pygments==2.20.0
     #   rich
 pyscf==2.12.1
     # via jaqmc
-pyserde==0.31.2
+pyserde==0.31.7
     # via jaqmc
 pytest==9.0.3
     # via

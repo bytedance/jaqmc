@@ -1032,7 +1032,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=3.0.1" },
     { name = "pygments", specifier = ">=2.19.2" },
     { name = "pyscf", specifier = ">=2.11.0" },
-    { name = "pyserde", specifier = ">=0.31.1" },
+    { name = "pyserde", specifier = ">=0.31.7" },
     { name = "universal-pathlib", specifier = ">=0.3.6" },
 ]
 provides-extras = ["cuda12", "cuda12-local", "cuda13", "cuda13-local"]
@@ -2709,7 +2709,7 @@ wheels = [
 
 [[package]]
 name = "pyserde"
-version = "0.31.2"
+version = "0.31.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "beartype" },
@@ -2719,9 +2719,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "typing-inspect" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6c/cb/0a6f40a74003cb13845733300f9debdc19fe3d25e5e73e9aaf69ee4e1480/pyserde-0.31.2.tar.gz", hash = "sha256:3ec19498cbd7df40f187565482a40f97bcbd382eba9f7cf2cb29d9b39f6e8ac6", size = 518265, upload-time = "2026-04-01T08:07:16.446Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/84/0b/4f92e27cb1ff15a820edc7b06b51bba4ef0d95bbf09522a72730cc7ffd51/pyserde-0.31.7.tar.gz", hash = "sha256:a9ec2a5a61930b6fee4498adda20067eab516798e5a0348da7797778d8b02fb6", size = 525805, upload-time = "2026-07-05T12:30:23.961Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8c/11/7b3d9495a977fbf56cba768b6c0239a6f84c37e3409607ac3572a78f7bb3/pyserde-0.31.2-py3-none-any.whl", hash = "sha256:97c0d3af585c6c664ecabd421290a822dc3910d8d7b842c64fb1f01e6e93a00e", size = 49097, upload-time = "2026-04-01T08:07:17.745Z" },
+    { url = "https://files.pythonhosted.org/packages/27/9c/055c3fb933119186541240e062973b44932fc10295965edac08c57bc5946/pyserde-0.31.7-py3-none-any.whl", hash = "sha256:5e72d5c2054d681b4aad712a40322fa2236ca5c181377daed4dbb4ec51a22ebb", size = 52340, upload-time = "2026-07-05T12:30:22.687Z" },
 ]
 
 [[package]]
