@@ -5,7 +5,8 @@ boundary conditions. Most runs start from a YAML definition and a
 single `jaqmc molecule train` command. JaQMC then follows the standard
 molecular workflow:
 
-1. **Hartree-Fock (HF)** computes reference orbitals with PySCF.
+1. **Hartree-Fock (HF)** computes a reference electronic-structure solution with
+   PySCF.
 2. **Pretraining** matches the neural wavefunction to those orbitals.
 3. **VMC training** performs the main energy optimization.
 
@@ -38,6 +39,12 @@ system:
       coords: [0.0, -1.4309, -0.8867]
   electron_spins: [5, 5]  # [n_up, n_down]
 ```
+
+`electron_spins` gives `[n_up, n_down]` for the electrons included in the QMC
+simulation. This water example is all-electron, so `[5, 5]` includes all ten
+electrons. If you later add an ECP, leave out the core electrons it replaces;
+`electron_spins` should count only the valence electrons JaQMC samples
+explicitly.
 
 Then run training:
 
@@ -76,14 +83,14 @@ that generate the underlying configuration for you.
 ### Single Atoms
 
 For a single atom, `system.module=atom` is a shortcut. You provide the element
-symbol and optional HF settings, and JaQMC fills in the matching electron spin
-configuration automatically.
+symbol, and JaQMC fills in the matching electron spin configuration
+automatically. By default it uses the all-electron count; when `system.ecp` is
+set, it uses the valence count instead.
 
 ```yaml
 system:
   module: atom
   symbol: Li         # Element symbol (H, He, Li, Be, ...)
-  basis: sto-3g      # Basis set for SCF initialization
   # ecp: ccecp       # Optional: effective core potential
 ```
 
@@ -96,8 +103,9 @@ jaqmc molecule train --yml atom_li.yml workflow.save_path=./runs/atom_li
 ### Diatomic Molecules
 
 For common two-atom systems, `system.module=diatomic` is a shortcut. You provide
-the chemical formula, bond length, and optional total spin; JaQMC places the
-atoms along the z-axis and computes `electron_spins` for you.
+the chemical formula, bond length, and optional spin for the simulated
+electrons. JaQMC places the atoms along the z-axis and computes
+`electron_spins` for you.
 
 ```yaml
 system:
@@ -105,8 +113,7 @@ system:
   formula: LiH        # Chemical formula (H2, LiH, N2, ClF, ...)
   bond_length: 3.015  # Distance between atoms
   unit: bohr          # Length unit for bond_length
-  spin: 0             # n_up - n_down for the full molecule
-  basis: cc-pvdz
+  spin: 0             # n_up - n_down for electrons being simulated
 ```
 
 Save as `li_h_diatomic.yml`, then run:
@@ -115,35 +122,104 @@ Save as `li_h_diatomic.yml`, then run:
 jaqmc molecule train --yml li_h_diatomic.yml workflow.save_path=./runs/li_h_diatomic
 ```
 
-(molecule-basis-sets-and-ecps)=
-## Basis Sets and ECPs
+(molecule-ecps)=
+## Effective core potentials
 
-The `basis` parameter controls the basis set used for the HF calculation. Any basis set supported by PySCF works:
+Most examples above are all-electron calculations: JaQMC represents every
+electron in the molecule explicitly. For heavier elements, you may instead
+replace core electrons with an effective core potential (ECP). The core
+electrons no longer appear as QMC electrons; their effect enters through the
+pseudopotential, while JaQMC samples the remaining valence electrons.
 
-- Minimal: `sto-3g` (default, fast)
-- Split-valence: `6-31g`, `6-311g`
-- Correlation-consistent: `cc-pvdz`, `cc-pvtz`, `cc-pvqz`
+Enable an ECP by setting `system.ecp`:
 
-For heavy elements (transition metals, lanthanides), use an effective core potential (ECP) to replace core electrons with a pseudopotential, reducing the number of electrons treated explicitly:
+```yaml
+system:
+  ecp: ccecp
+```
+
+Use an ECP designed for correlated many-body calculations rather than a
+DFT-only pseudopotential. The correlation-consistent ECP family, `ccecp`, is the
+usual choice for QMC runs.
+
+Once an ECP is enabled, `electron_spins` describes the electrons being sampled,
+not the full electron count of the physical atoms. The `atom` and `diatomic`
+shortcuts use `system.ecp` to choose the valence count automatically. If you
+define `atoms` and `electron_spins` directly, set `electron_spins` to the
+valence-electron system you want to simulate.
+
+For mixed systems, apply ECPs only to the elements that need them:
+
+```yaml
+system:
+  ecp:
+    Fe: ccecp
+```
+
+(molecule-pretrain-reference)=
+## Pretrain reference settings
+
+`pretrain.reference.*` configures the PySCF Hartree-Fock calculation used to
+generate the target orbitals for pretraining. In most runs, the basis is the
+only reference setting you need to choose. The default is cc-pVDZ, and you can
+change it with:
+
+```yaml
+pretrain:
+  reference:
+    basis: sto-3g
+```
+
+If the system uses an ECP, choose a pretrain basis that matches that
+pseudopotential. For example, with ccECP use the corresponding ccECP basis
+family:
 
 ```yaml
 system:
   module: atom
   symbol: Fe
-  basis: ccecpccpvdz
   ecp: ccecp
+pretrain:
+  reference:
+    basis: ccecpccpvdz
 ```
 
-Both `basis` and `ecp` can be specified per element:
+For mixed systems, keep the same per-element split between the physical system
+and the HF reference: put ECPs in `system.ecp`, and put matching PySCF basis
+choices in `pretrain.reference.basis`.
 
 ```yaml
 system:
-  basis:
-    Fe: ccecpccpvdz
-    O: cc-pvdz
   ecp:
     Fe: ccecp
+pretrain:
+  reference:
+    basis:
+      Fe: ccecpccpvdz
+      O: cc-pvdz
 ```
+
+When the HF calculation itself needs tuning, use the `pretrain.reference.*`
+block for PySCF solver settings. JaQMC supports
+`pretrain.reference.method` (`UHF` or `RHF`) and forwards additional keys to the
+selected PySCF mean-field object.
+
+```yaml
+pretrain:
+  reference:
+    method: RHF
+    basis: cc-pvdz
+    conv_tol: 1.0e-10
+    max_cycle: 200
+    diis_space: 12
+```
+
+Use these extra keys for SCF convergence and solver behavior tuning, such as
+`conv_tol`, `max_cycle`, and related PySCF options. If a key is not supported by
+the selected PySCF object, JaQMC ignores it and logs a warning.
+
+For authoritative key definitions and defaults under `pretrain.reference.*`, see
+<project:train.md>.
 
 ## Estimators
 

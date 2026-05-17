@@ -31,6 +31,17 @@ are identical to the [training system config](#solid-train-system).
 Must match the training run. The effective defaults and built-in module choices
 are identical to the [training wavefunction config](#solid-train-wf).
 
+## Reference (`reference.*`)
+
+The Hartree-Fock reference is the PySCF calculation JaQMC uses when it needs
+reference orbitals or related setup from that calculation. Itis recommended to
+set the values to match the reference configuration used during training.
+
+```{eval-rst}
+.. config-defaults:: jaqmc.app.solid.config.base.SolidPretrainReferenceConfig
+   :prefix: reference
+```
+
 ## Run Options (`run.*`)
 
 Evaluation reuses the same checkpointing and sampling controls as training, but

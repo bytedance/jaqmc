@@ -11,7 +11,6 @@ __all__ = ["atom_config"]
 def atom_config(
     symbol: str = "H",
     electron_init_width: float = 1.0,
-    basis: str = "sto-3g",
     ecp: str | None = None,
 ):
     """Create a MoleculeConfig for a single atom.
@@ -19,7 +18,6 @@ def atom_config(
     Args:
         symbol: Element symbol (e.g., "H", "Li", "Fe").
         electron_init_width: Width of Gaussian for electron initialization.
-        basis: Basis set name.
         ecp: Effective core potential name. Can be None (no ECP) or
             a string (e.g., "ccecp").
 
@@ -41,6 +39,5 @@ def atom_config(
         atoms=[atom],
         electron_spins=electron_spins,
         electron_init_width=electron_init_width,
-        basis=basis,
         ecp=ecp,
     )

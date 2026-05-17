@@ -10,12 +10,45 @@ import pytest
 from jax import numpy as jnp
 
 from jaqmc.utils.atomic.atom import Atom
-from jaqmc.utils.atomic.scf import PeriodicSCF
+from jaqmc.utils.atomic.scf import MolecularSCF, PeriodicSCF
 
 
 @pytest.fixture(autouse=True)
 def no_temp_file():
     pyscf.lib.param.TMPDIR = None
+
+
+def test_molecular_scf_pyscf_options_applied():
+    """User-supplied pyscf_options are applied to the PySCF mean-field object."""
+    atoms = [Atom("H", (0.0, 0.0, 0.0))]
+    scf = MolecularSCF(
+        atoms,
+        (1, 0),
+        basis="sto-3g",
+        verbose=0,
+        # Listed in mean_field._keys (PySCF applies options only for those names).
+        pyscf_options={"init_guess_breaksym": False},
+    )
+    assert not scf.mean_field.init_guess_breaksym
+
+
+def test_periodic_scf_pyscf_options_applied():
+    """Same as test_molecular_scf_pyscf_options_applied for periodic HF."""
+    atoms = [Atom("H", (0.0, 0.0, 0.0))]
+    latvec = np.eye(3) * 5.0
+    recip_vecs = 2 * np.pi * np.linalg.inv(latvec).T
+    kpts = np.array([[0.0, 0.0, 0.0]]) @ recip_vecs
+    scf = PeriodicSCF(
+        atoms=atoms,
+        nelectrons=(1, 0),
+        basis="sto-3g",
+        lattice_vectors=latvec,
+        kpts=kpts,
+        restricted=False,
+        verbose=0,
+        pyscf_options={"init_guess_breaksym": False},
+    )
+    assert not scf.mean_field.init_guess_breaksym
 
 
 # k-point configurations: (name, fractional coordinates)
