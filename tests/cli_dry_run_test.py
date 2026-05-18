@@ -109,7 +109,7 @@ system:
   module: atom
   symbol: Fe
   basis: ccecpccpvdz
-  ecp: ccecp
+  pp: ccecp
 workflow:
   batch_size: 4
 wf:

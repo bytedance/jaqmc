@@ -138,7 +138,29 @@ If you enabled `march_beta`, also cite:
 ````
 
 ````{dropdown} Pseudo Hamiltonian
+The PH theory and reference data come from Bennett et al. (2022) and Ichibha et al. (2023); the NNQMC + forward-Laplacian integration follows Fu et al. (2025).
 ```bibtex
+@article{bennett2022high,
+  title={High accuracy transition metal effective cores for the many-body diffusion Monte Carlo method},
+  author={Bennett, M Chandler and Reboredo, Fernando A and Mitas, Lubos and Krogel, Jaron T},
+  journal={Journal of Chemical Theory and Computation},
+  volume={18},
+  number={2},
+  pages={828--839},
+  year={2022},
+  publisher={ACS Publications}
+}
+
+@article{ichibha2023locality,
+  title={Locality error free effective core potentials for 3d transition metal elements developed for the diffusion Monte Carlo method},
+  author={Ichibha, Tom and Nikaido, Yutaka and Bennett, M Chandler and Krogel, Jaron T and Hongo, Kenta and Maezono, Ryo and Reboredo, Fernando A},
+  journal={The Journal of Chemical Physics},
+  volume={159},
+  number={16},
+  year={2023},
+  publisher={AIP Publishing}
+}
+
 @misc{fu_local_2025,
   title = {Local {{Pseudopotential Unlocks}} the {{True Potential}} of {{Neural Network-based Quantum Monte Carlo}}},
   author = {Fu, Weizhong and Fujimaru, Ryunosuke and Li, Ruichen and Liu, Yuzhi and Wen, Xuelan and Li, Xiang and Hongo, Kenta and Wang, Liwei and Ichibha, Tom and Maezono, Ryo and Chen, Ji and Ren, Weiluo},

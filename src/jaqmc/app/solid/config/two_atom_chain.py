@@ -9,9 +9,7 @@ lattice constant 2 * bond_length. The lattice is made effectively 1D by
 using very large lattice constants in y and z directions.
 """
 
-from typing import Any
-
-from jaqmc.utils.atomic import Atom, get_valence_spin_config
+from jaqmc.utils.atomic import make_atom, resolve_atom_pp
 from jaqmc.utils.units import ONE_ANGSTROM_IN_BOHR, LengthUnit
 
 from .base import SolidConfig
@@ -27,7 +25,7 @@ def two_atom_chain(
     vacuum_separation: float = 100.0,
     spin: int = 0,
     basis: str = "sto-3g",
-    ecp: Any = None,
+    pp: str | dict[str, str] | None = None,
     electron_init_width: float = 1.0,
 ):
     """Build a 1D two-atom chain configuration.
@@ -41,9 +39,9 @@ def two_atom_chain(
             to isolate the 1D chain.
         spin: Total spin polarization (n_up - n_down) for the primitive cell.
         basis: Basis set name for HF pretrain.
-        ecp: Effective core potential specification. Can be ``None``
-            (all-electron), a string (e.g., ``"ccecp"``), or a
-            per-element mapping (e.g., ``{"Li": "ccecp"}``).
+        pp: Pseudopotential specification. Can be ``None`` (all-electron),
+            a string (e.g., ``"ccecp"``), or a per-element mapping
+            (e.g., ``{"Li": "ccecp"}``).
         electron_init_width: Width for electron position initialization.
 
     Returns:
@@ -68,17 +66,13 @@ def two_atom_chain(
         [bond_length, yz_center, yz_center],
     ]
 
+    per_atom_pp = resolve_atom_pp(symbol, pp)
     atoms = []
     electrons = 0
     for coords in coords_list:
-        if ecp is not None:
-            valence = sum(get_valence_spin_config(symbol, ecp))
-            atom = Atom(symbol=symbol, coords=coords, charge=valence)
-            electrons += valence
-        else:
-            atom = Atom(symbol=symbol, coords=coords)
-            electrons += atom.atomic_number
+        atom = make_atom(symbol, coords, pp=per_atom_pp)
         atoms.append(atom)
+        electrons += int(atom.charge)
 
     if (electrons + spin) % 2 != 0:
         raise ValueError(f"Impossible to have spin {spin} for {electrons} electrons.")
@@ -92,6 +86,6 @@ def two_atom_chain(
         supercell_matrix=[[supercell, 0, 0], [0, 1, 0], [0, 0, 1]],
         electron_spins=(n_up, n_down),
         basis=basis,
-        ecp=ecp,
+        pp=pp,
         electron_init_width=electron_init_width,
     )

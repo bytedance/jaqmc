@@ -263,9 +263,21 @@ typically overridden via config. The same definitions are used by <project:eval.
 
 ### ECP energy (`estimators.energy.ecp.*`)
 
-Added automatically when `system.ecp` is set.
+Added automatically when `system.pp` selects an ECP for at least one atom.
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.estimator.ecp.estimator.ECPEnergy
    :prefix: estimators.energy.ecp
+```
+
+### PH energy (`estimators.energy.ph.*`)
+
+Added automatically when `system.pp` selects PH (`"ph"`) for at least one
+atom. PH is a pseudopotential option parallel to ECP in this workflow: a
+mixed system may use PH atoms, ECP atoms, and all-electron atoms together in
+the same run.
+
+```{eval-rst}
+.. config-defaults:: jaqmc.estimator.ph.PHEnergy
+   :prefix: estimators.energy.ph
 ```

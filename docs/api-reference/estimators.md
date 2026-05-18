@@ -45,6 +45,12 @@ API reference for built-in estimators. For background, formulas, and configurati
 .. autoclass:: jaqmc.estimator.ecp.estimator.ECPEnergy
 ```
 
+### PH energy
+
+```{eval-rst}
+.. autoclass:: jaqmc.estimator.ph.PHEnergy
+```
+
 ### Spin squared
 
 ```{eval-rst}

@@ -44,6 +44,7 @@ where $r = |\mathbf{r} - \mathbf{R}|$ is the electron-atom distance, $\mathbf{r}
 
 ## See also
 
-- The ECP estimator is automatically added when `ecp` is set in the system configuration. See [Basis Sets and ECPs](#molecule-basis-sets-and-ecps).
+- The ECP estimator is automatically added when `system.pp` selects an ECP
+  for at least one atom.
 - Configuration: [Molecule](#molecule-estimators), [Solid](#solid-estimators)
 - API: {class}`~jaqmc.estimator.ecp.estimator.ECPEnergy`

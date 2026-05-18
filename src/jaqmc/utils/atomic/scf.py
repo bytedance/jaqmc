@@ -25,6 +25,8 @@
 # MO: molecular orbitals/Hartree-Fock orbitals. Single-particle orbitals which
 #   are solutions to the Hartree-Fock equations.
 
+from __future__ import annotations
+
 import logging
 from collections.abc import Mapping, Sequence
 
@@ -40,6 +42,7 @@ from jaqmc.geometry.pbc import wrap_positions
 
 from .atom import Atom
 from .gto import AtomicOrbitalEvaluator, PBCAtomicOrbitalEvaluator
+from .pp import ResolvedPseudopotentialConfig
 
 NDArray = jnp.ndarray | np.ndarray
 logger = logging.getLogger(__name__)
@@ -92,6 +95,16 @@ def _eval_slater_from_orbitals(
     return sign_alpha * sign_beta, logdet_alpha + logdet_beta
 
 
+def _compute_effective_nuclear_charge(
+    atoms: Sequence[Atom], core_electrons: Mapping[str, int]
+) -> int:
+    nuclear_charge = 0
+    for atom in atoms:
+        nuclear_charge += atom.atomic_number
+        nuclear_charge -= core_electrons.get(atom.symbol, 0)
+    return nuclear_charge
+
+
 class MolecularSCF:
     """Helper class for running Hartree-Fock (self-consistent field) with pyscf.
 
@@ -104,6 +117,13 @@ class MolecularSCF:
             for a built-in basis set in pyscf. A user-defined basis set can be used
             (advanced). See https://sunqm.github.io/pyscf/gto.html#input-basis for
             more details.
+        pseudopotential: Optional resolved pseudopotential configuration
+            (see :class:`~jaqmc.utils.atomic.pp.ResolvedPseudopotentialConfig`).
+            When provided, the SCF surrogate ECP map (``scf_ecp``) and the
+            core-electron counts are taken from this object and override the
+            ``ecp`` and ``core_electrons`` arguments. This is the preferred
+            wiring for mixed PH/ECP/all-electron systems; the bare ``ecp`` and
+            ``core_electrons`` arguments remain for ECP-only callers.
         pyscf_mol: the PySCF 'Molecule'. If this is passed to the init,
             the molecule, nelectrons, and basis will not be used, and the
             calculations will be performed on the existing pyscf_mol
@@ -120,6 +140,7 @@ class MolecularSCF:
         basis: str | Mapping[str, str] | None = "cc-pVTZ",
         ecp: str | Mapping[str, str] | None = None,
         core_electrons: Mapping[str, int] | None = None,
+        pseudopotential: ResolvedPseudopotentialConfig | None = None,
         pyscf_mol: pyscf.gto.Mole | None = None,
         restricted: bool = True,
     ):
@@ -136,14 +157,13 @@ class MolecularSCF:
                     "Fractional nuclear charge detected. "
                     "Running SCF on atoms with integer charge."
                 )
+            if pseudopotential is not None:
+                ecp = pseudopotential.scf_ecp
+                core_electrons = pseudopotential.core_electrons
             ecp = ecp or {}
             core_electrons = core_electrons or {}
 
-            nuclear_charge = 0
-            for atom in molecule:
-                nuclear_charge += atom.atomic_number
-                if atom.symbol in core_electrons:
-                    nuclear_charge -= core_electrons[atom.symbol]
+            nuclear_charge = _compute_effective_nuclear_charge(molecule, core_electrons)
             charge = nuclear_charge - sum(nelectrons)
             self._mol = pyscf.gto.Mole(
                 atom=[[atom.symbol, atom.coords] for atom in molecule], unit="bohr"
@@ -337,11 +357,7 @@ class PeriodicSCF:
             core_electrons = core_electrons or {}
 
             # Calculate charge (same logic as MolecularSCF)
-            nuclear_charge = 0
-            for atom in atoms:
-                nuclear_charge += atom.atomic_number
-                if atom.symbol in core_electrons:
-                    nuclear_charge -= core_electrons[atom.symbol]
+            nuclear_charge = _compute_effective_nuclear_charge(atoms, core_electrons)
             charge = nuclear_charge - sum(nelectrons)
 
             self._cell = pyscf.pbc.gto.Cell(

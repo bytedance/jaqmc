@@ -1,7 +1,7 @@
 # Copyright (c) 2025-2026 Bytedance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-from jaqmc.utils.atomic import Atom, get_valence_spin_config
+from jaqmc.utils.atomic import make_atom
 
 from .base import MoleculeConfig
 
@@ -12,7 +12,7 @@ def atom_config(
     symbol: str = "H",
     electron_init_width: float = 1.0,
     basis: str = "sto-3g",
-    ecp: str | None = None,
+    pp: str | None = None,
 ):
     """Create a MoleculeConfig for a single atom.
 
@@ -20,27 +20,17 @@ def atom_config(
         symbol: Element symbol (e.g., "H", "Li", "Fe").
         electron_init_width: Width of Gaussian for electron initialization.
         basis: Basis set name.
-        ecp: Effective core potential name. Can be None (no ECP) or
-            a string (e.g., "ccecp").
+        pp: Pseudopotential for this atom. ``None`` means all-electron;
+            otherwise the pseudopotential name (e.g., ``"ccecp"``, ``"ph"``).
 
     Returns:
         MoleculeConfig for the specified atom.
     """
-    if ecp is not None:
-        # With ECP, we need to compute valence electron spins
-        # and set the effective charge to match valence electrons
-        electron_spins = get_valence_spin_config(symbol, ecp)
-        valence_electrons = sum(electron_spins)
-        # Set effective charge to number of valence electrons for neutral atom
-        atom = Atom(symbol=symbol, coords=[0.0, 0.0, 0.0], charge=valence_electrons)
-    else:
-        atom = Atom(symbol=symbol, coords=[0.0, 0.0, 0.0])
-        electron_spins = atom.spin_config
-
+    atom = make_atom(symbol, [0.0, 0.0, 0.0], pp=pp)
     return MoleculeConfig(
         atoms=[atom],
-        electron_spins=electron_spins,
+        electron_spins=atom.spin_config,
         electron_init_width=electron_init_width,
         basis=basis,
-        ecp=ecp,
+        pp={symbol: pp} if pp is not None else None,
     )

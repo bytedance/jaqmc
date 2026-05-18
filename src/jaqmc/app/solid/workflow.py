@@ -164,14 +164,14 @@ def configure_system(
     k_twist = jnp.dot(twist, sim_rec_vecs)
     kpts = kpts_folding + k_twist[None, :]
 
-    core_electrons = get_core_electrons(system_config.atoms, system_config.ecp)
+    core_electrons = get_core_electrons(system_config.atoms, system_config.pp)
     scf = PeriodicSCF(
         atoms=system_config.atoms,
         nelectrons=system_config.electron_spins,
         lattice_vectors=np.asarray(lattice_vectors),
         kpts=np.asarray(kpts),
         basis=system_config.basis,
-        ecp=system_config.ecp,
+        ecp=system_config.pp,
         core_electrons=core_electrons,
     )
 
@@ -200,7 +200,7 @@ def make_estimators(
         estimators["kinetic"] = cfg.get(
             "estimators.energy.kinetic", EuclideanKinetic(f_log_psi=wf.logpsi)
         )
-        if system_config.ecp is not None:
+        if system_config.pp is not None:
             logger.info("ECP enabled for elements: %s", list(scf._cell._ecp.keys()))
             estimators["ecp"] = cfg.get(
                 "estimators.energy.ecp",

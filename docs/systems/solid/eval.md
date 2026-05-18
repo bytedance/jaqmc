@@ -98,7 +98,7 @@ estimators enabled through boolean flags.
 
 ### ECP energy (`estimators.energy.ecp.*`)
 
-Added automatically when `system.ecp` is set.
+Added automatically when `system.pp` selects an ECP for at least one atom.
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.estimator.ecp.estimator.ECPEnergy

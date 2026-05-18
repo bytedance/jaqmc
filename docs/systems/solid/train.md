@@ -259,7 +259,10 @@ Kinetic energy estimator. See [Kinetic energy](../../guide/estimators/kinetic.md
 
 ### ECP energy (`estimators.energy.ecp.*`)
 
-ECP (pseudopotential) energy estimator. Added automatically when `ecp` is set in the system config. See [Pseudopotentials](../../guide/estimators/ecp.md) for physics details and quadrature options.
+ECP (pseudopotential) energy estimator. Added automatically when `system.pp`
+selects an ECP for at least one atom. See
+[Pseudopotentials](../../guide/estimators/ecp.md) for physics details and
+quadrature options.
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.estimator.ecp.estimator.ECPEnergy
