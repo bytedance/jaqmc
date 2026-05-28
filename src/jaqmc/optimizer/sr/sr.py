@@ -41,10 +41,16 @@ class SROptimizer:
     Args:
         learning_rate: Step size (scalar or schedule).
         max_norm: Constrained update norm ``C`` (scalar or schedule). If
-            ``None``, only the learning-rate scaling is applied.
+            ``"fixed"``, the update is normalized to the norm set by
+            ``learning_rate``. If ``None``, only the learning-rate scaling is
+            applied.
         damping: Damping ``lambda`` (scalar or schedule).
         max_cond_num: Maximum condition number for adaptive damping. If
             ``None``, adaptive damping is disabled.
+        robust_gamma: Gamma factor for the robust update. ``"sqrt"`` uses
+            ``1 / sqrt(damping)``, ``None`` uses standard SR
+            ``1 / damping``, and scalar or schedule values are clipped into the
+            stable range by the underlying solver.
         spring_mu: SPRING momentum coefficient ``mu`` (scalar or schedule).
             If ``None``, SPRING momentum is disabled.
         march_beta: Decay factor for the MARCH variance accumulator (scalar or
@@ -60,23 +66,28 @@ class SROptimizer:
         gram_num_chunks: Number of chunks for Gram matrix computation. If
             ``None``, full-batch Gram computation is used.
         gram_dot_prec: Precision mode for Gram matrix dot products.
-        prune_inactive: Whether to structurally prune inactive parameter leaves
-            when forming the SR system.
     """
 
     learning_rate: Any = module_config(Standard, direct_value_type=float)
     max_norm: Any = module_config(
-        0.1, direct_value_type=float, module_import_base="jaqmc.optimizer"
+        "fixed",
+        direct_value_type=float | Literal["fixed"],
+        module_import_base="jaqmc.optimizer",
     )
     damping: Any = module_config(
         1e-3, direct_value_type=float, module_import_base="jaqmc.optimizer"
     )
     max_cond_num: float | None = 1e7
+    robust_gamma: Any = module_config(
+        "sqrt",
+        direct_value_type=float | Literal["sqrt"],
+        module_import_base="jaqmc.optimizer",
+    )
     spring_mu: Any = module_config(
         0.9, direct_value_type=float, module_import_base="jaqmc.optimizer"
     )
     march_beta: Any = module_config(
-        0.5, direct_value_type=float, module_import_base="jaqmc.optimizer"
+        0.995, direct_value_type=float, module_import_base="jaqmc.optimizer"
     )
     march_mode: Literal["var", "diff"] = "var"
     eps: float = 1e-8
@@ -85,7 +96,6 @@ class SROptimizer:
     score_norm_clip: float | None = None
     gram_num_chunks: int | None = 4
     gram_dot_prec: str | None = "F64"
-    prune_inactive: bool = False
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
 
     def init(
@@ -107,6 +117,7 @@ class SROptimizer:
             max_norm=self.max_norm,
             damping=self.damping,
             max_cond_num=self.max_cond_num,
+            robust_gamma=self.robust_gamma,
             spring_mu=self.spring_mu,
             march_beta=self.march_beta,
             march_mode=self.march_mode,
@@ -118,7 +129,7 @@ class SROptimizer:
             gram_num_chunks=self.gram_num_chunks,
             gram_dot_prec=self.gram_dot_prec,
             axis_name=parallel_jax.BATCH_AXIS_NAME,
-            prune_inactive=self.prune_inactive,
+            prune_inactive=False,
         )
         return self._sr_base.init(params)
 
