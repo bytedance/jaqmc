@@ -207,6 +207,13 @@ def _format_compact_type(field_type, mc) -> str | None:
         Compact RST-formatted type string, or ``None`` if unavailable.
     """
     if mc is not None:
+        direct_type = (
+            _type_name(mc.direct_value_type)
+            if mc.direct_value_type is not None
+            else None
+        )
+        if direct_type:
+            return f"``{direct_type}`` or swappable"
         return "swappable"
     name = _type_name(field_type)
     return f"``{name}``" if name else None
@@ -464,8 +471,14 @@ def _merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, An
     return result
 
 
-def _module_config_package(default_module: str) -> str | None:
+def _module_config_package(
+    default_module: str | None, module_import_base: str | None = None
+) -> str | None:
     """Return the package used for relative resolution of ``module_config``."""
+    if module_import_base is not None:
+        return module_import_base
+    if default_module is None:
+        return None
     if "." not in default_module:
         return None
     return default_module[: default_module.rfind(".")]
@@ -492,6 +505,35 @@ def _format_module_value(module_name: str, package: str | None = None) -> str:
     return f":py:obj:`{display} <{target}>`"
 
 
+def _format_module_default(module_name: str, kwargs: dict[str, Any]) -> str:
+    """Format a module-config default as a constructor-style object reference.
+
+    Returns:
+        RST-formatted module default string.
+    """
+    target = module_name.replace(":", ".")
+    class_short = module_name.rsplit(":", 1)[1]
+    kwargs_str = ", ".join(f"{k}={v!r}" for k, v in kwargs.items())
+    display = f"{class_short}({kwargs_str})" if kwargs_str else f"{class_short}()"
+    return f":py:obj:`{display} <{target}>`"
+
+
+def _format_field_default(field) -> str:
+    """Format a dataclass field default or default factory output.
+
+    Returns:
+        RST-formatted default value string.
+    """
+    if field.default is not MISSING:
+        return _format_value(field.default)
+    if field.default_factory is not MISSING:
+        try:
+            return _format_value(field.default_factory())
+        except Exception:
+            return "*(factory)*"
+    return "*(required)*"
+
+
 def _format_default(field, mc, override: Any = _NO_OVERRIDE) -> str:
     """Format a field's default value for display.
 
@@ -501,34 +543,18 @@ def _format_default(field, mc, override: Any = _NO_OVERRIDE) -> str:
     if override is not _NO_OVERRIDE:
         if mc is not None and isinstance(override, dict):
             module_name = override.get("module", mc.default)
-            target = module_name.replace(":", ".")
-            class_short = module_name.rsplit(":", 1)[1]
             kwargs = _merge_dicts(
                 mc.kwargs, {k: v for k, v in override.items() if k != "module"}
             )
-            kwargs_str = ", ".join(f"{k}={v!r}" for k, v in kwargs.items())
-            display = (
-                f"{class_short}({kwargs_str})" if kwargs_str else f"{class_short}()"
-            )
-            return f":py:obj:`{display} <{target}>`"
+            return _format_module_default(module_name, kwargs)
         return _format_value(override)
 
     if mc is not None:
-        target = mc.default.replace(":", ".")
-        class_short = mc.default.rsplit(":", 1)[1]
-        kwargs_str = ", ".join(f"{k}={v!r}" for k, v in mc.kwargs.items())
-        display = f"{class_short}({kwargs_str})" if kwargs_str else f"{class_short}()"
-        return f":py:obj:`{display} <{target}>`"
+        if mc.default is None:
+            return _format_field_default(field)
+        return _format_module_default(mc.default, mc.kwargs)
 
-    if field.default is not MISSING:
-        return _format_value(field.default)
-    if field.default_factory is not MISSING:
-        try:
-            val = field.default_factory()
-            return _format_value(val)
-        except Exception:
-            return "*(factory)*"
-    return "*(required)*"
+    return _format_field_default(field)
 
 
 class ConfigContext(SphinxDirective):
@@ -615,7 +641,11 @@ class ConfigDefaults(ConfigDirectiveBase):
     }
 
     def _module_group_description(
-        self, description: str | None, field_key: str, module_str: str
+        self,
+        description: str | None,
+        field_key: str,
+        module_str: str | None,
+        direct_value_type: str | None = None,
     ) -> str:
         """Build the explanatory line for a swappable component block.
 
@@ -625,11 +655,28 @@ class ConfigDefaults(ConfigDirectiveBase):
         parts: list[str] = []
         if description:
             parts.append(description.rstrip("."))
-        parts.append(
-            "Swappable component; the nested keys below are the options for the "
-            f"current module {module_str} and change when "
-            f"``{field_key}.module`` changes."
-        )
+        if module_str is None:
+            if direct_value_type:
+                parts.append(
+                    f"Accepts direct ``{direct_value_type}`` values by default. "
+                    f"Set ``{field_key}.module`` to switch to a configurable "
+                    "component."
+                )
+            else:
+                parts.append(
+                    f"Set ``{field_key}.module`` to choose a configurable component."
+                )
+        else:
+            prefix = (
+                f"Accepts direct ``{direct_value_type}`` values too. "
+                if direct_value_type
+                else ""
+            )
+            parts.append(
+                f"{prefix}Swappable component; the nested keys below are the "
+                f"options for the current module {module_str} and change when "
+                f"``{field_key}.module`` changes."
+            )
         return ". ".join(parts)
 
     def _meta_text(self, entry: ConfigDefaultEntry) -> str:
@@ -759,50 +806,74 @@ class ConfigDefaults(ConfigDirectiveBase):
         Returns:
             Parent entry with nested current-module options.
         """
+        direct_value_type = (
+            _type_name(module_config.direct_value_type)
+            if module_config.direct_value_type is not None
+            else None
+        )
         module_name = (
             override.get("module", module_config.default)
             if isinstance(override, dict)
             else module_config.default
         )
-        package = _module_config_package(module_config.default)
-        module_default_str = _format_module_value(module_name, package=package)
-        nested_obj = resolve_object(module_name, package=package)
+        package = _module_config_package(
+            module_config.default, module_config.module_import_base
+        )
         nested_overrides = (
             {k: v for k, v in override.items() if k != "module"}
             if isinstance(override, dict)
             else {}
         )
-        nested_items: list[ConfigDefaultEntry] = [
-            ConfigDefaultEntry(
-                key=f"{field_key}.module",
-                default_str=module_default_str,
-                type_str="module path",
-                description="Select the implementation used for this component.",
-                anchor_scope=anchor_scope,
+        nested_items: list[ConfigDefaultEntry] = []
+        module_default_str = _format_default(field, module_config, override=override)
+        if module_name is not None:
+            module_default_str = _format_module_value(module_name, package=package)
+            nested_items.append(
+                ConfigDefaultEntry(
+                    key=f"{field_key}.module",
+                    default_str=module_default_str,
+                    type_str="module path",
+                    description="Select the implementation used for this component.",
+                    anchor_scope=anchor_scope,
+                )
             )
-        ]
-        nested_scope = _merge_anchor_scopes(
-            anchor_scope,
-            _scope_from_module_name(module_name),
-        )
-        if is_dataclass(nested_obj):
-            nested_items.extend(
-                self._collect_dataclass_items(
-                    nested_obj,
-                    field_key,
-                    nested_overrides,
-                    importlib.import_module(nested_obj.__module__),
-                    anchor_scope=nested_scope,
+            nested_obj = resolve_object(module_name, package=package)
+            nested_scope = _merge_anchor_scopes(
+                anchor_scope,
+                _scope_from_module_name(module_name),
+            )
+            if is_dataclass(nested_obj):
+                nested_items.extend(
+                    self._collect_dataclass_items(
+                        nested_obj,
+                        field_key,
+                        nested_overrides,
+                        importlib.import_module(nested_obj.__module__),
+                        anchor_scope=nested_scope,
+                    )
+                )
+        else:
+            nested_items.append(
+                ConfigDefaultEntry(
+                    key=f"{field_key}.module",
+                    default_str="*(optional)*",
+                    type_str="module path",
+                    description=(
+                        "Set this to switch from a direct value to a configurable "
+                        "component."
+                    ),
+                    anchor_scope=anchor_scope,
                 )
             )
         return ConfigDefaultEntry(
             key=field_key,
-            default_str=module_default_str,
-            type_str="swappable",
+            default_str=_format_default(field, module_config, override=override),
+            type_str=_format_compact_type(field.type, module_config),
             description=self._module_group_description(
                 self._description(descriptions, field.name, mod),
                 field_key,
-                module_default_str,
+                module_default_str if module_name is not None else None,
+                direct_value_type,
             ),
             children=nested_items,
             classes=("config-defaults-item-group",),

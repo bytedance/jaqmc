@@ -68,79 +68,127 @@ def configurable_dataclass(cls=None, *, frozen: bool = False, kw_only: bool = Tr
 
 @dataclass
 class ModuleConfig:
-    """Metadata for a module_config field."""
+    """Metadata describing how a ``module_config`` field is deserialized."""
 
-    default: str
+    default: str | None
     kwargs: dict[str, Any]
+    direct_value_type: Any = None
+    module_import_base: str | None = None
 
 
-def module_config(default_factory, **kwargs):
+def module_config(
+    default_factory,
+    direct_value_type=None,
+    module_import_base: str | None = None,
+    **kwargs,
+):
     """Create a serde field for polymorphic module configuration.
 
     This allows a field to be configured with different implementations
-    at runtime via YAML/dict configuration.
+    at runtime via YAML/dict configuration, while optionally accepting
+    direct scalar values for simple cases.
 
     Args:
-        default_factory: The default class or callable.
-        **kwargs: Default keyword arguments for the factory.
+        default_factory: The default class/callable, or a direct default value when
+            ``direct_value_type`` is enabled.
+        direct_value_type: Optional serde type/schema used when the config value is
+            provided directly instead of as a module-config mapping. Non-dict inputs
+            are deserialized with this type. Pass a normal type expression such as
+            ``float`` or ``float | int`` rather than a runtime tuple like
+            ``(float, int)``. When ``default_factory`` is not callable, dict inputs
+            must include ``module`` explicitly to select an implementation.
+        module_import_base: Base package for module import. Omit to infer from
+            ``default_factory`` if it's callable.
+        **kwargs: Default keyword arguments for the resolved module/dataclass.
 
     Returns:
         A serde field descriptor.
 
     Raises:
         ValueError: If default_factory is not importable by its module path.
+
+    Example::
+
+        learning_rate: Any = module_config(Standard, direct_value_type=float)
+        damping: Any = module_config(Standard, direct_value_type=float | int)
     """
-    default_module = f"{default_factory.__module__}:{default_factory.__name__}"
-    if resolve_object(default_module) is not default_factory:
-        raise ValueError(
-            f'Expected default_factory to be importable via "{default_module}". '
-            f"Got {default_factory}."
-        )
-    base_package = (
-        default_module[: default_module.rfind(".")] if "." in default_module else None
+    default_module = (
+        f"{default_factory.__module__}:{default_factory.__name__}"
+        if callable(default_factory)
+        else None
     )
-    mc = ModuleConfig(default_module, kwargs)
 
     def deserializer(data):
         if not isinstance(data, dict):
-            raise ValueError(
-                f"Something when wrong. Internal representations of dataclasses "
-                f"should be dicts. Got {type(data)}."
-            )
+            return serde.from_dict(direct_value_type, data)
         mod = data.get("module", default_module)
-        cls = resolve_object(mod, package=base_package)
+        if mod is None:
+            raise ValueError(
+                "module_config dict inputs must include 'module' when there is no "
+                "default module."
+            )
+        cls = resolve_object(mod, package=module_import_base)
         config_data = {k: v for k, v in data.items() if k != "module"}
         merged = deep_merge(kwargs, config_data)
         if not is_dataclass(cls):
-            raise ValueError(f"module_config expected dataclasses, not {cls}.")
+            raise ValueError(
+                f"module_config expected a dataclass, but {mod!r} resolved to {cls!r}."
+            )
         return serde.from_dict(cls, merged)
 
     def serializer(instance):
-        if not is_dataclass(instance):
-            raise ValueError(
-                f"module_config expected dataclasses, not {type(instance)}."
-            )
-        result = {
-            "module": f"{type(instance).__module__}:{type(instance).__name__}",
-            **serde.to_dict(instance),
-        }
-        return result
+        return (
+            serde.to_dict(instance)
+            if not is_dataclass(instance)
+            else {
+                "module": f"{type(instance).__module__}:{type(instance).__name__}",
+                **serde.to_dict(instance),
+            }
+        )
 
     def factory():
         # When kwargs are provided, the default_factory must apply them so that
         # pyserde uses the correct defaults when no user config is given.
         if kwargs and is_dataclass(default_factory):
             return serde.from_dict(default_factory, kwargs)
-        elif kwargs:
-            return default_factory(**kwargs)
-        else:
-            return default_factory()
+        return default_factory(**(kwargs or {}))
 
+    metadata = {
+        "module_config": ModuleConfig(
+            default=default_module,
+            kwargs=kwargs,
+            direct_value_type=direct_value_type,
+            module_import_base=module_import_base,
+        )
+    }
+    if not callable(default_factory):
+        return serde_field(
+            default=default_factory,
+            serializer=serializer,
+            deserializer=deserializer,
+            metadata=metadata,
+        )
+    default_module = f"{default_factory.__module__}:{default_factory.__name__}"
+    if resolve_object(default_module) is not default_factory:
+        raise ValueError(
+            f'Expected default_factory to be importable via "{default_module}". '
+            f"Got {default_factory}."
+        )
+    module_import_base = module_import_base or (
+        default_module[: default_module.rfind(".")] if "." in default_module else None
+    )
     return serde_field(
         default_factory=factory,
         serializer=serializer,
         deserializer=deserializer,
-        metadata={"module_config": mc},
+        metadata={
+            "module_config": ModuleConfig(
+                default=default_module,
+                kwargs=kwargs,
+                direct_value_type=direct_value_type,
+                module_import_base=module_import_base,
+            )
+        },
     )
 
 

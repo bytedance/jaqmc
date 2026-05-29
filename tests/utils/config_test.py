@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 import yaml
+from serde.compat import SerdeError
 
 from jaqmc.utils.config import ConfigManager, configurable_dataclass, module_config
 
@@ -399,6 +400,21 @@ class OuterClass:
     mid: Any = module_config(MidClass)
 
 
+@configurable_dataclass
+class DirectValueLeaf:
+    rate: float = 0.5
+
+
+@configurable_dataclass
+class DirectValueUnionConfig:
+    value: Any = module_config(DirectValueLeaf, direct_value_type=int | float)
+
+
+@configurable_dataclass
+class DirectValueScalarDefaultConfig:
+    plain_default_value: Any = module_config(1.0, direct_value_type=float)
+
+
 def _module_ref(obj: type | Any) -> str:
     return f"{__name__}:{obj.__name__}"
 
@@ -473,6 +489,96 @@ def test_nesed_module_missing_field(recursive_module_mock):
     assert mid_instance.one.y == 999
 
     cfg.finalize()
+
+
+@pytest.mark.parametrize(
+    ("raw_value", "expected_type"),
+    [(4, int), (3.75, float)],
+)
+def test_module_config_direct_value_union_accepts_scalars(raw_value, expected_type):
+    cfg = ConfigManager({"section": {"value": raw_value}})
+
+    result = cfg.get("section", default=DirectValueUnionConfig())
+
+    assert type(result.value) is expected_type
+    assert result.value == raw_value
+    assert cfg.resolved_config["section"] == {"value": raw_value}
+
+    cfg2 = _yaml_roundtrip(cfg)
+    result2 = cfg2.get("section", default=DirectValueUnionConfig())
+    assert type(result2.value) is expected_type
+    assert result2.value == raw_value
+    cfg2.finalize()
+
+
+def test_module_config_direct_value_union_keeps_dict_input_as_module_config():
+    cfg = ConfigManager({"section": {"value": {"rate": 1.25}}})
+
+    result = cfg.get("section", default=DirectValueUnionConfig())
+
+    assert isinstance(result.value, DirectValueLeaf)
+    assert result.value.rate == pytest.approx(1.25)
+    assert cfg.resolved_config["section"] == {
+        "value": {
+            "module": _module_ref(DirectValueLeaf),
+            "rate": 1.25,
+        }
+    }
+
+    cfg2 = _yaml_roundtrip(cfg)
+    result2 = cfg2.get("section", default=DirectValueUnionConfig())
+    assert isinstance(result2.value, DirectValueLeaf)
+    assert result2.value.rate == pytest.approx(1.25)
+    cfg2.finalize()
+
+
+def test_module_config_direct_value_union_rejects_string_input():
+    cfg = ConfigManager({"section": {"value": "4.5"}})
+
+    with pytest.raises(SerdeError, match=r"Union\[int, float\]"):
+        cfg.get("section", default=DirectValueUnionConfig())
+
+
+def test_module_config_plain_default_value_supports_noncallable_default():
+    cfg = ConfigManager({})
+
+    result = cfg.get("section", default=DirectValueScalarDefaultConfig())
+
+    assert type(result.plain_default_value) is float
+    assert result.plain_default_value == pytest.approx(1.0)
+    assert cfg.resolved_config["section"] == {"plain_default_value": 1.0}
+
+
+def test_module_config_uses_explicit_module_import_base(mocker):
+    relative_module = "relative_leaf:DirectValueLeaf"
+    resolve_object = mocker.patch(
+        "jaqmc.utils.config.resolve_object",
+        return_value=DirectValueLeaf,
+    )
+
+    @configurable_dataclass
+    class RelativeModuleConfig:
+        value: Any = module_config(
+            DirectValueLeaf,
+            module_import_base="custom.base",
+        )
+
+    cfg = ConfigManager(
+        {
+            "section": {
+                "value": {
+                    "module": relative_module,
+                    "rate": 1.25,
+                }
+            }
+        }
+    )
+
+    result = cfg.get("section", default=RelativeModuleConfig())
+
+    assert isinstance(result.value, DirectValueLeaf)
+    assert result.value.rate == pytest.approx(1.25)
+    resolve_object.assert_any_call(relative_module, package="custom.base")
 
 
 # --- YAML round-trip tests (resume-from-yaml scenario) ---

@@ -139,6 +139,28 @@ train:
       decay_steps: 1000
 ```
 
+If you want a field to accept either a direct scalar value or an explicit nested
+module, add `direct_value_type`:
+
+```python
+@configurable_dataclass
+class MyOptimizer:
+    damping: Any = module_config(
+        1e-3,
+        direct_value_type=float,
+        module_import_base="my_lib.schedules",
+    )
+```
+
+With this form, users can write either `damping: 1e-3` or an explicit module
+mapping such as:
+
+```yaml
+damping:
+  module: Constant
+  rate: 1e-3
+```
+
 ## Collections (`get_collection`)
 
 `get_collection` allows you to retrieve a dynamic set of named modules. This is useful for plugins like writers or estimators where the user might want to enable/disable specific ones or add their own.
