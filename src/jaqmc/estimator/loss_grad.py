@@ -3,7 +3,7 @@
 
 from collections.abc import Mapping
 from functools import partial
-from typing import Any
+from typing import Any, Literal
 
 import jax
 import optax
@@ -14,7 +14,7 @@ from jaqmc.data import Data
 from jaqmc.estimator.base import PerWalkerEstimator, mean_reduce
 from jaqmc.utils import parallel_jax
 from jaqmc.utils.array import match_first_axis_of
-from jaqmc.utils.clip import iqr_clip
+from jaqmc.utils.clip import clip_observable
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.func_transform import transform_maybe_complex
 from jaqmc.utils.wiring import runtime_dep
@@ -41,26 +41,29 @@ class LossAndGrad(PerWalkerEstimator):
 
     1. ``evaluate_single_walker`` — evaluates :math:`\log\psi` and its
        parameter gradient for each walker, and reads the loss value.
-    2. ``reduce`` — applies IQR clipping to the local energies for
-       outlier robustness, then forms the per-walker product
+    2. ``reduce`` — optionally clips the local energies for outlier
+       robustness, then forms the per-walker product
        :math:`\nabla\log\psi \cdot E_L^{\text{clipped}}`.
     3. ``finalize`` — averages over walkers and subtracts the baseline
        to assemble the final gradient.
 
     Args:
         loss_key: Key in prev_walker_stats to use as the loss.
-        clip_scale: Multiplier on the interquartile range (IQR) that sets
-            the clipping window for local energies. A walker whose energy
-            falls outside :math:`[Q_1 - s \cdot \text{IQR},\;
-            Q_3 + s \cdot \text{IQR}]` is clipped to that boundary.
+        clip_method: Outlier clipping rule used for gradient weighting.
+            ``"iqr"`` clips to :math:`[Q_1 - s \cdot \text{IQR},\;
+            Q_3 + s \cdot \text{IQR}]`. ``"mad"`` clips to
+            :math:`\mathrm{median}(E_L) \pm s \cdot
+            \mathrm{median}(|E_L - \mathrm{median}(E_L)|)`.
+            ``"none"`` disables clipping.
+        clip_scale: Width multiplier for the selected clipping window.
             Smaller values clip more aggressively, which stabilises
-            gradients but biases the energy estimate. The default of 5.0
-            is a common choice; set to a large value (e.g. 1e8) to
-            effectively disable clipping.
+            gradients but biases the estimator. Ignored when
+            ``clip_method="none"``.
         f_log_psi: Log-psi function to differentiate (runtime dep).
     """
 
     loss_key: str = "total_energy"
+    clip_method: Literal["iqr", "mad", "none"] = "mad"
     clip_scale: float = 5.0
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
 
@@ -91,7 +94,9 @@ class LossAndGrad(PerWalkerEstimator):
         }, state
 
     def reduce(self, walker_stats: Mapping[str, Any]) -> dict[str, Any]:
-        clipped_loss = iqr_clip(walker_stats["loss"], scale=self.clip_scale)
+        clipped_loss = clip_observable(
+            walker_stats["loss"], self.clip_method, scale=self.clip_scale
+        )
         grad_logpsi_and_loss = jax.tree.map(
             lambda x: jnp.real(jnp.conj(x) * match_first_axis_of(clipped_loss, x)),
             walker_stats["grad_logpsi"],

@@ -24,11 +24,15 @@ The $\langle E_L \rangle$ baseline arises from differentiating the ratio $\langl
 
 ## Outlier clipping
 
-Before computing the gradient, local energies are clipped using the interquartile range (IQR) to suppress extreme outliers. Any local energy falling outside $[Q_1 - s \cdot \mathrm{IQR},\; Q_3 + s \cdot \mathrm{IQR}]$ is clamped to the nearest boundary, where $Q_1$ and $Q_3$ are the first and third quartiles and $s$ is the `clip_scale` parameter.
+Before computing the gradient, `LossAndGrad` can clip local energies to suppress extreme outliers. This affects the gradient only; the reported loss remains the unclipped energy average. The following methods can be chosen via `clip_method`:
 
-The default `clip_scale` of 5 is permissive enough to leave most walkers untouched while preventing rare walkers in low-probability regions from dominating the gradient. Decreasing it clips more aggressively, which stabilises gradients but biases the energy estimate. Setting a very large value (e.g. `1e8`) effectively disables clipping.
+- `mad` (Default): clips to $[\mathrm{median}(E_L) - s \cdot \mathrm{median}(|E_L - \mathrm{median}(E_L)|),\; \mathrm{median}(E_L) + s \cdot \mathrm{median}(|E_L - \mathrm{median}(E_L)|)]$.
+- `iqr`: clips to $[Q_1 - s \cdot \mathrm{IQR},\; Q_3 + s \cdot \mathrm{IQR}]$, where $Q_1$ and $Q_3$ are the quartiles and `s` is `clip_scale`.
+- `none`: disables clipping entirely.
+
+It's also possible to decrease `clip_scale` to clip more aggressively, which stabilises gradients but biases the estimator. Setting `clip_method="none"` disables clipping explicitly.
 
 ## See also
 
-- Configuration: [Molecule](#train-grads), [Solid](#solid-train-grads)
+- Configuration: [Molecule](#train-grads), [Solid](#solid-train-grads), [Hall](../../systems/hall/train.md)
 - API: {class}`~jaqmc.estimator.loss_grad.LossAndGrad`

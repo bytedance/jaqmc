@@ -1,14 +1,24 @@
 # Copyright (c) 2025-2026 Bytedance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+from typing import Literal
+
 import jax
 from jax import numpy as jnp
 
 from jaqmc.utils.parallel_jax import BATCH_AXIS_NAME
 
 
-def iqr_clip_real(x: jnp.ndarray, scale=100.0) -> jnp.ndarray:
-    """Returns the clipped the observables based on interquartile range (IQR)."""
+def iqr_clip(x: jnp.ndarray, scale: float = 100.0) -> jnp.ndarray:
+    """Clip observables using an interquartile-range window.
+
+    For complex numbers, the clip is applied on real and imag parts separately.
+
+    Returns:
+        Values clipped to the IQR-based window.
+    """
+    if jnp.iscomplexobj(x):
+        return iqr_clip(x.real, scale) + 1j * iqr_clip(x.imag, scale)
     all_x = jax.lax.all_gather(x, axis_name=BATCH_AXIS_NAME, tiled=True)
     q1 = jnp.nanquantile(all_x, 0.25)
     q3 = jnp.nanquantile(all_x, 0.75)
@@ -16,11 +26,44 @@ def iqr_clip_real(x: jnp.ndarray, scale=100.0) -> jnp.ndarray:
     return jnp.clip(x, q1 - scale * iqr, q3 + scale * iqr)
 
 
-def iqr_clip(x: jnp.ndarray, scale=100.0) -> jnp.ndarray:
-    """Returns the clipped complex observables by applying IQR clip.
+def mad_clip(x: jnp.ndarray, scale: float = 100.0) -> jnp.ndarray:
+    """Clip observables using a median absulute deviation window.
 
-    The clip is applied on real and imag parts separately.
+    For complex numbers, the clip is applied on real and imag parts separately.
+
+    Returns:
+        Values clipped to the median-centered mean-abs-deviation window.
     """
-    if jnp.isrealobj(x):
-        return iqr_clip_real(x, scale)
-    return iqr_clip_real(x.real, scale) + 1j * iqr_clip_real(x.imag, scale)
+    if jnp.iscomplexobj(x):
+        return mad_clip(x.real, scale) + 1j * mad_clip(x.imag, scale)
+    all_x = jax.lax.all_gather(x, axis_name=BATCH_AXIS_NAME, tiled=True)
+    median = jnp.nanmedian(all_x)
+    absdev = jnp.nanmedian(jnp.abs(all_x - median))
+    return jnp.clip(x, median - scale * absdev, median + scale * absdev)
+
+
+def clip_observable(
+    x: jnp.ndarray,
+    method: Literal["iqr", "mad", "none"],
+    scale: float = 100.0,
+) -> jnp.ndarray:
+    """Clip observables with a named method.
+
+    Args:
+        x: Observable values to clip.
+        method: One of ``"iqr"``, ``"mad"``, or ``"none"``.
+        scale: Width multiplier for methods that use a clipping window.
+
+    Returns:
+        Clipped values, or the original values when ``method`` is ``"none"``.
+
+    Raises:
+        ValueError: If ``method`` is unknown.
+    """
+    if method == "iqr":
+        return iqr_clip(x, scale)
+    if method == "mad":
+        return mad_clip(x, scale)
+    if method == "none":
+        return x
+    raise ValueError(f"Unknown clip method {method!r}.")

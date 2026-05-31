@@ -30,8 +30,9 @@ Wrappers for extracting real/imaginary parts and handling complex-valued JAX fun
 ## Clipping
 
 ```{eval-rst}
+.. autofunction:: jaqmc.utils.clip.clip_observable
+.. autofunction:: jaqmc.utils.clip.mad_clip
 .. autofunction:: jaqmc.utils.clip.iqr_clip
-.. autofunction:: jaqmc.utils.clip.iqr_clip_real
 ```
 
 ## Units
