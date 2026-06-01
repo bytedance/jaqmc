@@ -29,7 +29,7 @@ for you.
   atoms, molecules, crystals, and beyond. Ships today with molecular,
   solid-state, and fractional quantum Hall (FQHE) support, with an architecture
   that extends naturally to other quantum systems.
-- **Ready to use, ready to modify.** Ships with FermiNet and PsiFormer
+- **Ready to use, ready to modify.** Ships with FermiNet, LapNet, and Psiformer
   architectures, KFAC, SR, and Optax-based optimizers (for example Adam), and
   preset configurations for common systems. Everything is configurable from the
   CLI — or from code if you want deeper control.

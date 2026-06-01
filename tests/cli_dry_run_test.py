@@ -186,6 +186,12 @@ train:
         "train.run.iterations=1",
     ),
     CliDryRunCase(
+        "molecule_lapnet_dotlist",
+        "molecule train wf.module=lapnet workflow.batch_size=4 "
+        "wf.num_layers=1 wf.num_heads=2 wf.heads_dim=8 "
+        "wf.ndets=4 pretrain.run.iterations=1 train.run.iterations=1",
+    ),
+    CliDryRunCase(
         "solid_two_atom_chain_yaml",
         "solid train --yml solid.yml",
         {

@@ -67,8 +67,10 @@ Defines the molecular system to simulate. The implementation is selected by
 Selects and configures the neural-network ansatz.
 
 - Default module selection: `ferminet`. Effective defaults for the built-in
-  architectures are listed below. Built-in choices are `ferminet` and
-  `psiformer`.
+  architectures are listed below. Built-in molecule choices are `ferminet`,
+  `lapnet`, and `psiformer`.
+- For architecture selection, examples, and the main tuning knobs for each
+  built-in option, see <project:../../guide/wavefunction.md>.
 
 ### FermiNet options (`wf.*`)
 
@@ -76,6 +78,13 @@ Selects and configures the neural-network ansatz.
 .. config-defaults:: jaqmc.app.molecule.wavefunction.ferminet.FermiNetWavefunction
    :prefix: wf
    :scope: FermiNet
+```
+
+### LapNet options (`wf.*`)
+
+```{eval-rst}
+.. config-defaults:: jaqmc.app.molecule.wavefunction.lapnet.LapNetWavefunction
+   :prefix: wf
 ```
 
 ### Psiformer options (`wf.*`)

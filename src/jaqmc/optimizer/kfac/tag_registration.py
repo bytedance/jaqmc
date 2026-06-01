@@ -16,6 +16,7 @@ from collections.abc import Sequence
 import jax
 import kfac_jax
 import numpy as np
+from jax import numpy as jnp
 
 
 def _flax_dense(
@@ -166,14 +167,84 @@ def _make_scalar_scale_pattern(
     )
 
 
+def _flax_vmapped_normalization(
+    inputs: Sequence[kfac_jax.utils.Array],
+    params: Sequence[kfac_jax.utils.Array],
+    has_shift: bool,
+) -> kfac_jax.utils.Array:
+    """Affine tail emitted by Flax LayerNorm under an outer `jax.vmap`.
+
+    Returns:
+        LayerNorm output with scale and optional shift broadcast to the
+        vmapped activation shape.
+    """
+    [x, rsqrt_var] = inputs
+    scale = params[0]
+    scale = scale.reshape((1, *scale.shape))
+    scale = scale.astype(x.dtype)
+    scale = jnp.broadcast_to(scale, (1,) * (x.ndim - scale.ndim) + scale.shape)
+    y = x * (rsqrt_var * scale)
+    if not has_shift:
+        return y
+
+    shift = params[1]
+    shift = shift.reshape((1, *shift.shape))
+    shift = shift.astype(x.dtype)
+    shift = jnp.broadcast_to(shift, (1,) * (x.ndim - shift.ndim) + shift.shape)
+    return y + shift
+
+
+def _make_flax_vmapped_normalization_pattern(
+    broadcast_ndim: int,
+    has_shift: bool,
+    p_dim: int = 13,
+) -> kfac_jax.tag_graph_matcher.GraphPattern:
+    """Pattern for Flax LayerNorm traced through an outer `jax.vmap`.
+
+    Flax lowers vmapped LayerNorm with the normalization inverse shaped like
+    `[..., 1]` instead of fully broadcasting it to `[..., feature_dim]`.
+    KFAC-JAX's built-in normalization patterns only cover the fully-broadcasted
+    form, so the affine scale/bias parameters fall back to `generic`.
+
+    Returns:
+        A ``GraphPattern`` matching the vmapped LayerNorm affine tail.
+    """
+    x_shape = [i + 2 for i in range(broadcast_ndim)] + [p_dim]
+    rsqrt_shape = [i + 2 for i in range(broadcast_ndim)] + [1]
+    example_params = [np.zeros([p_dim], dtype=np.float32)]
+    if has_shift:
+        example_params.append(np.zeros([p_dim], dtype=np.float32))
+
+    return kfac_jax.tag_graph_matcher.GraphPattern(
+        name=f"flax_vmapped_normalization_broadcast_{broadcast_ndim}",
+        tag_primitive=kfac_jax.layers_and_loss_tags.layer_tag,
+        compute_func=functools.partial(
+            _flax_vmapped_normalization,
+            has_shift=has_shift,
+        ),
+        parameters_extractor_func=kfac_jax.tag_graph_matcher._scale_and_shift_parameter_extractor,
+        example_args=[[np.zeros(x_shape), np.zeros(rsqrt_shape)], example_params],
+        in_values_preprocessor=kfac_jax.tag_graph_matcher._normalization_haiku_preprocessor,
+    )
+
+
 def make_graph_patterns():
     return (
-        tuple(
+        *tuple(
             _make_scalar_scale_pattern(x_ndim, has_scale, has_shift)
             for x_ndim in (0, 1, 2)
             for has_scale, has_shift in [(True, True), (True, False), (False, True)]
-        )
-        + tuple(
+        ),
+        *tuple(
+            _make_flax_vmapped_normalization_pattern(
+                broadcast_ndim=broadcast_ndim,
+                has_shift=has_shift,
+            )
+            for broadcast_ndim, has_shift in itertools.product(
+                range(1, 3), (False, True)
+            )
+        ),
+        *tuple(
             _make_flax_dense_pattern(
                 with_bias=with_bias,
                 num_repeated_axes=repeat,
@@ -183,6 +254,6 @@ def make_graph_patterns():
             for with_bias, repeat, n_ins, n_outs in itertools.product(
                 (True, False), range(3), range(1, 3), range(1, 3)
             )
-        )
-        + kfac_jax.tag_graph_matcher.DEFAULT_GRAPH_PATTERNS
+        ),
+        *kfac_jax.tag_graph_matcher.DEFAULT_GRAPH_PATTERNS,
     )

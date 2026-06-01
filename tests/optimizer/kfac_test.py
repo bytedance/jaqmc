@@ -12,6 +12,7 @@ import pytest
 
 from jaqmc.app.molecule.data import MoleculeData
 from jaqmc.app.molecule.wavefunction.ferminet import FermiNetWavefunction
+from jaqmc.app.molecule.wavefunction.lapnet import LapNetWavefunction
 from jaqmc.data import BatchedData
 from jaqmc.optimizer.kfac.complex_support import patch_block_diagonal_curvature
 from jaqmc.optimizer.kfac.curvature_blocks import make_tag_to_block_ctor
@@ -309,6 +310,57 @@ def test_ferminet_registration_smoke(x64_mode):
             assert "Auto[generic(" not in tag
 
 
+@pytest.mark.x64_modes
+def test_lapnet_registration_smoke(x64_mode):
+    wf = LapNetWavefunction(
+        nspins=(1, 1),
+        ndets=1,
+        num_layers=1,
+        num_heads=2,
+        heads_dim=4,
+        use_layernorm=True,
+        num_local_updates=1,
+    )
+    act_dtype = activation_dtype(x64_mode)
+    walker = MoleculeData(
+        electrons=jnp.array([[0.5, 0.0, 0.0], [-0.5, 0.0, 0.0]], dtype=jnp.float32),
+        atoms=jnp.array([[0.0, 0.0, 0.0]]),
+        charges=jnp.array([2.0]),
+    )
+    batch = BatchedData(
+        MoleculeData(
+            jnp.stack([walker.electrons, walker.electrons + 0.1]).astype(act_dtype),
+            walker.atoms,
+            walker.charges,
+        ),
+        ["electrons"],
+    )
+    params = wf.init_params(walker, jax.random.PRNGKey(0))
+    assert_params_f32(params)
+
+    def apply_logpsi(p, batched_data):
+        return jax.vmap(wf.logpsi, in_axes=(None, batched_data.vmap_axis))(
+            p, batched_data.data
+        )
+
+    tag_tree = get_tag_tree(apply_logpsi, params, batch)
+    assert all(tag != "Orphan" for tag in jax.tree_util.tree_leaves(tag_tree["params"]))
+    layer_tags = tag_tree["params"]["backbone_layer"]["layers_0"]
+    for layernorm_name in ("value_layernorm", "post_attention_layernorm"):
+        for tag in jax.tree_util.tree_leaves(layer_tags[layernorm_name]):
+            assert_tag(
+                tag,
+                variant="scale_and_shift",
+                match_type="flax_vmapped_normalization_broadcast_2",
+            )
+    for tag in jax.tree_util.tree_leaves(layer_tags["value_projection"]):
+        assert_tag(
+            tag,
+            variant="repeated_dense",
+            match_type="repeated[1]_flax_dense_with_bias",
+        )
+
+
 class CurvatureProbe(nn.Module):
     """Synthetic graph covering dense, repeated_dense, scale, and generic blocks."""
 
@@ -444,6 +496,38 @@ def test_curvature_updates_all_block_variants(x64_mode):
         assert after_snapshot.weight > 0
         assert jnp.all(jnp.isfinite(after_snapshot.value))
         assert jnp.any(after_snapshot.value != 0)
+
+
+@pytest.mark.x64_modes
+@pytest.mark.parametrize(
+    ("example_shape", "batched_shape"),
+    [
+        ((8,), (2, 8)),
+        ((3, 8), (2, 3, 8)),
+    ],
+)
+def test_flax_layernorm_registration_under_vmap(x64_mode, example_shape, batched_shape):
+    model = nn.LayerNorm(epsilon=1e-6)
+    params = model.init(
+        jax.random.PRNGKey(0), jnp.ones(example_shape, dtype=jnp.float32)
+    )
+    assert_params_f32(params)
+
+    def vmapped_apply(p, xb):
+        return jax.vmap(lambda x: model.apply(p, x))(xb)
+
+    tags = get_tag_tree(
+        vmapped_apply,
+        params,
+        jnp.ones(batched_shape, dtype=activation_dtype(x64_mode)),
+    )
+    layernorm_tags = jax.tree_util.tree_leaves(tags["params"])
+
+    assert layernorm_tags
+    for tag in layernorm_tags:
+        assert tag != "Orphan"
+        assert "Auto[generic(" not in tag
+        assert "tag_variant=scale_and_shift" in tag
 
 
 @pytest.mark.parametrize(
