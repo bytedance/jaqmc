@@ -32,13 +32,11 @@ def _parse_diatomic_formula(formula: str) -> tuple[str, str]:
         ValueError: If the formula cannot be parsed as a diatomic molecule
             or contains unknown element symbols.
     """
-    # Homonuclear: formula ends with "2" and prefix is a valid element
     if formula.endswith("2"):
         symbol = formula[:-1]
         if symbol in elements.from_symbol:
             return (symbol, symbol)
 
-    # Heteronuclear: split into element symbols
     symbols = re.findall(r"[A-Z][a-z]*", formula)
     if len(symbols) != 2 or "".join(symbols) != formula:
         raise ValueError(
@@ -56,7 +54,6 @@ def diatomic_config(
     formula: str = "H2",
     bond_length: float = 1.4,
     unit: LengthUnit = LengthUnit.bohr,
-    basis: str | dict[str, str] = "sto-3g",
     pp: str | dict[str, str] | None = None,
     spin: int = 0,
     electron_init_width: float = 1.0,
@@ -71,8 +68,6 @@ def diatomic_config(
         bond_length: Distance between the two atoms.
         unit: Length unit for ``bond_length`` and atom coordinates.
             Either ``"bohr"`` or ``"angstrom"``.
-        basis: Basis set name, or per-element mapping
-            (e.g., ``{"Li": "ccecpccpvdz", "H": "cc-pvdz"}``).
         pp: Pseudopotential specification. Can be ``None``
             (all-electron), a string (e.g., ``"ccecp"``, ``"ph"``), or a
             per-element mapping (e.g., ``{"Li": "ccecp", "Cu": "ph"}``).
@@ -103,6 +98,5 @@ def diatomic_config(
         atoms=atoms,
         electron_spins=electron_spins_from_total(total_electrons, spin),
         electron_init_width=electron_init_width,
-        basis=basis,
         pp=pp,
     )

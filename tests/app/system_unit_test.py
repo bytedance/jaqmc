@@ -5,10 +5,13 @@ import numpy as np
 import pytest
 import serde
 
+from jaqmc.app.molecule.config.base import MoleculePretrainReferenceConfig
 from jaqmc.app.molecule.wavefunction.ferminet import FermiNetWavefunction
 from jaqmc.app.molecule.workflow import configure_system as configure_molecule_system
 from jaqmc.app.molecule.workflow import make_scf as make_molecule_scf
+from jaqmc.app.solid.config.base import SolidPretrainReferenceConfig
 from jaqmc.app.solid.workflow import configure_system as configure_solid_system
+from jaqmc.app.solid.workflow import make_scf as make_solid_scf
 from jaqmc.utils.config import ConfigManager
 from jaqmc.utils.units import ONE_ANGSTROM_IN_BOHR
 
@@ -28,7 +31,9 @@ def test_molecule_configure_system_normalizes_angstrom_before_scf():
     )
 
     system_config, wf = configure_molecule_system(cfg)
-    scf = make_molecule_scf(system_config)
+    scf = make_molecule_scf(
+        MoleculePretrainReferenceConfig(basis="sto-3g"), system_config
+    )
 
     expected_coords = np.array(
         [
@@ -66,12 +71,12 @@ def test_solid_configure_system_normalizes_angstrom_before_scf():
                 ],
                 "electron_spins": [2, 2],
                 "supercell_matrix": [[2, 0, 0], [0, 1, 0], [0, 0, 1]],
-                "basis": "sto-3g",
             }
         }
     )
 
-    system_config, wf, scf, _ = configure_solid_system(cfg)
+    system_config, wf, _ = configure_solid_system(cfg)
+    scf = make_solid_scf(SolidPretrainReferenceConfig(basis="sto-3g"), system_config)
 
     expected_lattice = np.array(
         [

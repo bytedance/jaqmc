@@ -12,14 +12,15 @@ class AtomicSystemConfig:
 
     Args:
         atoms: List of atoms in the system.
-        electron_spins: Tuple of two integers representing the
-            number of up and down electrons.
-        basis: The basis set for Hartree-Fock pretrain. Can be a string
-            (e.g., "sto-3g", "ccecpccpvdz") or a dict mapping element
-            symbols to basis names (e.g., {"Fe": "ccecpccpvdz", "O": "cc-pvdz"}).
+        electron_spins: Tuple of two integers representing the number of
+            explicitly simulated up and down electrons. In all-electron systems
+            this is the full electron count; with pseudopotentials it is the
+            valence count after core electrons are replaced by the
+            pseudopotential.
         pp: Pseudopotential specification. Can be None (no ECP nor PH),
             a string (same PP for all atoms, e.g., "ccecp", "ph"), or a dict
-            mapping element symbols to ECP names (e.g., {"Fe": "ccecp", "Cu": "ph"}).
+            mapping element symbols to pseudopotential names
+            (e.g., {"Fe": "ccecp", "Cu": "ph"}).
             Elements not in the dict use all-electron treatment.
         fixed_spins_per_atom: Optional list of fixed spin configurations
             per atom.
@@ -28,7 +29,6 @@ class AtomicSystemConfig:
     """
 
     atoms: list[Atom]
-    basis: str | dict[str, str] = "sto-3g"
     pp: str | dict[str, str] | None = None
     electron_spins: tuple[int, int]
     fixed_spins_per_atom: list[tuple[int, int]] | None = None

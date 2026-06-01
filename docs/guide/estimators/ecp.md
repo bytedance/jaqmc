@@ -44,7 +44,6 @@ where $r = |\mathbf{r} - \mathbf{R}|$ is the electron-atom distance, $\mathbf{r}
 
 ## See also
 
-- The ECP estimator is automatically added when `system.pp` selects an ECP
-  for at least one atom.
+- The ECP estimator is automatically added when `system.pp` selects an ECP for at least one atom. See [Pseudopotentials](#molecule-pseudopotentials).
 - Configuration: [Molecule](#molecule-estimators), [Solid](#solid-estimators)
 - API: {class}`~jaqmc.estimator.ecp.estimator.ECPEnergy`
