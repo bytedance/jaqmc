@@ -50,10 +50,14 @@ class FractionalDensity(HistogramEstimator):
             defaults.
         inv_lattice: Inverse lattice matrix, shape ``(3, 3)``.
             Set by the workflow via :func:`~jaqmc.utils.wiring.wire`.
+        data_field: Field name holding Cartesian coordinates in the
+            structured :class:`~jaqmc.data.Data` object.
     """
 
     axes: dict[str, FractionalAxis | None] = field(default_factory=dict)
     inv_lattice: jnp.ndarray = runtime_dep()
+    data_field: str = runtime_dep(default="electrons")
+    name: str = "density"
 
     def _sorted_axes(self) -> list[FractionalAxis]:
         return sorted(
@@ -70,6 +74,6 @@ class FractionalDensity(HistogramEstimator):
         return bins, ranges
 
     def extract(self, data: Data) -> jnp.ndarray:
-        frac = data["electrons"] @ self.inv_lattice.T % 1.0
+        frac = data[self.data_field] @ self.inv_lattice.T % 1.0
         indices = jnp.array([a.lattice_index for a in self._sorted_axes()])
         return frac[..., indices]

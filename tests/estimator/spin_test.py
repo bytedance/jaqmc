@@ -28,6 +28,12 @@ class _ElectronData(Data):
     electrons: jnp.ndarray
 
 
+class _PositionData(Data):
+    """Minimal Data subclass with a custom positions field."""
+
+    positions: jnp.ndarray
+
+
 def _make_spin_estimator(n_up, n_down, ndim=3):
     """Create a SpinSquared estimator with a constant mock wavefunction.
 
@@ -148,3 +154,25 @@ def test_s2_swap_indices_correct():
     # When n_up > n_down, minority = down (indices n_up..n_elec-1)
     np.testing.assert_array_equal(est_unbalanced._minority_idx, jnp.array([3]))
     np.testing.assert_array_equal(est_unbalanced._majority_idx, jnp.array([0, 1, 2]))
+
+
+def test_s2_custom_data_field():
+    """SpinSquared should swap coordinates from the configured data field."""
+    est = SpinSquared(data_field="positions")
+
+    def phase_logpsi(params, data):
+        del params
+        positions = data["positions"]
+        return jnp.array(1.0), positions[0, 0] - positions[1, 0]
+
+    wire(est, n_up=1, n_down=1, phase_logpsi=phase_logpsi)
+
+    data = _PositionData(positions=jnp.array([[2.0], [0.0]]))
+    key = jax.random.key(0)
+    est.init(data, key)
+    stats, _ = est.evaluate_single_walker(
+        params={}, data=data, prev_walker_stats={}, state=None, rngs=key
+    )
+
+    expected = 1.0 - np.exp(-4.0)
+    np.testing.assert_allclose(float(stats["spin:s2"]), expected, atol=1e-6)

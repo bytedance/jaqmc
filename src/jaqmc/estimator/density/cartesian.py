@@ -10,6 +10,7 @@ from jax import numpy as jnp
 from jaqmc.data import Data
 from jaqmc.estimator.histogram import HistogramEstimator
 from jaqmc.utils.config import configurable_dataclass
+from jaqmc.utils.wiring import runtime_dep
 
 
 @configurable_dataclass
@@ -44,9 +45,12 @@ class CartesianDensity(HistogramEstimator):
             Set a value to ``None`` to disable an axis inherited from
             defaults (e.g. when the workflow provides x/y/z but you
             only want z).
+        data_field: Field name holding Cartesian coordinates in the
+            structured :class:`~jaqmc.data.Data` object.
     """
 
     axes: dict[str, CartesianAxis | None] = field(default_factory=dict)
+    data_field: str = runtime_dep(default="electrons")
 
     def _sorted_axes(self) -> list[CartesianAxis]:
         return [a for a in self.axes.values() if a is not None]
@@ -63,4 +67,4 @@ class CartesianDensity(HistogramEstimator):
         axes = self._sorted_axes()
         dirs = jnp.array([a.direction for a in axes])
         dirs = dirs / jnp.linalg.norm(dirs, axis=-1, keepdims=True)
-        return data["electrons"] @ dirs.T
+        return data[self.data_field] @ dirs.T
