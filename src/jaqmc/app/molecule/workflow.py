@@ -2,8 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-from collections.abc import Callable, Mapping
-from dataclasses import replace
+from collections.abc import Callable
 from functools import partial
 from typing import Any
 
@@ -19,15 +18,9 @@ from jaqmc.estimator.total_energy import TotalEnergy
 from jaqmc.optimizer.kfac import KFACOptimizer
 from jaqmc.optimizer.optax import adam
 from jaqmc.sampler.mcmc import MCMCSampler
-from jaqmc.utils.atomic import (
-    MolecularSCF,
-    ResolvedPseudopotentialConfig,
-    resolve_pseudopotential_config,
-)
-from jaqmc.utils.atomic.pp import get_ph_effective_charge
+from jaqmc.utils.atomic import MolecularSCF
 from jaqmc.utils.atomic.pretrain import make_pretrain_log_amplitude, make_pretrain_loss
 from jaqmc.utils.config import ConfigManager, ConfigManagerLike
-from jaqmc.utils.units import ONE_ANGSTROM_IN_BOHR, LengthUnit
 from jaqmc.wavefunction import Wavefunction
 from jaqmc.workflow.evaluation import EvaluationWorkflow
 from jaqmc.workflow.stage.evaluation import EvaluationWorkStage
@@ -94,9 +87,7 @@ class MoleculeTrainWorkflow(VMCWorkflow):
         train = VMCWorkStage.builder(cfg.scoped("train"), wf)
         train.configure_sample_plan(wf.logpsi, {"electrons": sampler})
         train.configure_optimizer(default=KFACOptimizer, f_log_psi=wf.logpsi)
-        estimators = make_estimators(
-            cfg, wf, system_config, self.scf._mol._ecp, always_enable_energy=True
-        )
+        estimators = make_estimators(cfg, wf, system_config, always_enable_energy=True)
         train.configure_estimators(**estimators)
         train.configure_loss_grads(f_log_psi=wf.logpsi)
         self.train_stage = train.build()
@@ -119,12 +110,7 @@ class MoleculeEvalWorkflow(EvaluationWorkflow):
         sampler = cfg.get("sampler", MCMCSampler)
         evaluation.configure_sample_plan(wf.logpsi, {"electrons": sampler})
 
-        # Build a default reference SCF only to extract ECP coefficients for
-        # evaluation-time estimators; molecule eval does not expose reference config.
-        scf = make_scf(MoleculePretrainReferenceConfig(), system_config)
-        eval_estimators: dict[str, EstimatorLike] = make_estimators(
-            cfg, wf, system_config, scf._mol._ecp
-        )
+        eval_estimators = make_estimators(cfg, wf, system_config)
         evaluation.configure_estimators(**eval_estimators)
 
         self.evaluation_stage = evaluation.build()
@@ -134,11 +120,10 @@ def configure_system(
     cfg: ConfigManagerLike,
 ) -> tuple[MoleculeConfig, MoleculeWavefunction]:
     system_config: MoleculeConfig | Callable[[], MoleculeConfig] = cfg.get_module(
-        "system", "jaqmc.app.molecule.config.base"
+        "system", MoleculeConfig
     )
     if callable(system_config):
         system_config = system_config()
-    system_config = _normalize_molecule_config_units(system_config)
 
     wf = cfg.get_module("wf", "jaqmc.app.molecule.wavefunction.ferminet")
     wf.nspins = system_config.electron_spins
@@ -151,38 +136,14 @@ def configure_system(
     return system_config, wf
 
 
-def _normalize_molecule_config_units(system_config: MoleculeConfig) -> MoleculeConfig:
-    if system_config.unit == LengthUnit.bohr:
-        return system_config
-    if system_config.unit != LengthUnit.angstrom:
-        raise ValueError(f"Unsupported molecule length unit: {system_config.unit!r}")
-
-    atoms = [
-        replace(
-            atom,
-            coords=[coord * ONE_ANGSTROM_IN_BOHR for coord in atom.coords],
-        )
-        for atom in system_config.atoms
-    ]
-    return replace(
-        system_config,
-        atoms=atoms,
-        unit=LengthUnit.bohr,
-    )
-
-
 def make_scf(
     pretrain_config: MoleculePretrainReferenceConfig, system_config: MoleculeConfig
 ) -> MolecularSCF:
-    pseudopotential = resolve_pseudopotential_config(
-        system_config.atoms, system_config.pp
-    )
     restricted = pretrain_config.method == "RHF"
     return MolecularSCF(
         system_config.atoms,
         system_config.electron_spins,
         basis=pretrain_config.basis,
-        pseudopotential=pseudopotential,
         restricted=restricted,
         verbose=pretrain_config.verbose,
         pyscf_options=pretrain_config.extra,
@@ -193,18 +154,12 @@ def make_estimators(
     cfg: ConfigManagerLike,
     wf: MoleculeWavefunction,
     system_config: MoleculeConfig,
-    ecp_coefficients: dict[str, Any] | None = None,
     always_enable_energy: bool = False,
 ) -> dict[str, EstimatorLike]:
-    pseudopotential = resolve_pseudopotential_config(
-        system_config.atoms, system_config.pp
-    )
-
     estimators: dict[str, EstimatorLike] = {}
     if always_enable_energy or cfg.get("estimators.enabled.energy", True):
         estimators["potential"] = potential_energy
-        uses_runtime_ph = pseudopotential.uses_runtime_ph()
-        if not uses_runtime_ph:
+        if not system_config.ph_elements:
             estimators["kinetic"] = cfg.get(
                 "estimators.energy.kinetic", EuclideanKinetic(f_log_psi=wf.logpsi)
             )
@@ -215,34 +170,24 @@ def make_estimators(
                 "ignored. Use `estimators.energy.ph.kinetic_backend` to "
                 "select the PH derivative backend."
             )
-        if pseudopotential.uses_runtime_ecp():
-            if ecp_coefficients is None:
-                raise ValueError(
-                    "ECP coefficients are required when system.pp uses ECP."
-                )
-            runtime_ecp_coefficients = _runtime_ecp_coefficients(
-                pseudopotential, ecp_coefficients
-            )
-            logger.info("ECP enabled for elements: %s", list(runtime_ecp_coefficients))
+        if ecp_coefficients := system_config.ecp_coefficients:
+            logger.info("ECP enabled for elements: %s", list(ecp_coefficients))
             estimators["ecp"] = cfg.get(
                 "estimators.energy.ecp",
                 ECPEnergy(
-                    ecp_coefficients=runtime_ecp_coefficients,
+                    ecp_coefficients=ecp_coefficients,
                     atom_symbols=[atom.symbol for atom in system_config.atoms],
                     phase_logpsi=wf.phase_logpsi,
                 ),
             )
-        if uses_runtime_ph:
-            logger.info(
-                "PH enabled for elements: %s", list(pseudopotential.runtime_ph_symbols)
-            )
-            _validate_ph_atom_charges(system_config, pseudopotential.runtime_ph_symbols)
+        if system_config.ph_elements:
+            logger.info("PH enabled for elements: %s", list(system_config.ph_elements))
             estimators["ph"] = cfg.get(
                 "estimators.energy.ph",
                 PHEnergy(
                     f_log_psi=wf.logpsi,
                     atom_symbols=[atom.symbol for atom in system_config.atoms],
-                    ph=list(pseudopotential.runtime_ph_symbols),
+                    ph=list(system_config.ph_elements),
                 ),
             )
         estimators["total"] = TotalEnergy()
@@ -272,38 +217,3 @@ def make_estimators(
             CartesianDensity(axes=axes),
         )
     return estimators
-
-
-def _runtime_ecp_coefficients(
-    pseudopotential: ResolvedPseudopotentialConfig,
-    scf_ecp_coefficients: Mapping[str, Any],
-) -> dict[str, Any]:
-    return {
-        symbol: scf_ecp_coefficients[symbol]
-        for symbol in pseudopotential.runtime_ecp_symbols
-    }
-
-
-def _validate_ph_atom_charges(
-    system_config: MoleculeConfig,
-    ph_symbols: tuple[str, ...],
-) -> None:
-    # PH composes additively with ``potential_energy``: the bare ``-Z/r`` term
-    # uses ``Atom.charge`` (which feeds ``data.charges``) while PHEnergy uses
-    # the table-baked ``get_ph_effective_charge(symbol)``. The cancellation is
-    # only correct when those two ``Z`` values agree, so flag the mismatch
-    # loudly at workflow construction rather than silently emitting wrong
-    # energies during training.
-    ph_set = set(ph_symbols)
-    for atom_index, atom in enumerate(system_config.atoms):
-        if atom.symbol not in ph_set:
-            continue
-        expected = float(get_ph_effective_charge(atom.symbol))
-        actual = float(atom.charge)
-        if actual != expected:
-            raise ValueError(
-                f"system_config.atoms[{atom_index}].charge = {actual} for PH "
-                f"atom {atom.symbol!r} does not match get_ph_effective_charge"
-                f"({atom.symbol!r}) = {expected}; the PH residual cancellation "
-                "with potential_energy requires these to match."
-            )

@@ -158,17 +158,18 @@ CLI overrides must not have spaces around `=`. Write `key=value`, not
 **Symptom:**
 
 ```text
-ValueError: Total electrons (N) and spin (S) must have the same parity.
+ValueError: Impossible s_z=... for N electrons.
 ```
 
-**Cause:** the `spin` parameter, meaning the number of unpaired electrons, must
-have the same parity as the total electron count. For example, a 10-electron
-system cannot have `spin=1`.
+**Cause:** `system.s_z` must be compatible with the total electron count. In
+practice, `2 * s_z` must have the same parity as the total number of explicit
+electrons. For example, a 10-electron system cannot have `s_z=0.5`.
 
-**Fix:** for a neutral molecule, count the total electrons and choose a matching
-`spin`: `0` for singlet, `2` for triplet, and so on. For atoms, JaQMC determines
-spin automatically for main-group elements. For transition metals, specify
-`spin` explicitly.
+**Fix:** for a neutral molecule, count the total electrons and choose a
+compatible `s_z`: `0` for a singlet, `1` for a triplet, and so on. For
+`system.module=atom`, JaQMC fills in the neutral atom's default `s_z`
+automatically from the bundled element table. Override `system.s_z`
+explicitly when you need a different charge or spin state.
 
 ### Checkpoint Resume Ends Immediately
 

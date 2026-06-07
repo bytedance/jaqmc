@@ -40,10 +40,10 @@ import pyscf.scf
 from jax import numpy as jnp
 
 from jaqmc.geometry.pbc import wrap_positions
+from jaqmc.utils.atomic.pp import PH_SURROGATE_ECP, PP_PH
 
 from .atom import Atom
 from .gto import AtomicOrbitalEvaluator, PBCAtomicOrbitalEvaluator
-from .pp import ResolvedPseudopotentialConfig
 
 NDArray = jnp.ndarray | np.ndarray
 logger = logging.getLogger(__name__)
@@ -138,13 +138,6 @@ class MolecularSCF:
             for a built-in basis set in pyscf. A user-defined basis set can be used
             (advanced). See https://sunqm.github.io/pyscf/gto.html#input-basis for
             more details.
-        pseudopotential: Optional resolved pseudopotential configuration
-            (see :class:`~jaqmc.utils.atomic.pp.ResolvedPseudopotentialConfig`).
-            When provided, the SCF surrogate ECP map (``scf_ecp``) and the
-            core-electron counts are taken from this object and override the
-            ``ecp`` and ``core_electrons`` arguments. This is the preferred
-            wiring for mixed PH/ECP/all-electron systems; the bare ``ecp`` and
-            ``core_electrons`` arguments remain for ECP-only callers.
         pyscf_mol: the PySCF 'Molecule'. If this is passed to the init,
             the molecule, nelectrons, and basis will not be used, and the
             calculations will be performed on the existing pyscf_mol
@@ -159,9 +152,6 @@ class MolecularSCF:
         molecule: Sequence[Atom] | None = None,
         nelectrons: tuple[int, int] | None = None,
         basis: str | Mapping[str, str] | None = "cc-pVTZ",
-        ecp: str | Mapping[str, str] | None = None,
-        core_electrons: Mapping[str, int] | None = None,
-        pseudopotential: ResolvedPseudopotentialConfig | None = None,
         pyscf_mol: pyscf.gto.Mole | None = None,
         restricted: bool = False,
         verbose: int = 4,
@@ -175,19 +165,15 @@ class MolecularSCF:
             # If not passed a pyscf molecule, create one
             assert molecule is not None
             assert nelectrons is not None
-            if any(atom.atomic_number - atom.charge > 1.0e-8 for atom in molecule):
-                logger.info(
-                    "Fractional nuclear charge detected. "
-                    "Running SCF on atoms with integer charge."
-                )
-            if pseudopotential is not None:
-                ecp = pseudopotential.scf_ecp
-                core_electrons = pseudopotential.core_electrons
-            ecp = ecp or {}
-            core_electrons = core_electrons or {}
+            ecp = {
+                atom.symbol: PH_SURROGATE_ECP[atom.symbol]
+                if atom.pp == PP_PH
+                else atom.pp
+                for atom in molecule
+                if atom.pp is not None
+            }
 
-            nuclear_charge = _compute_effective_nuclear_charge(molecule, core_electrons)
-            charge = nuclear_charge - sum(nelectrons)
+            charge = sum(atom.charge for atom in molecule) - sum(nelectrons)
             self._mol = pyscf.gto.Mole(
                 atom=[[atom.symbol, atom.coords] for atom in molecule], unit="bohr"
             )
@@ -355,8 +341,6 @@ class PeriodicSCF:
         lattice_vectors: Primitive cell lattice vectors, shape ``(3, 3)``.
         kpts: K-points for sampling, shape ``(nk, 3)``. If ``None``, uses
             Gamma point only.
-        ecp: Effective core potentials mapping.
-        core_electrons: Core electrons mapping.
         pyscf_cell: Pre-built PySCF Cell. If provided, atoms/basis/lattice are
             ignored.
         restricted: Use restricted (``True``) or unrestricted (``False``) HF.
@@ -370,8 +354,6 @@ class PeriodicSCF:
         basis: str | Mapping[str, str] | None = "cc-pVTZ",
         lattice_vectors: NDArray | None = None,
         kpts: NDArray | None = None,
-        ecp: str | Mapping[str, str] | None = None,
-        core_electrons: Mapping[str, int] | None = None,
         pyscf_cell: pyscf.pbc.gto.Cell | None = None,
         restricted: bool = False,
         rcut: float | None = None,
@@ -387,12 +369,14 @@ class PeriodicSCF:
             assert nelectrons is not None
             assert lattice_vectors is not None
 
-            ecp = ecp or {}
-            core_electrons = core_electrons or {}
-
-            # Calculate charge (same logic as MolecularSCF)
-            nuclear_charge = _compute_effective_nuclear_charge(atoms, core_electrons)
-            charge = nuclear_charge - sum(nelectrons)
+            ecp = {
+                atom.symbol: PH_SURROGATE_ECP[atom.symbol]
+                if atom.pp == PP_PH
+                else atom.pp
+                for atom in atoms
+                if atom.pp is not None
+            }
+            charge = sum(atom.charge for atom in atoms) - sum(nelectrons)
 
             self._cell = pyscf.pbc.gto.Cell(
                 atom=[[atom.symbol, atom.coords] for atom in atoms],
@@ -405,6 +389,8 @@ class PeriodicSCF:
             self._cell.ecp = ecp
             self._cell.verbose = verbose
             self._cell.build()
+            if self._cell.nelectron != sum(nelectrons):
+                raise RuntimeError("PySCF cell not consistent with QMC cell.")
 
         # Set up k-points
         self.kpts = jnp.asarray(kpts) if kpts is not None else jnp.zeros((1, 3))

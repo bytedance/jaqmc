@@ -28,6 +28,7 @@ from dataclasses import MISSING, dataclass, is_dataclass
 from dataclasses import fields as dc_fields
 from typing import Any, ClassVar, cast
 
+import serde
 from docutils import nodes
 from docutils.parsers.rst import directives
 from sphinx.application import Sphinx
@@ -35,6 +36,7 @@ from sphinx.ext.napoleon.docstring import GoogleDocstring
 from sphinx.util.docutils import SphinxDirective
 
 from jaqmc.utils.module_resolver import resolve_object
+from jaqmc.utils.yaml_format import dump_yaml
 
 _NO_OVERRIDE = object()
 _OptionSpec = dict[str, Callable[[str], Any]]
@@ -54,6 +56,7 @@ class ConfigDefaultEntry:
 
     key: str
     default_str: str
+    default_block_str: str | None = None
     type_str: str | None = None
     description: str | None = None
     children: list["ConfigDefaultEntry"] | None = None
@@ -216,7 +219,51 @@ def _format_value(value: Any, *, required: bool = False) -> str:
     if isinstance(value, enum.Enum):
         fq = _enum_target(value)
         return f":py:attr:`{value.name} <{fq}>`" if fq else f"``{value.name}``"
-    return f"``{value!r}``"
+    return f"``{_doc_value(value)!r}``"
+
+
+def _field_public_name(field) -> str:
+    """Return the serialized/public config key for a dataclass field."""
+    rename = field.metadata.get("serde_rename")
+    return rename if isinstance(rename, str) and rename else field.name
+
+
+def _serialize_dataclass_value(value: Any) -> dict[str, Any]:
+    """Serialize a dataclass instance for docs display.
+
+    Prefers pyserde so renamed fields match user-facing config keys. Falls back
+    to a manual serialization path for plain dataclasses.
+
+    Returns:
+        Serialized dataclass content using user-facing config keys.
+    """
+    try:
+        return cast(dict[str, Any], serde.to_dict(value))
+    except Exception:
+        result: dict[str, Any] = {}
+        for field in dc_fields(type(value)):
+            if field.metadata.get("runtime") or field.metadata.get("serde_skip"):
+                continue
+            result[_field_public_name(field)] = _doc_value(getattr(value, field.name))
+        return result
+
+
+def _doc_value(value: Any) -> Any:
+    """Convert config defaults into user-facing, serialization-like values.
+
+    Returns:
+        A docs-friendly value with dataclasses recursively converted into
+        serialization-like dict/list structures.
+    """
+    if is_dataclass(value):
+        return _serialize_dataclass_value(value)
+    if isinstance(value, list):
+        return [_doc_value(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_doc_value(v) for v in value)
+    if isinstance(value, dict):
+        return {k: _doc_value(v) for k, v in value.items()}
+    return value
 
 
 def _enum_target(value: enum.Enum) -> str | None:
@@ -531,6 +578,36 @@ def _format_default(field, mc, override: Any = _NO_OVERRIDE) -> str:
     return _format_field_default(field)
 
 
+def _format_default_block(field, mc, override: Any = _NO_OVERRIDE) -> str | None:
+    """Return YAML text for complex field defaults that read poorly inline.
+
+    Returns:
+        Multiline YAML text for nested list/dict defaults, or ``None`` when the
+        field should stay on the compact inline metadata line.
+    """
+    if override is not _NO_OVERRIDE:
+        if mc is not None and isinstance(override, dict):
+            return None
+        value = _doc_value(override)
+    elif mc is not None and mc.default is not None:
+        return None
+    elif field.default is not MISSING:
+        value = _doc_value(field.default)
+    elif field.default_factory is not MISSING:
+        try:
+            value = _doc_value(field.default_factory())
+        except Exception:
+            return None
+    else:
+        return None
+
+    if not isinstance(value, (list, dict)) or not value:
+        return None
+
+    yaml_str = dump_yaml(value).strip()
+    return yaml_str if "\n" in yaml_str else None
+
+
 class ConfigContext(SphinxDirective):
     """Store page-scoped config rendering context for later directives."""
 
@@ -659,7 +736,9 @@ class ConfigDefaults(ConfigDirectiveBase):
         Returns:
             Inline metadata string containing default and type.
         """
-        parts = [f"Default: {entry.default_str}"]
+        parts: list[str] = []
+        if entry.default_block_str is None:
+            parts.append(f"Default: {entry.default_str}")
         if entry.type_str:
             parts.append(f"Type: {entry.type_str}")
         return " · ".join(parts)
@@ -669,6 +748,14 @@ class ConfigDefaults(ConfigDirectiveBase):
     ) -> str | None:
         """Return the compact rendered description for a field or parameter."""
         text = descriptions.get(name)
+        return _resolve_refs(text, mod) if text else None
+
+    def _field_description(
+        self, descriptions: dict[str, str], field: Any, mod: object
+    ) -> str | None:
+        """Return a field description, preferring the public serialized name."""
+        public_name = _field_public_name(field)
+        text = descriptions.get(public_name, descriptions.get(field.name))
         return _resolve_refs(text, mod) if text else None
 
     def _make_item(
@@ -702,8 +789,27 @@ class ConfigDefaults(ConfigDirectiveBase):
             self._meta_text(entry), self.lineno
         )
         meta.extend(meta_nodes)
-        item += meta
+        if len(meta.children) > 0:
+            item += meta
         messages.extend(meta_messages)
+
+        if entry.default_block_str is not None:
+            default_label = nodes.paragraph(
+                classes=["config-defaults-meta", "config-defaults-default-label"]
+            )
+            label_nodes, label_messages = self.state.inline_text(
+                "Default:", self.lineno
+            )
+            default_label.extend(label_nodes)
+            item += default_label
+            messages.extend(label_messages)
+
+            default_block = nodes.literal_block(
+                entry.default_block_str, entry.default_block_str
+            )
+            default_block["language"] = "yaml"
+            default_block["classes"].append("config-defaults-default-block")
+            item += default_block
 
         if entry.description:
             body = nodes.paragraph(classes=["config-defaults-meaning"])
@@ -845,7 +951,7 @@ class ConfigDefaults(ConfigDirectiveBase):
             default_str=_format_default(field, module_config, override=override),
             type_str=_format_compact_type(field.type, module_config),
             description=self._module_group_description(
-                self._description(descriptions, field.name, mod),
+                self._field_description(descriptions, field, mod),
                 field_key,
                 module_default_str if module_name is not None else None,
                 direct_value_type,
@@ -902,8 +1008,11 @@ class ConfigDefaults(ConfigDirectiveBase):
             if field.metadata.get("runtime") or field.metadata.get("serde_skip"):
                 continue
 
-            override = overrides.get(field.name, _NO_OVERRIDE)
-            field_key = f"{prefix}.{field.name}" if prefix else field.name
+            public_name = _field_public_name(field)
+            override = overrides.get(
+                public_name, overrides.get(field.name, _NO_OVERRIDE)
+            )
+            field_key = f"{prefix}.{public_name}" if prefix else public_name
             module_config = field.metadata.get("module_config")
             field_type = field.type if not isinstance(field.type, str) else None
 
@@ -938,12 +1047,16 @@ class ConfigDefaults(ConfigDirectiveBase):
                 continue
 
             default_str = _format_default(field, module_config, override=override)
+            default_block_str = _format_default_block(
+                field, module_config, override=override
+            )
             items.append(
                 ConfigDefaultEntry(
                     key=field_key,
                     default_str=default_str,
+                    default_block_str=default_block_str,
                     type_str=_format_compact_type(field.type, module_config),
-                    description=self._description(descriptions, field.name, mod),
+                    description=self._field_description(descriptions, field, mod),
                     anchor_scope=anchor_scope,
                 )
             )

@@ -28,7 +28,7 @@ The `cc` / `hf` filename suffix above is selected by the
 `_PH_XML_INFO` table in `jaqmc.estimator.ph.data`, which also
 routes each symbol to its `TM/` (transition metals) or `MG/`
 (main group) subdirectory. The `Z` value is the PH effective
-valence charge from `_PH_VALENCE_COUNTS` in
+valence charge computed as atomic number minus the PH core count in
 `jaqmc.utils.atomic.pp`; the two modules are kept separate so that
 XML-loading details and the PH vocabulary do not depend on each
 other (see the `jaqmc.estimator.ph.data` module docstring).

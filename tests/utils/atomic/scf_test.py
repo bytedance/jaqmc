@@ -9,8 +9,8 @@ import pyscf.lib
 import pytest
 from jax import numpy as jnp
 
+from jaqmc.utils.atomic import PH_SURROGATE_ECP
 from jaqmc.utils.atomic.atom import Atom
-from jaqmc.utils.atomic.pp import resolve_pseudopotential_config
 from jaqmc.utils.atomic.scf import MolecularSCF, PeriodicSCF
 
 
@@ -183,29 +183,24 @@ def test_get_orbital_kpoints_h2_supercell():
     )
 
 
-def test_molecular_scf_accepts_mixed_pseudopotential_resolution():
-    """Guard SCF setup for mixed pseudopotential treatment."""
+def test_molecular_scf_accepts_mixed_pseudopotential_atoms():
+    """Guard SCF setup for mixed PH/ECP/all-electron atoms."""
     atoms = [
-        Atom("Fe", [0.0, 0.0, 0.0]),
-        Atom("Li", [2.0, 0.0, 0.0]),
+        Atom("Fe", [0.0, 0.0, 0.0], pp="ph"),
+        Atom("Li", [2.0, 0.0, 0.0], pp="ccecp"),
         Atom("H", [4.0, 0.0, 0.0]),
     ]
-    resolved = resolve_pseudopotential_config(atoms, pp={"Li": "ccecp", "Fe": "ph"})
-    expected_nelectron = sum(
-        atom.atomic_number - resolved.core_electrons.get(atom.symbol, 0)
-        for atom in atoms
-    )
+    expected_nelectron = sum(atom.charge for atom in atoms)
 
     scf = MolecularSCF(
         molecule=atoms,
         nelectrons=(expected_nelectron // 2, expected_nelectron // 2),
         basis="sto-3g",
-        pseudopotential=resolved,
     )
 
     # Anchor that Fe specifically receives the PH SCF *surrogate* (ccECP)
     # rather than just "some ECP": a future drift in ``PH_SURROGATE_ECP``
     # would otherwise still satisfy the key-presence check below.
-    assert resolved.scf_ecp["Fe"] == "ccecp"
+    assert PH_SURROGATE_ECP["Fe"] == "ccecp"
     assert sorted(scf._mol._ecp.keys()) == ["Fe", "Li"]
     assert scf._mol.nelectron == expected_nelectron

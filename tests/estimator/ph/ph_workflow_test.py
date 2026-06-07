@@ -8,11 +8,10 @@ from typing import Any
 import pytest
 from jax import numpy as jnp
 
-from jaqmc.app.molecule.config.base import MoleculeConfig
+from jaqmc.app.molecule.config import AtomConfig, MoleculeConfig
 from jaqmc.app.molecule.workflow import make_estimators as make_molecule_estimators
 from jaqmc.estimator.ecp import ECPEnergy
 from jaqmc.estimator.ph import PHEnergy
-from jaqmc.utils.atomic import Atom
 from jaqmc.utils.config import ConfigManager
 
 
@@ -37,17 +36,17 @@ def test_molecule_workflow_wires_ph_parallel_to_ecp():
     cfg = ConfigManager({})
     wf: Any = _DummyWavefunction()
     system_config = MoleculeConfig(
-        atoms=[
-            Atom("Fe", [0.0, 0.0, 0.0], charge=16),
-            Atom("Li", [2.0, 0.0, 0.0], charge=1),
-            Atom("H", [0.0, 2.0, 0.0]),
+        atom_configs=[
+            AtomConfig(symbol="Fe", coords=[0.0, 0.0, 0.0]),
+            AtomConfig(symbol="Li", coords=[2.0, 0.0, 0.0]),
+            AtomConfig(symbol="H", coords=[0.0, 2.0, 0.0]),
         ],
-        electron_spins=(9, 9),
+        s_z=0,
         pp={"Li": "ccecp", "Fe": "ph"},
     )
 
     estimators = make_molecule_estimators(
-        cfg, wf, system_config, {"Li": object()}, True
+        cfg, wf, system_config, always_enable_energy=True
     )
 
     assert list(estimators) == ["potential", "ecp", "ph", "total"]
@@ -65,12 +64,12 @@ def test_ph_workflow_rejects_kinetic_mode_override_via_cfg_finalize():
     )
     wf: Any = _DummyWavefunction()
     system_config = MoleculeConfig(
-        atoms=[Atom("Fe", [0.0, 0.0, 0.0], charge=16)],
-        electron_spins=(8, 8),
+        atom_configs=[AtomConfig(symbol="Fe", coords=[0.0, 0.0, 0.0])],
+        s_z=0,
         pp={"Fe": "ph"},
     )
 
-    make_molecule_estimators(cfg, wf, system_config, None, True)
+    make_molecule_estimators(cfg, wf, system_config, always_enable_energy=True)
 
     with pytest.raises(SystemExit):
         cfg.finalize(raise_on_unused=True)

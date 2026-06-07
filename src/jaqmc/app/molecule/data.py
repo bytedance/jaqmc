@@ -32,20 +32,13 @@ def data_init(
     config: MoleculeConfig, size: int, rngs: PRNGKey
 ) -> BatchedData[MoleculeData]:
     electron_spins = config.electron_spins
-    fixed_spins_per_atom = config.fixed_spins_per_atom
-
-    net_charge = sum(atom.charge for atom in config.atoms) - sum(electron_spins)
-    if net_charge != 0 and fixed_spins_per_atom is None:
-        raise NotImplementedError(
-            "No initialization policy yet exists for charged molecules."
-        )
-
     rngs_position, rngs_spins = jax.random.split(rngs)
     electron_positions = initialize_electrons_gaussian(
         rngs_position,
         jnp.stack([atom.coords_array for atom in config.atoms], axis=0),
-        fixed_spins_per_atom
-        or distribute_spins(rngs_spins, config.atoms, electron_spins),
+        distribute_spins(
+            rngs_spins, config.atoms, config.per_atom_init, electron_spins
+        ),
         size,
         config.electron_init_width,
     )

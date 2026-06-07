@@ -32,7 +32,10 @@ system:
     Li: ccecp
 ```
 
-In the example above, every `Fe` atom uses PH, every `Li` atom uses the `ccecp` ECP, and any other element is treated all-electron. PH atoms and ECP atoms may coexist in the same system.
+In the example above, every `Fe` atom uses PH, every `Li` atom uses the
+`ccecp` ECP, and any other element is treated all-electron. PH and ECP atoms
+may coexist in the same molecule. Solid workflows accept the same unified
+`system.pp` syntax for ECPs, but reject `pp: ph` during system configuration.
 
 ## Kinetic backend
 

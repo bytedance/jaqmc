@@ -37,7 +37,8 @@ from jax import numpy as jnp
 
 from jaqmc.app.molecule.data import MoleculeData
 from jaqmc.estimator.ph import PHEnergy
-from jaqmc.utils.atomic import get_ph_effective_charge
+from jaqmc.utils.atomic import PP_PH, core_electrons_by_pp
+from jaqmc.utils.atomic.elements import from_symbol
 
 
 def _gaussian_logpsi(scale: float):
@@ -46,6 +47,10 @@ def _gaussian_logpsi(scale: float):
         return -scale * jnp.sum(data.electrons**2)
 
     return logpsi
+
+
+def _ph_effective_charge(symbol: str) -> int:
+    return from_symbol[symbol].atomic_number - core_electrons_by_pp(symbol, PP_PH)
 
 
 def _potential_energy(data: MoleculeData) -> jnp.ndarray:
@@ -90,7 +95,7 @@ def _make_simple_ph_data(electron, ph_atom):
     return MoleculeData(
         electrons=electron[None, :],
         atoms=ph_atom[None, :],
-        charges=jnp.array([get_ph_effective_charge("Fe")], dtype=electron.dtype),
+        charges=jnp.array([_ph_effective_charge("Fe")], dtype=electron.dtype),
     )
 
 
@@ -113,7 +118,7 @@ def test_ph_local_channel_is_bounded_near_nucleus():
     data = MoleculeData(
         electrons=jnp.array([[0.0, 0.0, 1.0e-3]], dtype=jnp.float32),
         atoms=jnp.array([[0.0, 0.0, 0.0]], dtype=jnp.float32),
-        charges=jnp.array([get_ph_effective_charge("S")], dtype=jnp.float32),
+        charges=jnp.array([_ph_effective_charge("S")], dtype=jnp.float32),
     )
     ph = PHEnergy(
         f_log_psi=_gaussian_logpsi(0.3),
@@ -169,7 +174,7 @@ def test_ph_forward_laplacian_total_energy_matches_standard_backend(
         electrons=electrons,
         atoms=atoms,
         charges=jnp.array(
-            [get_ph_effective_charge(symbol) for symbol in atom_symbols],
+            [_ph_effective_charge(symbol) for symbol in atom_symbols],
             dtype=electrons.dtype,
         ),
     )
