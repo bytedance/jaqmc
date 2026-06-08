@@ -36,11 +36,17 @@ Atom definitions, element properties, electronic structure (SCF), orbital evalua
 .. autofunction:: jaqmc.utils.atomic.gto.cart2sph
 ```
 
-## Effective core potentials
+## Pseudopotentials
 
 ```{eval-rst}
-.. autofunction:: jaqmc.utils.atomic.ecp.get_valence_spin_config
-.. autofunction:: jaqmc.utils.atomic.ecp.get_core_electrons
+.. autoclass:: jaqmc.utils.atomic.pp.AtomPseudopotentialKind
+.. autoclass:: jaqmc.utils.atomic.pp.ResolvedPseudopotentialConfig
+.. autofunction:: jaqmc.utils.atomic.pp.resolve_atom_treatments
+.. autofunction:: jaqmc.utils.atomic.pp.resolve_pseudopotential_config
+.. autofunction:: jaqmc.utils.atomic.pp.get_valence_spin_config
+.. autofunction:: jaqmc.utils.atomic.pp.get_core_electrons
+.. autofunction:: jaqmc.utils.atomic.pp.get_ph_supported_elements
+.. autofunction:: jaqmc.utils.atomic.pp.get_ph_effective_charge
 ```
 
 ## Electron initialization

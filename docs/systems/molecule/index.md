@@ -84,7 +84,7 @@ system:
   module: atom
   symbol: Li         # Element symbol (H, He, Li, Be, ...)
   basis: sto-3g      # Basis set for SCF initialization
-  # ecp: ccecp       # Optional: effective core potential
+  # pp: ccecp        # Optional: pseudopotential ("ph" or an ECP name)
 ```
 
 Save as `atom_li.yml`, then run:
@@ -124,33 +124,44 @@ The `basis` parameter controls the basis set used for the HF calculation. Any ba
 - Split-valence: `6-31g`, `6-311g`
 - Correlation-consistent: `cc-pvdz`, `cc-pvtz`, `cc-pvqz`
 
-For heavy elements (transition metals, lanthanides), use an effective core potential (ECP) to replace core electrons with a pseudopotential, reducing the number of electrons treated explicitly:
+For heavy elements (transition metals, lanthanides), use a pseudopotential to
+replace core electrons, reducing the number of electrons treated explicitly.
+Pseudopotentials are configured through the unified `system.pp` field. A
+string applies one pseudopotential name to every atom; a mapping selects per
+element. Two pseudopotential families are supported:
+
+- An ECP name (e.g. `ccecp`) — a semi-local effective core potential resolved
+  by PySCF. See <project:/guide/estimators/ecp.md>.
+- The reserved literal `"ph"` — a local Pseudo-Hamiltonian pseudopotential,
+  parallel to ECP. See <project:/guide/estimators/ph.md>.
+
+Atoms whose element is not in the `pp` mapping are treated all-electron, so a
+single system may mix PH, ECP, and all-electron elements freely.
 
 ```yaml
 system:
   module: atom
   symbol: Fe
   basis: ccecpccpvdz
-  ecp: ccecp
+  pp: ccecp
 ```
-
-Both `basis` and `ecp` can be specified per element:
 
 ```yaml
 system:
   basis:
     Fe: ccecpccpvdz
-    O: cc-pvdz
-  ecp:
-    Fe: ccecp
+    Li: ccecpccpvdz
+  pp:
+    Fe: ph
+    Li: ccecp
 ```
 
 ## Estimators
 
 The training stage computes energy from several components: kinetic energy,
-electron-nucleus potential, and, when ECPs are configured, pseudopotential
-contributions. All stats keys that start with `energy:` are summed into
-`total_energy` automatically.
+electron-nucleus potential, and, when a pseudopotential is configured through
+`system.pp`, ECP and/or PH contributions. All stats keys that start with
+`energy:` are summed into `total_energy` automatically.
 
 For the full list of molecule estimators beyond energy, see the
 [estimator configuration reference](#molecule-estimators). For the physics

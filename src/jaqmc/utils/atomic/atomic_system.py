@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from jaqmc.utils.atomic.atom import Atom
+from jaqmc.utils.atomic.pp import resolve_atom_treatments
 from jaqmc.utils.config import configurable_dataclass
 
 
@@ -16,9 +17,9 @@ class AtomicSystemConfig:
         basis: The basis set for Hartree-Fock pretrain. Can be a string
             (e.g., "sto-3g", "ccecpccpvdz") or a dict mapping element
             symbols to basis names (e.g., {"Fe": "ccecpccpvdz", "O": "cc-pvdz"}).
-        ecp: Effective core potential specification. Can be None (no ECP),
-            a string (same ECP for all atoms, e.g., "ccecp"), or a dict
-            mapping element symbols to ECP names (e.g., {"Fe": "ccecp"}).
+        pp: Pseudopotential specification. Can be None (no ECP nor PH),
+            a string (same PP for all atoms, e.g., "ccecp", "ph"), or a dict
+            mapping element symbols to ECP names (e.g., {"Fe": "ccecp", "Cu": "ph"}).
             Elements not in the dict use all-electron treatment.
         fixed_spins_per_atom: Optional list of fixed spin configurations
             per atom.
@@ -28,7 +29,7 @@ class AtomicSystemConfig:
 
     atoms: list[Atom]
     basis: str | dict[str, str] = "sto-3g"
-    ecp: str | dict[str, str] | None = None
+    pp: str | dict[str, str] | None = None
     electron_spins: tuple[int, int]
     fixed_spins_per_atom: list[tuple[int, int]] | None = None
     electron_init_width: float = 1.0
@@ -45,3 +46,4 @@ class AtomicSystemConfig:
             raise ValueError(
                 f"Malformed fixed_spins_per_atom: {self.fixed_spins_per_atom}."
             )
+        resolve_atom_treatments(self.atoms, self.pp)
