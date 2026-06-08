@@ -83,6 +83,10 @@ class Workflow:
     cfg: ConfigManager
 
     config_class: ClassVar[type[WorkflowConfig]] = WorkflowConfig
+    # Train and evaluation can write their resolved configs into the same
+    # save_path. Without a workflow-specific prefix they would both write
+    # config.yaml and overwrite each other.
+    config_namespace: ClassVar[str | None] = None
     config: WorkflowConfig
     save_path: UPath
     restore_path: UPath
@@ -127,6 +131,26 @@ class Workflow:
             self.run()
         return self
 
+    def config_path(self) -> UPath:
+        """Return the path for the resolved workflow config snapshot."""
+        filename = "config.yaml"
+        if self.config_namespace:
+            filename = f"{self.config_namespace}_config.yaml"
+        return UPath(self.config.save_path) / filename
+
+    def config_backup_path(self) -> UPath:
+        """Return an unused backup path for the current config snapshot."""
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        config_stem = self.config_path().stem
+        history_dir = self.save_path / "config_history"
+        backup_stem = f"{config_stem}.backup_{timestamp}"
+        backup_path = history_dir / f"{backup_stem}.yaml"
+        suffix = 1
+        while backup_path.exists():
+            backup_path = history_dir / f"{backup_stem}_{suffix}.yaml"
+            suffix += 1
+        return backup_path
+
     def prepare(self, dry_run: bool = False) -> None:
         """Finalize config and log startup info.
 
@@ -135,15 +159,24 @@ class Workflow:
         """
         # Only write config and compare on the master process
         if jax.process_index() == 0:
-            config_path = UPath(self.config.save_path) / "config.yaml"
+            config_path = self.config_path()
+            previous_yaml = config_path.read_text() if config_path.exists() else None
             self.cfg.finalize(
                 raise_on_unused=not self.config.config.ignore_extra,
                 verbose=self.config.config.verbose,
-                compare_yaml=config_path.read_text() if config_path.exists() else None,
+                compare_yaml=previous_yaml,
             )
             if not dry_run:
+                current_yaml = self.cfg.to_yaml()
                 config_path.parent.mkdir(parents=True, exist_ok=True)
-                config_path.write_text(self.cfg.to_yaml())
+                if previous_yaml is not None and previous_yaml != current_yaml:
+                    # A rerun may update this workflow's resolved config in
+                    # place. Move the old snapshot into config_history first so
+                    # the previous YAML is still recoverable after overwrite.
+                    backup_path = self.config_backup_path()
+                    backup_path.parent.mkdir(parents=True, exist_ok=True)
+                    config_path.rename(backup_path)
+                config_path.write_text(current_yaml)
         if dry_run:
             return
         logger.info(
