@@ -54,11 +54,32 @@ $\mathbf{b}_i$,
 $$
 \omega_i = \mathbf{b}_i \cdot \mathbf{r},
 $$
-and wraps each $\omega_i$ into $[-\pi, \pi]$. It then applies one of two periodic
-distance constructions. Each one defines a scalar periodic distance together with
-the periodic displacement features used to represent pair geometry:
+It then applies one of two periodic distance constructions. Each one defines a
+scalar periodic distance together with the periodic displacement features used to
+represent pair geometry:
 
-- **`nu`** (default) uses smooth polynomials
+- **`tri`** (default) uses trigonometric features directly. Its scalar periodic
+  distance is
+  $$
+  d(\mathbf{r}) =
+  \sqrt{
+    \sum_{i,j}
+    \left[
+      \sin(\omega_i)\sin(\omega_j) +
+      (1 - \cos(\omega_i))(1 - \cos(\omega_j))
+    \right]
+    (\mathbf{a}_i \cdot \mathbf{a}_j)
+  }.
+  $$
+  The associated periodic displacement feature concatenates
+  $\sum_i \sin(\omega_i)\,\mathbf{a}_i$ and
+  $\sum_i \cos(\omega_i)\,\mathbf{a}_i$, producing a 6D vector feature per pair.
+  This gives the network a richer periodic representation at the cost of a larger
+  feature dimension. The sine and cosine functions are periodic by construction, so
+  `tri` does not need an explicit wrap of $\omega_i$.
+
+- **`nu`** uses smooth polynomials after wrapping each $\omega_i$ into
+  $[-\pi, \pi]$:
   $$
   f(\omega) = |\omega|\left(1 - \tfrac{1}{4}|\omega/\pi|^3\right), \qquad
   g(\omega) = \omega\left(1 - \tfrac{3}{2}|\omega/\pi| + \tfrac{1}{2}|\omega/\pi|^2\right).
@@ -75,27 +96,8 @@ the periodic displacement features used to represent pair geometry:
   $\sum_i g(\omega_i)\,\mathbf{a}_i$, so the vector part stays 3D and remains
   close in shape to the open-boundary representation.
 
-- **`tri`** uses trigonometric features directly. Its scalar periodic distance is
-  $$
-  d(\mathbf{r}) =
-  \sqrt{
-    \sum_{i,j}
-    \left[
-      \sin(\omega_i)\sin(\omega_j) +
-      (1 - \cos(\omega_i))(1 - \cos(\omega_j))
-    \right]
-    (\mathbf{a}_i \cdot \mathbf{a}_j)
-  }.
-  $$
-  The associated periodic displacement feature concatenates
-  $\sum_i \sin(\omega_i)\,\mathbf{a}_i$ and
-  $\sum_i \cos(\omega_i)\,\mathbf{a}_i$, producing a 6D vector feature per pair.
-  This gives the network a richer periodic representation at the cost of a larger
-  feature dimension.
-
 Both choices are smooth at the boundary and differentiable everywhere JaQMC needs
-them for gradient-based optimization. `nu` is the default because it works well for
-most systems.
+them for gradient-based optimization.
 
 ### Symmetry expansion (`wf.sym_type`)
 

@@ -17,11 +17,30 @@ class DistanceType(StrEnum):
     periodicity. Both functions take an (over-complete) set of real-space
     lattice vectors :math:`\mathbf{a}_i` and reciprocal vectors
     :math:`\mathbf{b}_i` produced by :func:`get_symmetry_lat`, and compute
-    fractional projections :math:`\omega_i = \mathbf{b}_i \cdot \mathbf{r}`
-    (wrapped to :math:`[-\pi, \pi]`).
+    fractional projections :math:`\omega_i = \mathbf{b}_i \cdot \mathbf{r}`.
 
     Attributes:
-        nu: Polynomial distance. Defines two smooth, periodic-compatible
+        tri: Trigonometric distance. Uses the metric tensor
+            :math:`G_{ij} = \mathbf{a}_i \cdot \mathbf{a}_j` and:
+
+            .. math::
+                V_{ij} = \sin(\omega_i)\sin(\omega_j)
+                    + (1 - \cos(\omega_i))(1 - \cos(\omega_j))
+
+            to compute:
+
+            .. math::
+                d(\mathbf{r}) = \sqrt{\sum_{ij} V_{ij}\, G_{ij}}
+
+            Produces 6D relative coordinates by concatenating
+            :math:`\sum_i \sin(\omega_i)\,\mathbf{a}_i` and
+            :math:`\sum_i \cos(\omega_i)\,\mathbf{a}_i`.
+            Default for solid workflows. More expressive than ``nu`` at the
+            cost of doubling the feature dimension. Sine and cosine are
+            periodic by construction, so no explicit wrap of :math:`\omega_i`
+            is required.
+        nu: Polynomial distance. Wraps each :math:`\omega_i` to
+            :math:`[-\pi, \pi]` and defines two smooth, periodic-compatible
             polynomials:
 
             .. math::
@@ -44,28 +63,11 @@ class DistanceType(StrEnum):
 
             Produces 3D relative coordinates
             :math:`\sum_i g(\omega_i)\,\mathbf{a}_i`.
-            Works well for most systems.
-        tri: Trigonometric distance. Uses the metric tensor
-            :math:`G_{ij} = \mathbf{a}_i \cdot \mathbf{a}_j` and:
-
-            .. math::
-                V_{ij} = \sin(\omega_i)\sin(\omega_j)
-                    + (1 - \cos(\omega_i))(1 - \cos(\omega_j))
-
-            to compute:
-
-            .. math::
-                d(\mathbf{r}) = \sqrt{\sum_{ij} V_{ij}\, G_{ij}}
-
-            Produces 6D relative coordinates by concatenating
-            :math:`\sum_i \sin(\omega_i)\,\mathbf{a}_i` and
-            :math:`\sum_i \cos(\omega_i)\,\mathbf{a}_i`.
-            More expressive than ``nu`` at the cost of doubling the feature
-            dimension.
+            Smaller feature dimension than ``tri``.
     """
 
-    nu = "nu"
     tri = "tri"
+    nu = "nu"
 
 
 class SymmetryType(StrEnum):
@@ -300,7 +302,10 @@ def tri_distance(
         w_i = \mathbf{b_i} \cdot \mathbf{r}
 
     .. math::
-        \text{rel} = \sum_i (g(w_i) a_i)
+        \text{rel} = \left[
+            \sum_i \sin(w_i)\,\mathbf{a}_i,\;
+            \sum_i \cos(w_i)\,\mathbf{a}_i
+        \right]
 
     Returns:
         (sd, rel) tuple of distances and relative coordinates.
