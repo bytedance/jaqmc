@@ -6,6 +6,7 @@ from dataclasses import field
 from jaqmc.utils.atomic import Atom
 from jaqmc.utils.atomic.atomic_system import AtomicSystemConfig
 from jaqmc.utils.config import configurable_dataclass
+from jaqmc.utils.units import LengthUnit
 
 __all__ = ["MoleculeConfig"]
 
@@ -16,3 +17,4 @@ class MoleculeConfig(AtomicSystemConfig):
     electron_spins: tuple[int, int] = (1, 0)
     fixed_spins_per_atom: list[tuple[int, int]] | None = None
     electron_init_width: float = 1.0
+    unit: LengthUnit = LengthUnit.bohr

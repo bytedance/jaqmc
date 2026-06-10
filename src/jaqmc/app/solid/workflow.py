@@ -3,6 +3,7 @@
 
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from functools import partial
 from typing import Any
 
@@ -23,6 +24,7 @@ from jaqmc.utils.atomic import PeriodicSCF, get_core_electrons
 from jaqmc.utils.atomic.pretrain import make_pretrain_log_amplitude, make_pretrain_loss
 from jaqmc.utils.config import ConfigManager, ConfigManagerLike
 from jaqmc.utils.supercell import get_reciprocal_vectors, get_supercell_kpts
+from jaqmc.utils.units import ONE_ANGSTROM_IN_BOHR, LengthUnit
 from jaqmc.utils.wiring import wire
 from jaqmc.wavefunction import Wavefunction
 from jaqmc.workflow.evaluation import EvaluationWorkflow
@@ -141,6 +143,7 @@ def configure_system(
     )
     if callable(system_config):
         system_config = system_config()
+    system_config = _normalize_solid_config_units(system_config)
 
     nspins = (
         system_config.electron_spins[0] * system_config.scale,
@@ -182,6 +185,31 @@ def configure_system(
             f"Wavefunction must implement SolidWavefunction, got {type(wf).__name__}"
         )
     return system_config, wf, scf, sampling_proposal
+
+
+def _normalize_solid_config_units(system_config: SolidConfig) -> SolidConfig:
+    if system_config.unit == LengthUnit.bohr:
+        return system_config
+    if system_config.unit != LengthUnit.angstrom:
+        raise ValueError(f"Unsupported solid length unit: {system_config.unit!r}")
+
+    atoms = [
+        replace(
+            atom,
+            coords=[coord * ONE_ANGSTROM_IN_BOHR for coord in atom.coords],
+        )
+        for atom in system_config.atoms
+    ]
+    lattice_vectors = [
+        [coord * ONE_ANGSTROM_IN_BOHR for coord in vector]
+        for vector in system_config.lattice_vectors
+    ]
+    return replace(
+        system_config,
+        atoms=atoms,
+        lattice_vectors=lattice_vectors,
+        unit=LengthUnit.bohr,
+    )
 
 
 def make_estimators(
