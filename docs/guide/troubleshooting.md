@@ -1,76 +1,229 @@
 # Troubleshooting
 
-This page covers the most common issues you may encounter when running JaQMC simulations, along with their causes and fixes.
+When you debug a run, keep the evidence reproducible. Save the original command
+or YAML, the resolved `config.yaml`, the seed, and the first bad step. For
+final energy conclusions, prefer a separate evaluation run over the training
+log; see
+<project:analyzing-evaluations.md>.
 
-## Training Diverges / NaN in Energy
+## When Training Starts but Metrics Look Wrong
 
-**Symptom:** Training stops abruptly, and the last logged step shows `energy=nan`.
+### Training Diverges or Energy Becomes NaN
 
-**Cause:** Gradient explosion or numerical instability — common with Adam on
-systems that need KFAC, with too-large learning rates, or with insufficient
-pretraining.
+By default, VMC training stops when `loss` becomes NaN
+(`train.run.stop_on_nan="loss"`). The rows just before the failure in
+`train_stats.csv` or other training outputs usually contain the best clues.
 
-**Fixes:**
-- Lower the learning rate: `train.optim.learning_rate.rate=0.001`.
-- Increase pretraining iterations to give the wavefunction a better starting
-  point: `pretrain.run.iterations=5000`.
-- Add burn-in to let the sampler equilibrate before gradient updates:
-  `train.run.burn_in=200`.
+- If the bad row is step 0, look at initialization, pretraining quality, system
+  setup, or the local-energy estimator.
+- If `pmove` was already near 0 or 1 before the NaN, start with sampling:
+  proposal width, burn-in, and whether the initialized wavefunction gives a
+  reasonable distribution.
+- If `energy:kinetic`, `energy:potential`, or another `energy:*`
+  component becomes NaN before `loss`, debug that estimator or the wavefunction
+  values it differentiates.
+- If the previous row was finite and the next row becomes NaN with a large jump
+  in `total_energy` or `total_energy_var`, the previous optimizer update likely
+  pushed the parameters into an unstable region. Reduce the update size: lower
+  `train.optim.learning_rate.rate`; for KFAC, also consider a smaller
+  `train.optim.norm_constraint` or a larger `train.optim.damping`.
+- If only rare rows spike while most rows are finite, treat it as a local-energy
+  tail problem rather than a generic optimizer failure. See
+  [Rare Spikes or Heavy Energy Tails](#rare-spikes-or-heavy-energy-tails).
 
+If this started after adding custom code, check shapes early. Custom component
+shape bugs often show up first as NaNs or other errors; see
+[Shape Mismatch in Custom Components](#shape-mismatch-in-custom-components).
 
-## Energy Not Converging / High Variance
+### Training Looks Good but Evaluation Gets Worse
 
-**Symptom:** `total_energy` fluctuates widely and does not plateau even after
-many thousands of steps.
+**Symptom:** the training log reports a low or improving `total_energy`, but a
+separate evaluation from the checkpoint gives a higher energy or larger error
+bar.
 
-**Cause:** Insufficient pretraining, too-small batch size, too-high learning
-rate, or too-small wavefunction ansatz.
+This usually means the training-time estimate is flattering the run. Common
+causes are sampling bias during optimization, train/eval configuration drift,
+too little evaluation burn-in, or comparing different observables.
 
-**Fixes:**
-- Increase pretraining: molecules typically need 1,000–10,000 pretrain steps.
-- Increase `workflow.batch_size` (more walkers = lower variance per step).
-- Try a larger network: increase `hidden_dims_single` or switch to Psiformer
-  for molecules with more than ~30 electrons.
-- Increase `ndets` (number of determinants) — the docs recommend 16 for
-  production runs.
-- See the production settings tables in the <project:../systems/molecule/index.md> and
-  <project:../systems/solid/index.md> guides for system-specific recommendations.
+Try these first:
 
+- Compare the training and evaluation configs and make sure the system,
+  wavefunction, and other relevant settings match.
+- Increase evaluation burn-in if the sampler still looks far from equilibrium.
+- If training `pmove` or energy estimates drift suspiciously, revisit sampler
+  settings in training as well.
 
-## `pmove` Too High or Too Low
+### Energy Not Converging or High Variance
 
-**Symptom:** The MCMC acceptance rate (`pmove`) stays far from the target
-range of 0.50–0.55.
+**Symptom:** `total_energy` fluctuates widely, `total_energy_var` remains high,
+or the curve does not plateau after many steps.
 
-**What `pmove` means:** The fraction of proposed electron moves accepted by
-the Metropolis-Hastings criterion, averaged over all walkers and sub-steps.
+Likely causes are insufficient pretraining, too few walkers, an overly large
+learning rate, poor sampler mixing, or a wavefunction that is too small for the
+system.
 
-**If `pmove` is very high (> 0.8):** The step width is too small. The
-adaptive mechanism will correct this automatically over a few hundred steps.
-This is normal and expected at the start of a run.
+Try these checks first:
 
-**If `pmove` is very low (< 0.1):** Walkers are stuck — the wavefunction
-landscape is extremely peaked. This often happens after bad initialization.
-The adaptive mechanism will shrink the step width, but you can also:
-- Lower sampler proposal width:
-  - training: `train.sampler.initial_width=...`
-  - evaluation: `sampler.initial_width=...`
-- Add a burn-in period: `train.run.burn_in=500`.
-- Increase pretraining.
+- If `pmove` stays far from 0.5 for many steps, tune
+  `train.sampler.initial_width` first. Persistent mismatch usually means the
+  proposal scale is off.
+- If your workflow includes pretraining, increase it. For molecular systems,
+  1,000-10,000 pretraining steps is a common starting range, and a pretrain
+  loss around `1e-4` is often reasonable.
+- Tune the learning rate and other optimizer settings.
+- Try a larger or more expressive wavefunction.
 
-## Shape Mismatch in Custom Components
+### Energy Is Suspiciously Low or Another Observable Looks Wrong
 
-**Symptom:** Errors involving unexpected coordinate shapes, failed concatenation,
-or `vmap` axis mismatches while adding custom wavefunctions/estimators/samplers.
+**Symptom:** the energy is below a trusted variational reference, or a change
+looks "too good" without a matching reduction in variance. The same pattern can
+show up for other observables as well.
 
-**Cause:** Mixing up one-walker `Data` shapes with advanced `BatchedData`
+- Re-evaluate the checkpoint with frozen parameters to separate a training-time
+  sampling issue from a genuinely lower estimate.
+- Check the system definition and make sure you are comparing the same physical
+  system as the reference.
+- If `pmove` stays far from 0.5 for many steps, fix
+  `train.sampler.initial_width` before trusting the estimate.
+- Inspect walker trajectories or checkpointed walker configurations. Walkers
+  that stay spatially localized, break an expected symmetry, or get stuck in an
+  unexpected spin arrangement usually indicate insufficient sampling. In that
+  case, revisit burn-in, the proposal strategy, and walker initialization.
+- Verify that the chosen wavefunction family enforces the intended
+  antisymmetry and continuity.
+- If a custom estimator contributes to `energy:*`, validate signs, factors,
+  units, and batch reductions against a simple trusted case.
+
+### Rare Spikes or Heavy Energy Tails
+
+**Symptom:** most steps look normal, but occasional spikes dominate
+`total_energy_var` or make evaluation error bars unstable.
+
+**Likely causes:** cusp-condition problems, discontinuities, singular-point
+handling, coordinate wrapping errors.
+
+Start by finding where the high-energy walkers are. In particular, look for
+spikes near nuclei, close electron-electron approaches, singular points, or
+periodic cell boundaries.
+
+## Sampling Symptoms
+
+### `pmove` Too High or Too Low
+
+**Symptom:** the MCMC acceptance rate (`pmove`) stays far from the healthy
+range. The sampler adapts toward the default target range of `0.50-0.55`, while
+values around `0.3-0.7` are usually acceptable.
+
+**What `pmove` means:** the fraction of proposed electron moves accepted by the
+Metropolis-Hastings rule, averaged over walkers and sampler sub-steps.
+
+Short transients at the start of a run are normal. Persistent extremes are the
+signal to act.
+
+If `pmove` stays very high, for example above `0.8`, increase the starting
+proposal width: `train.sampler.initial_width=...` for training or
+`sampler.initial_width=...` for evaluation. If `pmove` stays very low, reduce
+the width instead.
+
+See <project:sampling.md> for the sampler parameters and adaptation behavior.
+
+## Configuration and Runtime Errors
+
+### Config Typo or "Stopping Due to Invalid Configs"
+
+**Symptom:** the run aborts immediately with:
+
+```text
+Stopping due to invalid configs specified.
+```
+
+A warning above the error lists the keys that were specified but never read.
+This usually means a typo, such as `train.run.iteration` instead of
+`train.run.iterations`.
+
+Try these fixes:
+
+- Check the spelling of the key named in the warning.
+- Use `--dry-run` to inspect the resolved config.
+- Add `workflow.config.verbose=true` to show available fields and their
+  descriptions.
+
+```{tip}
+CLI overrides must not have spaces around `=`. Write `key=value`, not
+`key = value`.
+```
+
+### Spin/Electron Count Parity Error
+
+**Symptom:**
+
+```text
+ValueError: Total electrons (N) and spin (S) must have the same parity.
+```
+
+**Cause:** the `spin` parameter, meaning the number of unpaired electrons, must
+have the same parity as the total electron count. For example, a 10-electron
+system cannot have `spin=1`.
+
+**Fix:** for a neutral molecule, count the total electrons and choose a matching
+`spin`: `0` for singlet, `2` for triplet, and so on. For atoms, JaQMC determines
+spin automatically for main-group elements. For transition metals, specify
+`spin` explicitly.
+
+### Checkpoint Resume Ends Immediately
+
+**Symptom:** after restoring a checkpoint, the run terminates immediately without
+any training steps.
+
+**Cause:** the checkpoint was saved at step `N`, and `train.run.iterations` is
+still set to `N`. The loop condition `step < iterations` is false from the
+start.
+
+**Fix:** increase `train.run.iterations` beyond the checkpoint step. For
+example, if you restore at step 1000, set `train.run.iterations=2000`.
+
+See <project:running-workflows.md> for more on resuming and checkpointing.
+
+### No Checkpoint Found on a Fresh Training Run
+
+**Symptom:** the log shows:
+
+```text
+No checkpoint to restore in: <path>
+```
+
+On the first training run, this is informational. There is no checkpoint yet, so
+training starts from step 0.
+
+### Batch Size Not Divisible by Process Count
+
+**Symptom:**
+
+```text
+ValueError: Batch size N must be divisible by number of processes P.
+```
+
+**Fix:** choose a `workflow.batch_size` that divides evenly by the number of JAX
+processes. For example, with 4 processes use a batch size like `4096` or `8192`.
+
+## Custom Component Errors
+
+### Shape Mismatch in Custom Components
+
+**Symptom:** errors mention unexpected coordinate shapes, failed concatenation,
+or `vmap` axis mismatches while adding custom wavefunctions, estimators, or
+samplers.
+
+**Likely causes:** mixing up one-walker `Data` shapes with `BatchedData`
 metadata, or using a custom layout inconsistently across components.
 
-**Fixes:**
-- First sanity check: inside `Wavefunction.__call__` or a per-walker estimator,
-  `data.electrons` should usually be one walker, not `(batch, ...)`.
-- Read the default and advanced conventions in <project:/extending/runtime-data-conventions.md>.
-- Validate field-level shapes (for example `batched_data.data.electrons`), not
+Start with these checks:
+
+- Inside `Wavefunction.__call__` or a per-walker estimator, `data.electrons`
+  should usually represent one walker, not `(batch, ...)`.
+- Read the runtime data conventions in
+  <project:/extending/runtime-data-conventions.md>.
+- Validate field-level shapes, such as `batched_data.data.electrons`, not only
   the `BatchedData` wrapper itself.
 - Confirm that every field listed in `fields_with_batch` actually carries a
   leading walker axis.
@@ -81,102 +234,13 @@ metadata, or using a custom layout inconsistently across components.
 - If your custom layout differs, keep it internally consistent across sampler,
   wavefunction, estimators, and workflow wiring.
 
+## When Asking for Help
 
-## Config Typo / "Stopping Due to Invalid Configs"
+Include this evidence pack in your issue or discussion:
 
-**Symptom:** The run aborts immediately with:
-```
-Stopping due to invalid configs specified.
-```
-A warning above lists the unrecognized key(s).
-
-**Cause:** A config key was passed (via CLI or YAML) that the config system
-never read — most commonly a typo. For example, `train.run.iteration` instead
-of `train.run.iterations`.
-
-**Fixes:**
-- Check the spelling of the key.
-- Use `--dry-run` to see the full resolved config and verify all keys.
-- Add `workflow.config.verbose=true` to see available fields and their
-  descriptions.
-
-```{tip}
-CLI overrides must not have spaces around `=`. Write `key=value`, not
-`key = value`.
-```
-
-
-## Spin/Electron Count Parity Error
-
-**Symptom:**
-```
-ValueError: Total electrons (N) and spin (S) must have the same parity.
-```
-
-**Cause:** The `spin` parameter (number of unpaired electrons) must have the
-same parity as the total electron count. For example, a 10-electron system
-cannot have `spin=1`.
-
-**Fix:** For a neutral molecule, count the total electrons and choose a `spin`
-with matching parity: 0 for singlet, 2 for triplet, etc. For atoms, JaQMC
-determines spin automatically for main-group elements. For transition metals,
-specify `spin` explicitly.
-
-
-## Checkpoint Resume Ends Immediately
-
-**Symptom:** After restoring a checkpoint, the run terminates immediately
-without any training steps.
-
-**Cause:** The checkpoint was saved at step N and `train.run.iterations` is
-still set to N. The loop condition `step < iterations` is false from the
-start.
-
-**Fix:** Increase `train.run.iterations` beyond the checkpoint step. For
-example, if restoring at step 1000, set `train.run.iterations=2000`.
-
-See <project:running-workflows.md> for more on resuming and checkpointing.
-
-
-## No Checkpoint Found (Fresh Start)
-
-**Symptom:** Log shows `No checkpoint to restore in: <path>`.
-
-**This is not an error.** On the first run there is no checkpoint yet, and
-training starts from step 0. The message is purely informational.
-
-
-## Batch Size Not Divisible by Device Count
-
-**Symptom:**
-```
-ValueError: Batch size N must be divisible by number of processes P.
-```
-
-**Fix:** Choose a `workflow.batch_size` that divides evenly by the number of
-GPUs (or simulated CPU devices). For example, with 4 GPUs use batch sizes
-like 4096 or 8192.
-
-
-## Psiformer Not Available for Solids
-
-**Symptom:** Cannot find or configure Psiformer for a solid simulation.
-
-**Cause:** The Psiformer architecture is currently only available for molecule
-simulations. Solid simulations use FermiNet extended with PBC features.
-
-**Fix:** Use FermiNet (the default) for solid simulations.
-
-
-## Transition Metal Spin Not Detected
-
-**Symptom:**
-```
-NotImplementedError: Spin configuration for transition metals not set.
-```
-
-**Cause:** The automatic spin detection (`atom_config`) only handles
-main-group elements (groups 1, 2, 13–18).
-
-**Fix:** Specify the `spin` parameter explicitly in your system config rather
-than relying on automatic detection.
+- Primary symptom and first bad step.
+- Exact command, YAML files, and resolved config.
+- Seed, checkpoint path, and whether parameters were frozen for comparison.
+- Training and evaluation values for `total_energy`, `total_energy_var`, and
+  `pmove`.
+- The cheapest separating test you already ran and what changed.

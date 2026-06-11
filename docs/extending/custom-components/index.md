@@ -142,7 +142,7 @@ sampler = cfg.get("sampler", MCMCSampler)
 builder.configure_sample_plan(wf.logpsi, {"electrons": sampler})
 ```
 
-This is why the the [Wiring Principles](#wiring-principles) section says "the builder wires what it creates" — it wires components it resolves from config (such as optimizer and writers). You wire estimators yourself, either in the constructor or via `wire()`.
+This is why the [Wiring Principles](#wiring-principles) section says "the builder wires what it creates" — it wires components it resolves from config (such as optimizer and writers). You wire estimators yourself, either in the constructor or via `wire()`.
 
 ## Writing Custom Components
 

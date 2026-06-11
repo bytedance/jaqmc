@@ -78,6 +78,7 @@ computation; this is independent of the writers configured here.
    :prefix: writers.hdf5
 ```
 
+(solid-estimators)=
 ## Estimators (`estimators.*`)
 
 Energy estimator definitions match training, with additional evaluation-only
@@ -109,17 +110,25 @@ Added automatically when `system.pp` selects an ECP for at least one atom.
 
 Electron density in fractional (lattice) coordinates. Converts Cartesian positions to fractional coordinates via the inverse lattice matrix, then histograms within $[0, 1)$.
 
-When enabled without overrides, the workflow wires three independent 1-D
-histograms along the `a`, `b`, and `c` lattice directions, each with 50 bins.
-To keep only specific axes, set the others to `null`. Each axis override
-accepts `lattice_index` and `bins`.
+When enabled without overrides, the workflow wires one 3-D histogram with the
+`a`, `b`, and `c` fractional coordinates as the active axes. Each axis uses 50
+bins over $[0, 1)$. To keep only specific axes, set the others to `null`; one
+remaining axis gives a 1-D histogram, and two remaining axes give a 2-D
+histogram.
+
+```{eval-rst}
+.. config-defaults:: jaqmc.estimator.density.fractional.FractionalAxis
+   :prefix: estimators.density.axes.(a|b|c)
+```
 
 ```yaml
-# Just enable with defaults (a, b, c histograms, 50 bins each):
+# Just enable with defaults (joint a/b/c histogram, 50 bins each):
 estimators:
   enabled:
     density: true
+```
 
+```yaml
 # Keep only c-axis with finer bins:
 estimators:
   enabled:
