@@ -60,6 +60,8 @@ class WorkStageConfig:
             ``save_step_interval`` are satisfied.
         save_step_interval: Save checkpoints only at steps that are
             multiples of this value.
+        timing_warmup_steps: Number of initial loop steps to exclude from
+            time-per-step logging.
         check_vma: Enable JAX validity checks during ``shard_map``.
     """
 
@@ -69,6 +71,7 @@ class WorkStageConfig:
     burn_in: int = 0
     save_time_interval: int = 10 * 60
     save_step_interval: int = 1000
+    timing_warmup_steps: int = 10
 
 
 class WorkStage(ABC):
@@ -147,12 +150,13 @@ class WorkStage(ABC):
         self.logger.info("Start %s %s steps.", remaining, self.name)
 
         last_save_time = time.time()
-        tracker = TimeTracker()
+        tracker = TimeTracker(warmup_steps=self.config.timing_warmup_steps)
 
         try:
             with self.writers.open(
                 save_dir, prefix, is_master=is_master, initial_step=initial_step
             ):
+                tracker.start()
                 for step, state in self.loop(state, initial_step, rngs):
                     tracker.tick()
 
