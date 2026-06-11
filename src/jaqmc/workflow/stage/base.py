@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 import jax
 from upath import UPath
@@ -38,10 +38,20 @@ class RunContext:
     signal_handler: GracefulKiller
 
 
-class StageAbort(Exception):
+class StageState(ABC):
+    @abstractmethod
+    def partition(self) -> Self:
+        """Return a matching pytree of :class:`~jax.sharding.PartitionSpec`."""
+
+    @abstractmethod
+    def process_allgather(self) -> Self:
+        """Gather distributed arrays from all devices to each local node."""
+
+
+class StageAbort[StateT: StageState](Exception):
     """Raised by loop() to request a graceful abort (e.g. NaN detected)."""
 
-    def __init__(self, step: int, state: Any):
+    def __init__(self, step: int, state: StateT):
         self.step = step
         self.state = state
         super().__init__()
@@ -74,7 +84,7 @@ class WorkStageConfig:
     timing_warmup_steps: int = 10
 
 
-class WorkStage(ABC):
+class WorkStage[StateT: StageState](ABC):
     """Base class for work stages with generator-based run loop.
 
     Subclasses implement :meth:`loop` as a generator yielding ``(step, state)``
@@ -109,7 +119,7 @@ class WorkStage(ABC):
             NumPyCheckpointManager(save_dir, restore_path, prefix=prefix),
         )
 
-    def run(self, state: Any, context: RunContext, rngs: PRNGKey) -> Any:
+    def run(self, state: StateT, context: RunContext, rngs: PRNGKey) -> StateT:
         """Execute the full run loop.
 
         Resumes from checkpoint, opens writers, iterates the generator from
@@ -141,8 +151,8 @@ class WorkStage(ABC):
             parallel_jax.make_sharding(parallel_jax.DATA_PARTITION),
         )
 
-        def save(step: int, st: Any) -> None:
-            gathered = st.all_gather()
+        def save(step: int, st: StateT) -> None:
+            gathered = st.process_allgather()
             if is_master:
                 ckpt.save(step, gathered)
 
@@ -181,8 +191,8 @@ class WorkStage(ABC):
 
     @abstractmethod
     def loop(
-        self, state: Any, initial_step: int, rngs: PRNGKey
-    ) -> Iterator[tuple[int, Any]]:
+        self, state: StateT, initial_step: int, rngs: PRNGKey
+    ) -> Iterator[tuple[int, StateT]]:
         """Yield ``(step, state)`` tuples for each iteration.
 
         Subclasses must implement this generator. Raise :class:`StageAbort` to
@@ -198,7 +208,7 @@ class WorkStage(ABC):
         """
 
     @abstractmethod
-    def create_state(self, rngs: PRNGKey, **kwargs: Any) -> Any:
+    def create_state(self, rngs: PRNGKey, **kwargs: Any) -> StateT:
         """Create sharded state for this stage.
 
         Args:

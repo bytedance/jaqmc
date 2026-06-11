@@ -1,10 +1,10 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for parallel JAX utilities, especially all_gather.
+"""Tests for parallel JAX utilities, especially process_allgather.
 
-These tests verify that the all_gather function correctly gathers distributed
-arrays from all devices and materializes them on each device.
+These tests verify that the process_allgather function correctly gathers
+distributed arrays from all devices and materializes them on each device.
 
 Test Coverage:
 - Single-process multi-device tests (simulated with XLA_FLAGS)
@@ -30,17 +30,51 @@ from .distributed import find_free_port, redirect_stdout_stderr, setup_envs
 
 
 def test_all_gather_single_process():
-    """Test all_gather in single-process multi-device setting.
+    """Test all_gather inside shard_map returns the full leading batch."""
+    import jax
+    from jax import numpy as jnp
+    from jax.sharding import NamedSharding, PartitionSpec
+
+    from jaqmc.utils.parallel_jax import (
+        BATCH_AXIS_NAME,
+        all_gather,
+        make_mesh,
+        shard_map,
+    )
+
+    mesh = make_mesh()
+    sharding = NamedSharding(mesh, PartitionSpec(BATCH_AXIS_NAME))
+    per_device_width = 3
+    full_array = jnp.arange(
+        jax.device_count() * per_device_width, dtype=jnp.int32
+    ).reshape(jax.device_count(), per_device_width)
+    sharded = jax.device_put(full_array, sharding)
+
+    gather = shard_map(
+        all_gather,
+        mesh=mesh,
+        in_specs=PartitionSpec(BATCH_AXIS_NAME),
+        out_specs=PartitionSpec(),
+        check_vma=False,
+    )
+
+    result = gather(sharded)
+
+    np.testing.assert_array_equal(np.array(result), np.array(full_array))
+
+
+def test_process_allgather_single_process():
+    """Test process_allgather in single-process multi-device setting.
 
     Uses XLA_FLAGS to simulate multiple devices on a single machine.
-    This tests the basic all_gather functionality without true distribution,
+    This tests the basic process_allgather functionality without true distribution,
     including various shapes, dtypes, and pytrees.
     """
     import jax
     from jax import numpy as jnp
     from jax.sharding import NamedSharding, PartitionSpec
 
-    from jaqmc.utils.parallel_jax import BATCH_AXIS_NAME, all_gather, make_mesh
+    from jaqmc.utils.parallel_jax import BATCH_AXIS_NAME, make_mesh, process_allgather
 
     if jax.device_count() < 2:
         pytest.skip("More than one devices are required to test gathering")
@@ -65,7 +99,7 @@ def test_all_gather_single_process():
 
     for test_array in test_cases:
         sharded = shard_array(test_array)
-        result = all_gather(sharded)
+        result = process_allgather(sharded)
         assert result.shape == test_array.shape
         assert jnp.allclose(test_array, result, rtol=1e-6)
 
@@ -81,8 +115,8 @@ def test_all_gather_single_process():
     # Shard all arrays in the pytree
     sharded_pytree = jax.tree.map(shard_array, pytree_test)
 
-    # Apply all_gather to the whole pytree
-    result_pytree = jax.tree.map(all_gather, sharded_pytree)
+    # Apply process_allgather to the whole pytree
+    result_pytree = jax.tree.map(process_allgather, sharded_pytree)
 
     # Compare all leaves in the pytree
     leaves_orig, _ = jax.tree.flatten(pytree_test)
@@ -101,7 +135,7 @@ def test_all_gather_single_process():
 def parallel_jax_worker(
     process_id, num_processes, coordinator_address, queue, env_vars, test_arrays
 ):
-    """Worker function for distributed all_gather tests.
+    """Worker function for distributed process_allgather tests.
 
     Args:
         process_id: Process ID.
@@ -109,7 +143,7 @@ def parallel_jax_worker(
         coordinator_address: Coordinator address.
         queue: multiprocessing.Queue to send results back.
         env_vars: Dictionary of environment variables to set.
-        test_arrays: List of arrays to test all_gather on.
+        test_arrays: List of arrays to test process_allgather on.
 
     Raises:
         AssertionError: If sharding is not working as expected.
@@ -123,7 +157,11 @@ def parallel_jax_worker(
             import jax
             from jax.sharding import NamedSharding, PartitionSpec
 
-            from jaqmc.utils.parallel_jax import BATCH_AXIS_NAME, all_gather, make_mesh
+            from jaqmc.utils.parallel_jax import (
+                BATCH_AXIS_NAME,
+                make_mesh,
+                process_allgather,
+            )
 
             # Initialize distributed runtime
             DistributedConfig(
@@ -147,7 +185,7 @@ def parallel_jax_worker(
                         raise AssertionError("Sharding not working!")
                     except RuntimeError:
                         pass
-                gathered_results.append(np.array(all_gather(sharded_data)))
+                gathered_results.append(np.array(process_allgather(sharded_data)))
 
             exit_code = 0
         except Exception:
@@ -161,7 +199,7 @@ def parallel_jax_worker(
 
 
 def run_parallel_jax_test(num_processes, test_arrays, mode="cpu"):
-    """Run distributed all_gather test using multiprocessing.
+    """Run distributed process_allgather test using multiprocessing.
 
     Returns:
         Sorted list of worker results.
@@ -198,8 +236,8 @@ def run_parallel_jax_test(num_processes, test_arrays, mode="cpu"):
 
 
 @pytest.mark.parametrize("mode", ["cpu", "gpu"])
-def test_all_gather_distributed_two_processes(mode: str):
-    """Test all_gather in a true multi-process distributed setting with 2 processes."""
+def test_process_allgather_distributed_two_processes(mode: str):
+    """Test process_allgather in a true two-process distributed setting."""
     pytest.importorskip("jax", minversion="0.5.0")
 
     # Verify gathered data
