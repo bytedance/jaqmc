@@ -3,6 +3,8 @@
 
 """Tests for the quantum Hall workflow components."""
 
+from typing import Literal
+
 import jax
 import numpy as np
 import pytest
@@ -15,7 +17,7 @@ from jaqmc.app.hall.hamiltonian import SpherePotential
 from jaqmc.app.hall.wavefunction.free import Free
 from jaqmc.app.hall.wavefunction.jastrow import SphericalJastrow
 from jaqmc.app.hall.wavefunction.mhpo import MHPO
-from jaqmc.estimator.kinetic import LaplacianMode, SphericalKinetic
+from jaqmc.estimator.kinetic import SphericalKinetic
 from jaqmc.geometry.sphere import sphere_proposal
 from jaqmc.laplacian import forward_laplacian, make_laplacian_input
 from jaqmc.utils.wiring import wire
@@ -83,9 +85,9 @@ def _supports_forward_laplacian() -> bool:
     return jax.__version_info__ >= (0, 7, 1)
 
 
-LAPLACIAN_MODES = [LaplacianMode.scan]
+LAPLACIAN_MODES: list[Literal["hessian", "forward_laplacian"]] = ["hessian"]
 if _supports_forward_laplacian():
-    LAPLACIAN_MODES.append(LaplacianMode.forward_laplacian)
+    LAPLACIAN_MODES.append("forward_laplacian")
 
 
 class TestSphericalKinetic:
