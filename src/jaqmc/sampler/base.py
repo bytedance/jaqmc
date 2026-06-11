@@ -97,15 +97,15 @@ class SamplePlan:
     def __init__(
         self,
         log_amplitude: NumericWavefunctionEvaluate,
-        samplers: Mapping[str | tuple[str], SamplerLike] | None = None,
+        samplers: Mapping[str | tuple[str, ...], SamplerLike] | None = None,
     ):
         self.log_amplitude = log_amplitude
-        self.samplers: dict[tuple[str], SamplerLike] = {}
+        self.samplers: dict[tuple[str, ...], SamplerLike] = {}
         if samplers is not None:
             for keys, sampler in samplers.items():
                 self.will_sample(keys, sampler)
 
-    def will_sample(self, keys: str | tuple[str], sampler: SamplerLike):
+    def will_sample(self, keys: str | tuple[str, ...], sampler: SamplerLike):
         """Register which data fields a sampler should update.
 
         Use this when one sampler should control a specific field such as

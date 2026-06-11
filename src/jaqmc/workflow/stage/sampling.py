@@ -99,7 +99,7 @@ class SamplingStageBuilder:
     def configure_sample_plan(
         self,
         f_log_amplitude: NumericWavefunctionEvaluate,
-        samplers: Mapping[str | tuple[str], SamplerLike] | None = None,
+        samplers: Mapping[str | tuple[str, ...], SamplerLike] | None = None,
     ) -> None:
         """Configure MCMC sampling.
 
