@@ -2,17 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+from contextlib import suppress
 
 import jax
-
-try:
-    from jax import shard_map
-except ImportError:
-    from jax.experimental.shard_map import shard_map as exp_shard_map
-
-    def shard_map(f, mesh, in_specs, out_specs, check_vma=True):  # type: ignore
-        return exp_shard_map(f, mesh, in_specs, out_specs, check_rep=check_vma)
-
 
 logger = logging.LoggerAdapter(
     logging.getLogger(__name__), extra={"category": "parallel"}
@@ -43,7 +35,18 @@ def make_sharding(partition):
     return jax.tree.map(lambda spec: jax.sharding.NamedSharding(mesh, spec), partition)
 
 
-def jit_sharded(fn, *, in_specs, out_specs, check_vma=True, donate_argnums=None):
+def shard_map(f, /, *, mesh, in_specs, out_specs, check_vma=True):
+    with suppress(AttributeError):
+        return jax.shard_map(
+            f, mesh=mesh, in_specs=in_specs, out_specs=out_specs, check_vma=check_vma
+        )
+
+    from jax.experimental.shard_map import shard_map as exp_shard_map
+
+    return exp_shard_map(f, mesh, in_specs, out_specs, check_rep=check_vma)
+
+
+def jit_sharded(fn, /, *, in_specs, out_specs, check_vma=True, donate_argnums=None):
     """JIT-compile a function with shard_map in one call.
 
     Args:
