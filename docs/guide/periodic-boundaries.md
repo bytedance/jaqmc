@@ -1,64 +1,188 @@
 # Periodic Boundary Conditions
 
-JaQMC supports periodic boundary conditions (PBC) for systems defined on a lattice. This page explains the cross-cutting mechanics that apply to any PBC-enabled workflow: how distances are computed, how Bloch phases work, and how twisted boundary conditions reduce finite-size errors.
+Periodic boundary conditions (PBC) let JaQMC represent an infinite lattice with a
+finite simulation cell. This page explains the shared mechanics behind periodic
+runs: the supercell picture, the periodic features fed into the wavefunction,
+twisted boundary conditions, and, where relevant, Bloch phases.
 
-Currently, the <project:../systems/solid/index.md> workflow uses PBC.
+For a periodic run, keep these three objects separate:
 
-## Distance Functions (`distance_type`)
+- The **primitive cell** defines the crystal structure and its reciprocal lattice.
+- The **supercell** is the finite simulation cell repeated periodically during
+  sampling and energy evaluation.
+- The **twist** shifts the allowed momenta of that supercell and is the knob used
+  for twist averaging.
 
-In periodic systems, the distance between two points is not unique — each atom has infinitely many periodic images. JaQMC uses smooth periodic distance functions that respect the lattice symmetry without requiring an explicit sum over images.
+## Supercell approximation
 
-Two distance functions are available, selected via `wf.distance_type`:
+JaQMC does not simulate an infinite periodic system directly. Instead, it builds a
+finite **supercell** by tiling the primitive cell and then repeats that supercell
+in every direction. Walkers live in this simulation cell, and any electron that
+crosses one face re-enters through the opposite face.
 
-**`nu`** (default) — A polynomial approximation to the periodic distance. For each expanded reciprocal lattice vector $\mathbf{b}_i$, it computes $\omega_i = \mathbf{r} \cdot \mathbf{b}_i$ (wrapped to $[-\pi, \pi]$) and applies smooth periodic functions:
+The corresponding Hamiltonian is
+$$
+\hat{H}_s = -\sum_i \frac{1}{2 m_i} \nabla_i^2 + \frac{1}{2} \sum_i \sum_j \sum_{\mathbf{L}_s}^\prime V_{ij}(\mathbf{r}_i - \mathbf{r}_j + \mathbf{L}_s),
+$$
+where $\mathbf{L}_s$ runs over supercell lattice translations. The prime means that
+the $\mathbf{L}_s = 0$ term is omitted when $i = j$, so a particle does not interact
+with itself.
 
-$$f(\omega) = |\omega|\left(1 - \tfrac{1}{4}|\omega/\pi|^3\right), \qquad g(\omega) = \omega\left(1 - \tfrac{3}{2}|\omega/\pi| + \tfrac{1}{2}|\omega/\pi|^2\right)$$
+Because this Hamiltonian is invariant under supercell lattice translations,
+periodic eigenstates cannot change arbitrarily when a particle crosses the cell
+boundary. Instead, translating an electron by a supercell lattice vector can only
+change the wavefunction by a phase.
 
-These feed into a distance formula that combines contributions from all lattice directions. The relative displacement vector is reconstructed as $\sum_i g(\omega_i)\,\mathbf{a}_i$, giving 3D features per pair.
+## Periodic input features
 
-**`tri`** — A trigonometric distance using $\sin(\omega_i)$ and $\cos(\omega_i)$ directly. This produces 6D features per pair (sine and cosine components), giving the network richer symmetry information at the cost of a larger feature dimension.
+In an open system, the raw displacement vector is a reasonable input feature. Under
+PBC it is not. Two configurations that differ only by a lattice translation
+represent the same physical state, so the feature representation must be
+**periodic**. At the same time, the Hamiltonian does not acquire a physical
+singularity when a particle crosses one face of the cell and re-enters through the
+opposite face, so the wavefunction should remain **smooth** across that boundary.
 
-Both functions are smooth and periodic, so the neural network can differentiate through them for gradient computation. The default `nu` works well for most systems.
+This smoothness matters because JaQMC differentiates the wavefunction when it
+computes gradients and local kinetic-energy terms. A naively wrapped displacement
+would be periodic but would still introduce artificial kinks at the boundary.
+JaQMC therefore replaces Euclidean distances with smooth periodic features.
 
-## Symmetry Expansion (`sym_type`)
+### Distance functions (`wf.distance_type`)
 
-The primitive reciprocal lattice basis may not expose all symmetry-equivalent directions of the crystal. The `sym_type` option expands the reciprocal basis with additional integer linear combinations, giving the distance functions access to more periodic "views" of the geometry.
+JaQMC first projects a relative displacement $\mathbf{r}$ onto reciprocal vectors
+$\mathbf{b}_i$,
+$$
+\omega_i = \mathbf{b}_i \cdot \mathbf{r},
+$$
+and wraps each $\omega_i$ into $[-\pi, \pi]$. It then applies one of two periodic
+distance constructions. Each one defines a scalar periodic distance together with
+the periodic displacement features used to represent pair geometry:
 
-Available options for `wf.sym_type`:
+- **`nu`** (default) uses smooth polynomials
+  $$
+  f(\omega) = |\omega|\left(1 - \tfrac{1}{4}|\omega/\pi|^3\right), \qquad
+  g(\omega) = \omega\left(1 - \tfrac{3}{2}|\omega/\pi| + \tfrac{1}{2}|\omega/\pi|^2\right).
+  $$
+  The scalar periodic distance is
+  $$
+  d(\mathbf{r}) =
+  \sqrt{
+    \sum_i \|\mathbf{a}_i\|^2 f(\omega_i)^2 +
+    \sum_{i \ne j} (\mathbf{a}_i \cdot \mathbf{a}_j)\, g(\omega_i)\, g(\omega_j)
+  }.
+  $$
+  The associated periodic displacement feature is
+  $\sum_i g(\omega_i)\,\mathbf{a}_i$, so the vector part stays 3D and remains
+  close in shape to the open-boundary representation.
+
+- **`tri`** uses trigonometric features directly. Its scalar periodic distance is
+  $$
+  d(\mathbf{r}) =
+  \sqrt{
+    \sum_{i,j}
+    \left[
+      \sin(\omega_i)\sin(\omega_j) +
+      (1 - \cos(\omega_i))(1 - \cos(\omega_j))
+    \right]
+    (\mathbf{a}_i \cdot \mathbf{a}_j)
+  }.
+  $$
+  The associated periodic displacement feature concatenates
+  $\sum_i \sin(\omega_i)\,\mathbf{a}_i$ and
+  $\sum_i \cos(\omega_i)\,\mathbf{a}_i$, producing a 6D vector feature per pair.
+  This gives the network a richer periodic representation at the cost of a larger
+  feature dimension.
+
+Both choices are smooth at the boundary and differentiable everywhere JaQMC needs
+them for gradient-based optimization. `nu` is the default because it works well for
+most systems.
+
+### Symmetry expansion (`wf.sym_type`)
+
+The primitive reciprocal basis does not always expose every symmetry-equivalent
+direction of the lattice. `wf.sym_type` expands that basis with additional integer
+linear combinations before the periodic distance is computed. Both `nu` and `tri`
+use this expanded basis.
+
+Available options are:
 
 | Option | Vectors | Use for |
 |--------|---------|---------|
-| `minimal` | 3 (identity) | No expansion — only the primitive reciprocal basis |
-| `fcc` | 4 | Face-centered cubic lattices (adds the $[1,1,1]$ combination) |
-| `bcc` | 6 | Body-centered cubic lattices (adds face-diagonal combinations) |
-| `hexagonal` | 4 | Hexagonal lattices (adds the $[-1,-1,0]$ combination) |
+| `minimal` | 3 (identity) | No expansion; use only the primitive reciprocal basis |
+| `fcc` | 4 | Face-centered cubic lattices; adds the $[1,1,1]$ combination |
+| `bcc` | 6 | Body-centered cubic lattices; adds face-diagonal combinations |
+| `hexagonal` | 4 | Hexagonal lattices; adds the $[-1,-1,0]$ combination |
 
-The expanded basis is used by both `nu` and `tri` distance functions. Choose the option that matches your crystal symmetry. For lattices that don't fit any preset, `minimal` is a safe default.
+Choose the option that matches your lattice symmetry. If your lattice does not fit
+one of these presets, `minimal` is the safe default.
 
 (twisted-boundary-conditions)=
 ## Twisted Boundary Conditions
 
-The `twist` parameter is a fractional k-point in the primitive cell's reciprocal space — a vector in $[0, 1)^3$ that shifts the Bloch phases of all orbitals. Physically, it controls the boundary condition that electrons satisfy when wrapping around the simulation cell:
+Ordinary PBC require the many-electron wavefunction to repeat exactly when one
+electron is translated by a supercell lattice vector. Twisted boundary conditions
+relax that requirement: the wavefunction may pick up a phase instead,
+$$
+\psi(\dots, \mathbf{r}_i + \mathbf{R}_S, \dots) = e^{i\sum_\alpha \theta_\alpha n_\alpha}\, \psi(\dots, \mathbf{r}_i, \dots),
+$$
+where $\mathbf{R}_S = \sum_\alpha n_\alpha \mathbf{L}_{S\alpha}$ is a supercell
+translation written in the supercell basis vectors $\mathbf{L}_{S\alpha}$.
 
-$$\psi(\mathbf{r} + \mathbf{R}) = e^{i\mathbf{k} \cdot \mathbf{R}}\,\psi(\mathbf{r})$$
+A useful way to read this is in momentum space. For a one-dimensional box of length
+$L$, the allowed momenta become
+$$
+k_n = \frac{2\pi n + \theta}{L},
+$$
+instead of the ordinary periodic grid $k_n = 2\pi n / L$. A nonzero twist shifts
+the entire momentum mesh.
 
-where $\mathbf{R}$ is a lattice vector and $\mathbf{k}$ is derived from the twist. At `twist = [0, 0, 0]` (the $\Gamma$ point), the wavefunction is strictly periodic. Nonzero twist values impose a phase shift at the cell boundary.
+JaQMC exposes this shift through `system.twist`, a three-component vector in
+fractional coordinates of the **supercell reciprocal basis**. The default
+`[0, 0, 0]` gives ordinary periodic boundary conditions.
 
-Twist averaging — running multiple simulations at different twist values and averaging the energies — reduces finite-size errors caused by the discrete k-point sampling of the Brillouin zone. JaQMC does not automate twist averaging, but you can run separate training jobs at different twist values and average the evaluation energies.
+In QMC, a common practice is **twist averaging**: run the calculation at many twist
+values and average the observables,
+$$
+E \approx \frac{1}{N_\theta}\sum_{\theta} E(\theta).
+$$
+This greatly reduces one-body finite-size errors such as shell effects in the
+kinetic energy. It does not remove every finite-size error, so long-range Coulomb
+and exchange-correlation effects still need separate correction or extrapolation.
+
+JaQMC does not automate twist averaging. To use it, run separate training and
+evaluation jobs at different `system.twist` values, then average the evaluation
+results afterward.
 
 (bloch-phases-in-the-wavefunction)=
 ## Bloch Phases in the Wavefunction
 
-PBC wavefunctions differ from open-boundary wavefunctions in three key ways:
+Some periodic wavefunctions, including JaQMC's current
+<project:../systems/solid/index.md> workflow, use Bloch phases so that the
+wavefunction transforms by a phase under lattice translations instead of
+remaining strictly unchanged.
 
-1. **Complex orbitals.** Each orbital has both real and imaginary components ($\phi_\text{real} + i\,\phi_\text{imag}$), enabling the wavefunction to represent complex-valued Bloch states.
+In JaQMC's current implementation, the twist enters the wavefunction through the orbital
+k-points. Compared with an open-boundary wavefunction, it differs in three ways:
 
-2. **Multiple k-points.** In a supercell, each orbital is associated with a k-point from the folded Brillouin zone. The number of k-points equals the supercell scale factor.
+1. **Complex orbitals.** Each orbital has independent real and imaginary parts,
+   allowing the model to represent complex-valued Bloch states.
 
-3. **Bloch phase multiplication.** Each orbital is multiplied by a plane-wave phase factor:
+2. **A folded k-point mesh.** The current implementation uses the primitive-cell
+   k-points that fold to $\Gamma$ in the simulation supercell. That folded mesh
+   has size $|\det(S)|$, which JaQMC exposes as `system.scale` (see
+   [Supercell Expansion](../systems/solid/index.md#supercell-expansion)). The final
+   orbital list also accounts for spin channels and any additional occupied bands
+   at a given k-point.
 
-$$\tilde{\phi}_j(\mathbf{r}_i) = \phi_j(\mathbf{r}_i) \cdot e^{i\mathbf{k}_j \cdot \mathbf{r}_i}$$
+3. **Bloch phase multiplication.** Each orbital is multiplied by a plane-wave phase
+   factor
+   $$
+   \tilde{\phi}_j(\mathbf{r}_i) = \phi_j(\mathbf{r}_i)\, e^{i\mathbf{k}_j \cdot \mathbf{r}_i},
+   $$
+   where $\mathbf{k}_j$ is the k-point assigned to orbital $j$. If `system.twist`
+   is nonzero, JaQMC shifts the folded mesh before assigning those orbital
+   k-points.
 
-where $\mathbf{k}_j$ is the k-point assigned to orbital $j$. This ensures the wavefunction transforms correctly under lattice translations, as required by Bloch's theorem. The k-points include any shift from the `twist` parameter.
-
-Because the wavefunction is complex-valued, the reported `total_energy` has a small imaginary component. This is a finite-sampling artifact whose expectation value vanishes — only the real part is physically meaningful.
+Because the orbital matrix is complex, sampled energy estimates can carry a small
+imaginary component. Its expectation value vanishes, so the physically meaningful
+energy is the real part.

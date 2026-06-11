@@ -2,7 +2,18 @@
 
 For configuration options, see the estimator sections of each system's config reference ([molecule](#molecule-estimators)).
 
-Pseudo-Hamiltonian (PH) pseudopotentials are an alternative pseudopotential family that sits parallel to semi-local [ECP](project:ecp.md). Here, we use ECP to refer to semi-local pseudopotentials and PH to refer to local pseudopotentials. Like an ECP, PH replaces the explicit treatment of core electrons. Unlike an ECP, PH does *not* introduce a nonlocal angular-momentum projector ($|lm\rangle\langle lm|$ in the ECP form); instead, the angular content of the pseudopotential is absorbed into a position-dependent kinetic operator. As a result, PH energy evaluation needs no spherical quadrature, no random rotation, and no localization approximation, and PH is significantly cheaper to evaluate than the corresponding ECP while delivering the same level of many-body accuracy on the supported elements.
+Pseudo-Hamiltonian (PH) pseudopotentials are an alternative pseudopotential
+family that sits parallel to semi-local [ECP](project:ecp.md)
+pseudopotentials. Here, `ECP` refers specifically to the semi-local effective
+core potential family, while `PH` refers to the local Pseudo-Hamiltonian
+family. Like an ECP, PH replaces the explicit treatment of core electrons.
+Unlike an ECP, PH does *not* introduce a nonlocal angular-momentum projector
+($|lm\rangle\langle lm|$ in the ECP form); instead, the angular content of the
+pseudopotential is absorbed into a position-dependent kinetic operator. As a
+result, PH energy evaluation needs no spherical quadrature, no random
+rotation, and no localization approximation, and PH is significantly cheaper
+to evaluate than the corresponding ECP while delivering the same level of
+many-body accuracy on the supported elements.
 
 The implementation here is based on [Bennett et al., *J. Chem. Theory Comput.* **18**, 828–839 (2022)](https://doi.org/10.1021/acs.jctc.1c00992) and the locality-error-free follow-up [Ichibha et al., *J. Chem. Phys.* **159**, 164114 (2023)](https://doi.org/10.1063/5.0175381). The integration with neural-network QMC, including the forward-Laplacian evaluation strategy used by default, follows [Fu et al., arXiv:2505.19909 (2025)](https://arxiv.org/abs/2505.19909).
 
@@ -44,7 +55,8 @@ On a PH run the energy stats include:
 - `energy:ph` — the local PH potential contribution, summed over PH atoms.
 - `energy:potential` — the bare electron-nucleus and electron-electron Coulomb terms, unchanged from non-PH runs.
 
-The total energy is the sum of these, plus any ECP contributions when PH and ECP coexist.
+The total energy is the sum of these, plus any semi-local ECP contributions
+when PH and ECP coexist.
 
 ## Limitations
 
@@ -160,7 +172,8 @@ This backend is slower than the forward-Laplacian path but easier to read and se
 
 ## See also
 
-- [Pseudopotentials (ECP)](project:ecp.md) — the sibling pseudopotential family.
+- [Pseudopotentials (ECP)](project:ecp.md) — the sibling semi-local
+  pseudopotential family.
 - [Kinetic energy](project:kinetic.md) — the standalone kinetic estimator used on non-PH systems.
 - Configuration: [Molecule](#molecule-estimators)
 - API: {class}`~jaqmc.estimator.ph.PHEnergy`

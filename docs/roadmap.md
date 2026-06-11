@@ -31,13 +31,8 @@ We will gradually integrate features from the previous version of JaQMC into the
 
 We aim to continuously improve JaQMC, with efforts focused on, but not limited to, the following areas:
 
-- **Neural Network Ansatz**
-
-- **Optimization Methods**
-
-- **Systems and Hamiltonians**
-
-
-- **Reusable Estimators**
-
-- **Other Cutting-edge Techiniques**
+- Neural network ansatz
+- Optimization methods
+- Systems and Hamiltonians
+- Reusable estimators
+- Other cutting-edge techniques
