@@ -7,7 +7,7 @@ import optax
 
 from jaqmc.array_types import Params
 from jaqmc.data import BatchedData
-from jaqmc.optimizer.schedule import Constant, Standard
+from jaqmc.optimizer.schedule import Standard
 from jaqmc.utils import parallel_jax
 from jaqmc.utils.config import configurable_dataclass, module_config
 from jaqmc.utils.wiring import runtime_dep
@@ -64,12 +64,20 @@ class SROptimizer:
             when forming the SR system.
     """
 
-    learning_rate: Any = module_config(Standard)
-    max_norm: Any = module_config(Constant, rate=0.1)
-    damping: Any = module_config(Constant, rate=1e-3)
+    learning_rate: Any = module_config(Standard, direct_value_type=float)
+    max_norm: Any = module_config(
+        0.1, direct_value_type=float, module_import_base="jaqmc.optimizer"
+    )
+    damping: Any = module_config(
+        1e-3, direct_value_type=float, module_import_base="jaqmc.optimizer"
+    )
     max_cond_num: float | None = 1e7
-    spring_mu: Any = module_config(Constant, rate=0.9)
-    march_beta: Any = module_config(Constant, rate=0.5)
+    spring_mu: Any = module_config(
+        0.9, direct_value_type=float, module_import_base="jaqmc.optimizer"
+    )
+    march_beta: Any = module_config(
+        0.5, direct_value_type=float, module_import_base="jaqmc.optimizer"
+    )
     march_mode: Literal["var", "diff"] = "var"
     eps: float = 1e-8
     mixed_precision: bool = True

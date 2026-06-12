@@ -34,7 +34,7 @@ def test_simple_run(tmp_path, optimizer, lr):
             "workflow": {"save_path": str(tmp_path), "batch_size": 128},
             "train": {
                 "run": {},
-                "optim": {"module": optimizer, "learning_rate": {"rate": lr}},
+                "optim": {"module": optimizer, "learning_rate": lr},
             },
         }
     )

@@ -9,7 +9,7 @@ from typing import Any
 import jax
 import optax
 
-from jaqmc.optimizer.schedule import Constant, Standard
+from jaqmc.optimizer.schedule import Standard
 from jaqmc.utils.config import configurable_dataclass, module_config
 
 
@@ -43,9 +43,13 @@ def _make_optax_dataclass(name: str, factory):
         annotation = param.annotation
         if annotation == optax.ScalarOrSchedule:
             if isinstance(param.default, (int, float)):
-                mc = module_config(Constant, rate=param.default)
+                mc = module_config(
+                    param.default,
+                    direct_value_type=float,
+                    module_import_base="jaqmc.optimizer",
+                )
             else:
-                mc = module_config(Standard)
+                mc = module_config(Standard, direct_value_type=float)
             fields_list.append((param.name, Any, mc))
         elif annotation == jax.typing.ArrayLike:
             if param.default is not inspect.Parameter.empty:

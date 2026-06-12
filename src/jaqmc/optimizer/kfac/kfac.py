@@ -75,7 +75,7 @@ class KFACOptimizer:
     internal parts of original `kfac_jax <https://github.com/google-deepmind/kfac-jax>`_.
 
     Args:
-        learning_rate: The learning rate.
+        learning_rate: Step size (scalar or schedule).
         norm_constraint: The update is scaled down so that its approximate squared
             Fisher norm :math:`v^T F v` is at most the specified value.
         curvature_ema: Decay factor used when calculating the covariance estimate
@@ -86,7 +86,7 @@ class KFACOptimizer:
         damping: Fixed damping parameter.
     """
 
-    learning_rate: Any = module_config(Standard)
+    learning_rate: Any = module_config(Standard, direct_value_type=float)
     norm_constraint: float = 1e-3
     curvature_ema: float = 0.95
     l2_reg: float = 0.0
