@@ -71,13 +71,15 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: matrix.tox-env == 'py312-jax0.9.1'
-        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: bytedance/jaqmc
 
       - name: Upload test results to Codecov
         if: ${{ matrix.tox-env == 'py312-jax0.9.1' && !cancelled() }}
-        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
+          report_type: test_results
           token: ${{ secrets.CODECOV_TOKEN }}
+          slug: bytedance/jaqmc
