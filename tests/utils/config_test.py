@@ -539,6 +539,18 @@ def test_module_config_direct_value_union_rejects_string_input():
         cfg.get("section", default=DirectValueUnionConfig())
 
 
+def test_get_module_rejects_unknown_fields_for_wavefunction_configs():
+    from jaqmc.app.hydrogen_atom import HydrogenAtom
+
+    cfg = ConfigManager({"wf": {"unknown": 1}})
+
+    with pytest.raises(
+        SerdeError,
+        match=r"Invalid config at 'wf': unknown fields: \{'unknown'\}",
+    ):
+        cfg.get_module("wf", default_module=HydrogenAtom)
+
+
 def test_module_config_plain_default_value_supports_noncallable_default():
     cfg = ConfigManager({})
 

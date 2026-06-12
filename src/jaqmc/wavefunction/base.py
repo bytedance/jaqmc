@@ -109,7 +109,7 @@ class Wavefunction[DataT: Data, OutputT](
         super().__init_subclass__(cls)
         cls.__dataclass_fields__["parent"].metadata = {"serde_skip": True}
         cls.__dataclass_fields__["name"].metadata = {"serde_skip": True}
-        serde.serde(cls, type_check=serde.coerce)
+        serde.serde(cls, type_check=serde.coerce, deny_unknown_fields=True)
 
 
 class LogPsiWFOutput(TypedDict):
