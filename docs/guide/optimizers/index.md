@@ -91,7 +91,7 @@ train.optim.learning_rate.rate=0.01 train.optim.learning_rate.delay=5000
 **`schedule:Constant`** - fixed learning rate throughout training. Override with `train.optim.learning_rate.rate` (default 0.05).
 
 ```{note}
-The optimizer controls how gradients are *applied*. Gradient *estimation*, including outlier clipping via `clip_scale`, is handled separately. See <project:../estimators/loss-grad.md> for how gradients are computed and stabilised before the optimizer sees them.
+The optimizer controls how gradients are *applied*. Gradient *estimation*, including loss clipping via `train.grads.clip_method` and `train.grads.clip_scale`, is handled separately. See <project:../estimators/loss-grad.md> for how gradients are computed and stabilised before the optimizer sees them.
 ```
 
 ## See Also

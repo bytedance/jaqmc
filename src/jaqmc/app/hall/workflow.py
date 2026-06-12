@@ -47,6 +47,7 @@ class HallTrainWorkflow(VMCWorkflow):
             "train": {
                 "run": {"iterations": 200_000},
                 "writers": {"console": {"fields": console_fields}},
+                "grads": {"clip_scale": 100, "clip_method": "iqr"},
             }
         }
 
@@ -67,7 +68,8 @@ class HallTrainWorkflow(VMCWorkflow):
         train.configure_optimizer(default=KFACOptimizer, f_log_psi=wf.logpsi)
         train.configure_estimators(**estimators)
         train.configure_loss_grads(
-            LossAndGrad(loss_key=loss_key, clip_scale=100), f_log_psi=wf.logpsi
+            cfg.scoped("train").get("grads", LossAndGrad(loss_key=loss_key)),
+            f_log_psi=wf.logpsi,
         )
         self.train_stage = train.build()
 

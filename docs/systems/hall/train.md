@@ -152,13 +152,15 @@ The train stage enables `console`, `csv`, and `hdf5` writers by default.
    :prefix: train.writers.hdf5
 ```
 
-### Loss gradients
+### Loss gradients (`train.grads.*`)
 
-The workflow wires {py:obj}`~jaqmc.estimator.loss_grad.LossAndGrad`
-automatically. When angular momentum penalties are enabled
-(`system.lz_penalty` or `system.l2_penalty`), the loss key is set to
-`penalized_loss`; otherwise it defaults to `total_energy`. There is no
-user-facing `train.grads.*` schema for hall workflows.
+The workflow resolves {py:obj}`~jaqmc.estimator.loss_grad.LossAndGrad`
+from `train.grads.*`. See [Loss and gradient](../../guide/estimators/loss-grad.md) for the clipping formulas.
+
+```{eval-rst}
+.. config-defaults:: jaqmc.estimator.loss_grad.LossAndGrad
+   :prefix: train.grads
+```
 
 ---
 
