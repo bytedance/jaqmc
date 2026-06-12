@@ -4,8 +4,8 @@ Physics, derivations, and computational details behind JaQMC's built-in estimato
 
 - <project:kinetic.md> — Laplacian computation, mode trade-offs, spherical variant for FQHE
 - <project:ewald.md> — Coulomb energy in periodic systems via real/reciprocal-space decomposition
-- <project:ecp.md> — Semi-local core effective potential (ECP) contributions, quadrature details
-- <project:ph.md> — Local pseudopotential, or Pseudo-Hamiltonian (PH), parallel to ECP
+- <project:ecp.md> — Semi-local effective core potential (ECP) contributions, quadrature details
+- <project:ph.md> — Local pseudopotential, or Pseudo-Hamiltonian (PH), parallel to the semi-local ECP family
 - <project:spin.md> — Spin contamination measurement via coordinate-swap ratios
 - <project:density.md> — Electron density histograms (Cartesian, fractional, and spherical)
 - <project:loss-grad.md> — Gradient estimator and outlier clipping

@@ -120,7 +120,7 @@ If you enabled `march_beta`, also cite:
 ```
 ````
 
-````{dropdown} Pseudopotential/ECP
+````{dropdown} Semi-local pseudopotential (ECP)
 ```bibtex
 @article{li_fermionic_2022,
   title = {Fermionic Neural Network with Effective Core Potential},

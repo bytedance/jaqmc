@@ -230,9 +230,9 @@ def make_estimators(
             "estimators.density",
             FractionalDensity(
                 axes={
-                    "a": FractionalAxis(lattice_index=0),
-                    "b": FractionalAxis(lattice_index=1),
-                    "c": FractionalAxis(lattice_index=2),
+                    "a": FractionalAxis(lattice_index=0, bins=50),
+                    "b": FractionalAxis(lattice_index=1, bins=50),
+                    "c": FractionalAxis(lattice_index=2, bins=50),
                 }
             ),
         )

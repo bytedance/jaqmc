@@ -126,32 +126,6 @@ def _collect_dataclass_descriptions(obj: Any) -> dict[str, str]:
     return descriptions
 
 
-def _compact_description(text: str | None) -> str | None:
-    """Collapse a field description into a short inline sentence.
-
-    Returns:
-        First sentence of the first paragraph, or ``None`` when unavailable.
-    """
-    if not text:
-        return None
-
-    first_paragraph = text.strip().split("\n\n", 1)[0]
-    compact = " ".join(line.strip() for line in first_paragraph.splitlines()).strip()
-    if not compact:
-        return None
-
-    sentence_break = re.search(r"(?<=[.!?])\s+(?=[A-Z(])", compact)
-    if sentence_break:
-        compact = compact[: sentence_break.start()].strip()
-    return compact or None
-
-
-def _compact_resolved_description(text: str | None, mod: object) -> str | None:
-    """Return a compact description with local references resolved."""
-    compact = _compact_description(text)
-    return _resolve_refs(compact, mod) if compact else None
-
-
 def _type_name(t) -> str:
     """Return a plain-text type name without RST markup.
 
@@ -694,7 +668,8 @@ class ConfigDefaults(ConfigDirectiveBase):
         self, descriptions: dict[str, str], name: str, mod: object
     ) -> str | None:
         """Return the compact rendered description for a field or parameter."""
-        return _compact_resolved_description(descriptions.get(name), mod)
+        text = descriptions.get(name)
+        return _resolve_refs(text, mod) if text else None
 
     def _make_item(
         self, entry: ConfigDefaultEntry

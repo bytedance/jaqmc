@@ -232,7 +232,6 @@ wires a supervised Hartree-Fock orbital-matching loss directly.
 
 ---
 
-(solid-estimators)=
 ## Estimators (`estimators.*`)
 
 Energy estimators are configured programmatically by the workflow and are not
@@ -259,8 +258,8 @@ Kinetic energy estimator. See [Kinetic energy](../../guide/estimators/kinetic.md
 
 ### ECP energy (`estimators.energy.ecp.*`)
 
-ECP (pseudopotential) energy estimator. Added automatically when `system.pp`
-selects an ECP for at least one atom. See
+ECP (semi-local pseudopotential) energy estimator. Added automatically when
+`system.pp` selects an ECP for at least one atom. See
 [Pseudopotentials](../../guide/estimators/ecp.md) for physics details and
 quadrature options.
 

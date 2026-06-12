@@ -175,7 +175,7 @@ Here's a quick reference for the most important fields in CSV and HDF5:
 | `energy:potential` | Potential energy component. |
 
 ```{important}
-Use training logs and `train_stats.*` to monitor optimization, not as the final number you report. For a final energy or other observable, run `jaqmc <app> evaluate` from the trained run and read `evaluation_digest.npz` for the quick summary or `evaluation_stats.h5` for uncertainty analysis. See [Running Workflows](../guide/running-workflows.md) and <project:../guide/analyzing-evaluations.md>.
+Use training logs and `train_stats.*` to monitor optimization, not as the final number you report. For molecule, solid, or Hall production workflows, run `jaqmc <app> evaluate` from the trained run and read `evaluation_digest.npz` for the quick summary or `evaluation_stats.h5` for uncertainty analysis. See [Running Workflows](../guide/running-workflows.md) and <project:../guide/analyzing-evaluations.md>.
 ```
 
 For deeper analysis — convergence plots, error bars, and reporting guidelines — see <project:../guide/training-stats.md>.

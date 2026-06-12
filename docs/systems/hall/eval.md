@@ -78,6 +78,7 @@ computation; this is independent of the writers configured here.
    :prefix: writers.hdf5
 ```
 
+(hall-estimators)=
 ## Estimators (`estimators.*`)
 
 Energy estimator definitions match training, with additional evaluation-only

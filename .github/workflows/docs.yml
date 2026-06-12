@@ -45,9 +45,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: |
-          sudo apt update && sudo apt install -y graphviz
-          uv sync --frozen --group docs
+        run: uv sync --frozen --group docs
 
       - name: Build HTML
         run: >

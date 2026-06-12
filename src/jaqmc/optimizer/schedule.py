@@ -19,13 +19,6 @@ class Standard:
         rate: Initial learning rate.
         delay: Delay in steps before decay starts.
         decay: Decay rate exponent.
-
-    Examples:
-        >>> s = Standard(rate=0.05, delay=2000, decay=1)
-        >>> s(0)
-        0.05
-        >>> s(2000)
-        0.025
     """
 
     rate: float = 0.05
@@ -42,13 +35,6 @@ class Constant:
 
     Args:
         rate: The constant rate.
-
-    Examples:
-        >>> c = Constant(rate=0.01)
-        >>> c(0)
-        0.01
-        >>> c(999)
-        0.01
     """
 
     rate: float = 0.05
