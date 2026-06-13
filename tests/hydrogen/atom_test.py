@@ -89,3 +89,71 @@ def test_evaluation_writes_per_step_stats_and_digest(tmp_path):
     assert digest["total_energy"].ndim == 0
     assert "energy:kinetic" in digest
     assert digest["energy:kinetic"].ndim == 0
+
+
+def test_evaluation_fails_when_source_path_is_missing(tmp_path):
+    eval_dir = tmp_path / "eval-run"
+    eval_cfg = ConfigManager(
+        {
+            "workflow": {
+                "save_path": str(eval_dir),
+                "batch_size": 128,
+                "source_path": str(tmp_path / "missing-train-run"),
+            },
+            "run": {"iterations": 1},
+        }
+    )
+
+    with pytest.raises(FileNotFoundError, match="Checkpoint path does not exist"):
+        hydrogen_atom_eval_workflow(eval_cfg)()
+
+    assert not (eval_dir / "evaluation_digest.npz").exists()
+
+
+def test_evaluation_fails_when_source_dir_has_no_train_checkpoints(tmp_path):
+    source_dir = tmp_path / "empty-train-run"
+    source_dir.mkdir()
+    eval_dir = tmp_path / "eval-run"
+    eval_cfg = ConfigManager(
+        {
+            "workflow": {
+                "save_path": str(eval_dir),
+                "batch_size": 128,
+                "source_path": str(source_dir),
+            },
+            "run": {"iterations": 1},
+        }
+    )
+
+    with pytest.raises(FileNotFoundError, match="No matching checkpoints found"):
+        hydrogen_atom_eval_workflow(eval_cfg)()
+
+    assert not (eval_dir / "evaluation_digest.npz").exists()
+
+
+def test_evaluation_accepts_checkpoint_file_source_path(tmp_path):
+    train_dir = tmp_path / "train-run"
+    eval_dir = tmp_path / "eval-run"
+
+    train_cfg = ConfigManager(
+        {
+            "workflow": {"save_path": str(train_dir), "batch_size": 128},
+            "train": {"run": {"iterations": 3}},
+        }
+    )
+    hydrogen_atom_train_workflow(train_cfg)()
+
+    checkpoint_path = max(train_dir.glob("train_ckpt_*.npz"))
+    eval_cfg = ConfigManager(
+        {
+            "workflow": {
+                "save_path": str(eval_dir),
+                "batch_size": 128,
+                "source_path": str(checkpoint_path),
+            },
+            "run": {"iterations": 3},
+        }
+    )
+    hydrogen_atom_eval_workflow(eval_cfg)()
+
+    assert (eval_dir / "evaluation_digest.npz").exists()
