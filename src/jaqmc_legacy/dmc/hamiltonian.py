@@ -1,5 +1,5 @@
 # Copyright 2020 DeepMind Technologies Limited. All Rights Reserved.
-# Copyright (c) 2022-2026 Bytedance Ltd. and/or its affiliates.
+# Copyright (c) 2022-2026 ByteDance Ltd. and/or its affiliates.
 # SPDX-License-Identifier: Apache-2.0
 #
 # This file has been modified by ByteDance Ltd. and/or its affiliates. on 2022.
