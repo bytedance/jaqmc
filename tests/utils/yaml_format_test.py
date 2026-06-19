@@ -37,7 +37,7 @@ class TestDumpYaml:
         assert "- 3" in yaml_str
 
     def test_empty_list(self):
-        data = {"empty": []}
+        data: dict[str, list[float]] = {"empty": []}
         yaml_str = dump_yaml(data)
         assert "empty: []" in yaml_str
 

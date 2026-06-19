@@ -15,6 +15,7 @@ import pytest
 from jaqmc.app.molecule.data import MoleculeData
 from jaqmc.app.molecule.wavefunction.ferminet import FermiNetWavefunction
 from jaqmc.app.molecule.wavefunction.psiformer import PsiformerWavefunction
+from jaqmc.estimator.base import FunctionEstimator
 from jaqmc.utils.atomic import Atom, make_pretrain_loss
 from jaqmc.utils.atomic.scf import MolecularSCF
 
@@ -75,7 +76,7 @@ class TestPretrainOrbitalShape:
         data = make_test_data(nspins)
         params = wf.init_params(data, TEST_KEY)
 
-        atoms = [Atom("H", (0.0, 0.0, 0.0))]
+        atoms = [Atom("H", [0.0, 0.0, 0.0])]
         scf = MolecularSCF(atoms, nspins)
         scf.run()
 
@@ -83,6 +84,7 @@ class TestPretrainOrbitalShape:
             orbitals_fn=wf.orbitals, scf=scf, nspins=nspins, full_det=wf.full_det
         )
         loss_estimator.init(data, TEST_KEY)
+        assert isinstance(loss_estimator, FunctionEstimator)
         stats, _ = loss_estimator.evaluate_single_walker(
             params, data, {}, None, TEST_KEY
         )

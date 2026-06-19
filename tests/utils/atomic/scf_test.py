@@ -29,7 +29,7 @@ KPOINT_CONFIGS = {
 
 @pytest.fixture(params=list(KPOINT_CONFIGS.values()), ids=list(KPOINT_CONFIGS.keys()))
 def hydrogen_pbc_scf(request):
-    atoms = [Atom("H", (0.0, 0.0, 0.0))]
+    atoms = [Atom("H", [0.0, 0.0, 0.0])]
     nspins = (1, 0)
     latvec = np.eye(3) * 5.0
     recip_vecs = 2 * np.pi * np.linalg.inv(latvec).T
@@ -112,8 +112,8 @@ def test_get_orbital_kpoints_h2_supercell():
 
     # H2 molecule in a box
     atoms = [
-        Atom("H", (0.0, 0.0, 0.0)),
-        Atom("H", (1.4, 0.0, 0.0)),
+        Atom("H", [0.0, 0.0, 0.0]),
+        Atom("H", [1.4, 0.0, 0.0]),
     ]
     nspins = (1, 1)  # 1 up, 1 down per primitive cell
     latvec = np.diag([10.0, 10.0, 10.0])

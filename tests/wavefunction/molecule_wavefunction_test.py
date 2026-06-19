@@ -7,6 +7,7 @@ Backbone-specific tests are in backbone_test.py.
 """
 
 from dataclasses import replace
+from typing import Any, cast
 
 import h5py
 import jax
@@ -17,6 +18,9 @@ import pytest
 from jaqmc.app.molecule import MoleculeTrainWorkflow
 from jaqmc.app.molecule.data import MoleculeData
 from jaqmc.app.molecule.wavefunction.ferminet import FermiNetWavefunction
+from jaqmc.app.molecule.wavefunction.psiformer import (
+    JastrowType as PsiformerJastrowType,
+)
 from jaqmc.app.molecule.wavefunction.psiformer import PsiformerWavefunction
 from jaqmc.utils.config import ConfigManager
 from jaqmc.wavefunction.output.envelope import EnvelopeType
@@ -103,7 +107,9 @@ class TestInvalidJastrowType:
 
     def test_psiformer_invalid_jastrow_type(self):
         """Test that PsiformerWavefunction raises error for invalid jastrow type."""
-        wf = PsiformerWavefunction(nspins=(2, 1), ndets=4, jastrow="invalid_jastrow")
+        wf = PsiformerWavefunction(
+            nspins=(2, 1), ndets=4, jastrow=cast(Any, "invalid_jastrow")
+        )
         data = make_test_data((2, 1))
 
         with pytest.raises(ValueError, match="Invalid jastrow"):
@@ -116,9 +122,17 @@ class TestEdgeCases:
     @pytest.mark.parametrize(
         "wf_cls,nspins,wf_kwargs",
         [
-            (PsiformerWavefunction, (1, 0), {"ndets": 4, "jastrow": "simple_ee"}),
+            (
+                PsiformerWavefunction,
+                (1, 0),
+                {"ndets": 4, "jastrow": PsiformerJastrowType.SIMPLE_EE},
+            ),
             (FermiNetWavefunction, (1, 0), {"ndets": 4}),
-            (PsiformerWavefunction, (0, 2), {"ndets": 4, "jastrow": "simple_ee"}),
+            (
+                PsiformerWavefunction,
+                (0, 2),
+                {"ndets": 4, "jastrow": PsiformerJastrowType.SIMPLE_EE},
+            ),
         ],
         ids=["psiformer_1_0", "ferminet_1_0", "psiformer_0_2"],
     )
@@ -140,12 +154,20 @@ class TestGradientFlow:
             (
                 PsiformerWavefunction,
                 (2, 1),
-                {"ndets": 4, "jastrow": "simple_ee", "orbitals_spin_split": False},
+                {
+                    "ndets": 4,
+                    "jastrow": PsiformerJastrowType.SIMPLE_EE,
+                    "orbitals_spin_split": False,
+                },
             ),
             (
                 PsiformerWavefunction,
                 (2, 1),
-                {"ndets": 4, "jastrow": "simple_ee", "orbitals_spin_split": True},
+                {
+                    "ndets": 4,
+                    "jastrow": PsiformerJastrowType.SIMPLE_EE,
+                    "orbitals_spin_split": True,
+                },
             ),
             (FermiNetWavefunction, (2, 1), {"ndets": 4, "orbitals_spin_split": False}),
             (FermiNetWavefunction, (2, 1), {"ndets": 4, "orbitals_spin_split": True}),
@@ -175,13 +197,15 @@ class TestGradientFlow:
     def test_psiformer_hessian(self):
         """Test Psiformer Hessian (second derivatives) is finite."""
         nspins = (2, 1)
-        wf = PsiformerWavefunction(nspins=nspins, ndets=4, jastrow="simple_ee")
+        wf = PsiformerWavefunction(
+            nspins=nspins, ndets=4, jastrow=PsiformerJastrowType.SIMPLE_EE
+        )
         data = make_test_data(nspins)
         params = wf.init_params(data, TEST_KEY)
 
         def logpsi_fn_flat(electrons_flat):
             new_data = replace(data, electrons=electrons_flat.reshape(-1, 3))
-            return wf.apply(params, new_data)["logpsi"]
+            return wf.evaluate(params, new_data)["logpsi"]
 
         hess = jax.hessian(logpsi_fn_flat)(data.electrons.ravel())
         assert jnp.all(jnp.isfinite(hess))
@@ -287,7 +311,7 @@ class TestCuspCondition:
         n_hat = (r_i - r_j) / r_ij
 
         def logpsi_fn(elec):
-            return wf.apply(params, replace(data, electrons=elec))["logpsi"]
+            return wf.evaluate(params, replace(data, electrons=elec))["logpsi"]
 
         grad = jax.grad(logpsi_fn)(electrons)
         return jnp.dot(grad[i], n_hat)
@@ -417,7 +441,7 @@ class TestCuspCondition:
             num_layers=1,
             heads_dim=16,
             mlp_hidden_dims=[64],
-            jastrow="simple_ee",
+            jastrow=PsiformerJastrowType.SIMPLE_EE,
             orbitals_spin_split=orbitals_spin_split,
             jastrow_alpha_init=jastrow_alpha_init,
             envelope=envelope,
