@@ -41,13 +41,22 @@ extensions = [
     "protocol_autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.linkcode",
-    "sphinx.ext.graphviz",
     "myst_nb",
+    "mathjax_in_paragraph",
     "sphinx_design",
     "sphinx_autodoc_typehints",
     "sphinx_copybutton",
-    "sphinx_llm.txt",
 ]
+if os.environ.get("READTHEDOCS"):
+    extensions.extend(
+        [
+            "notfound.extension",  # Require absolute URL available in RTD environments
+            "sphinx_llm.txt",  # llms.txt generation is slow. Enabled only in production
+        ]
+    )
+if os.environ.get("GITHUB_WORKFLOW"):
+    extensions.append("sphinx_reredirects")
+    redirects = {"*": "https://jaqmc.readthedocs.io/latest/$source.html"}
 
 templates_path = ["_templates"]
 exclude_patterns = [
@@ -77,6 +86,7 @@ html_baseurl = "https://jaqmc.readthedocs.io/latest/"
 html_theme_options = {
     "repository_url": "https://github.com/bytedance/jaqmc",
     "use_source_button": True,
+    "path_to_docs": "docs",
     "use_repository_button": True,
     "use_download_button": False,
     "use_edit_page_button": True,
@@ -129,8 +139,6 @@ typehints_formatter = TypehintsFormatter()
 nb_execution_mode = "cache"
 nb_execution_in_temp = True
 nb_execution_timeout = 360
-
-graphviz_output_format = "svg"
 
 llms_txt_suffix_mode = "replace"
 

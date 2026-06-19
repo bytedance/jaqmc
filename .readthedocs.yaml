@@ -12,12 +12,11 @@ build:
   os: ubuntu-26.04
   tools:
     python: "3.13"
-  apt_packages:
-    - graphviz
 
 # Build documentation in the "docs/" directory with Sphinx
 sphinx:
   configuration: docs/conf.py
+  fail_on_warning: true
 
 # Optionally, but recommended,
 # declare the Python requirements required to build your documentation
@@ -27,3 +26,11 @@ python:
    - method: uv
      command: sync
      groups: [docs]
+
+search:
+  ranking:
+    getting-started/*: 10
+    systems/*: 10
+    guide/*: 5
+    extending/*: 2
+    api-reference/*: -10

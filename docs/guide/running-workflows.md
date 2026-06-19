@@ -159,9 +159,11 @@ What *is* shared across apps is the command contract:
 
 - **`jaqmc <app> train`** runs that app's training workflow and writes its outputs under
   `workflow.save_path`.
-- **`jaqmc <app> evaluate`** runs that app's evaluation workflow, loading trained state
-  from `workflow.source_path` and writing evaluation outputs under its own
-  `workflow.save_path`.
+- **`jaqmc <app> evaluate`** runs an app's evaluation workflow when the app exposes
+  one, loading trained state from `workflow.source_path` and writing evaluation
+  outputs under its own `workflow.save_path`. The production system apps
+  (`molecule`, `solid`, and `hall`) expose evaluation commands; the
+  `hydrogen-atom` tutorial command is train-only on the CLI.
 - Training-stage keys are workflow-specific, so their structure lives in the app's config
   reference rather than on this page.
 - Evaluation-stage keys live at the config root, which is why evaluation examples use

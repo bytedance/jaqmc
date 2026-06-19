@@ -18,14 +18,14 @@ class CartesianAxis:
 
     Args:
         direction: Direction vector to project positions onto.
-            Normalized internally — need not be a unit vector.
+            Normalized internally and need not be a unit vector.
         bins: Number of histogram bins.
         range: ``(min, max)`` bounds for the projected coordinate.
     """
 
-    direction: tuple[float, ...] = (0.0, 0.0, 1.0)
-    bins: int = 50
-    range: tuple[float, float] = (0.0, 1.0)
+    direction: tuple[float, ...]
+    bins: int
+    range: tuple[float, float]
 
 
 @configurable_dataclass

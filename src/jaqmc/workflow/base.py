@@ -131,7 +131,7 @@ class Workflow:
         """Finalize config and log startup info.
 
         On the master process, validates unused config keys and writes
-        the resolved config to disk.
+        the resolved config to disk unless this is a dry run.
         """
         # Only write config and compare on the master process
         if jax.process_index() == 0:

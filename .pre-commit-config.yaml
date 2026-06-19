@@ -31,7 +31,7 @@ repos:
           - .github/common-header.txt
           - --use-current-year
           - --skip-license-insertion-comment
-          - DeepMind
+          - ByteDance Ltd. and/or its affiliates.
   # mypy should run locally to pick up dependencies
   - repo: local
     hooks:

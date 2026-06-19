@@ -120,7 +120,7 @@ Save as `two_atom_chain.yml`, then run:
 jaqmc solid train --yml two_atom_chain.yml workflow.save_path=./runs/two_atom_chain
 ```
 
-Basis sets and ECPs work the same as for
+Basis sets and pseudopotentials work the same as for
 [molecules](#molecule-basis-sets-and-ecps).
 
 ## Supercell Expansion
@@ -195,10 +195,10 @@ GPUs. See <project:../../guide/sampling.md> for walker count and MCMC tuning,
 and [Multi-Device](../../guide/multi-device.md) for how walkers are distributed
 across GPUs.
 
-For authoritative key definitions and effective defaults, see the [training configuration
-<project:train.md> and use `--dry-run workflow.config.verbose=true` to inspect
-the fully resolved config for your run. For checkpointing and resuming longer
-jobs, see <project:../../guide/running-workflows.md>.
+For authoritative key definitions and effective defaults, see the
+[training configuration](train.md) and use `--dry-run workflow.config.verbose=true`
+to inspect the fully resolved config for your run. For checkpointing and
+resuming longer jobs, see <project:../../guide/running-workflows.md>.
 
 :::{admonition} Checking convergence
 :class: tip

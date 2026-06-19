@@ -27,7 +27,7 @@ Multiple files are merged left to right — if the same key appears in more than
 
 Because the available config keys depend on which modules you select (e.g., KFAC and Adam expose different parameters), it can be helpful to see what configuration the system is actually using:
 
-- **`--dry-run`**: Loads the configuration and initializes the workflow but stops before the expensive training loop. The full resolved config is printed to the terminal and saved as `config.yaml` in the output directory.
+- **`--dry-run`**: Loads the configuration and initializes the workflow but stops before the expensive training loop. The full resolved config is printed to the terminal; `config.yaml` is written to the output directory on real runs.
 - **Source location comments**: The output includes `# Defined in ...` comments pointing to where each parameter is defined in source code.
 - **`workflow.config.verbose=true`**: Also includes docstrings for each configured class, helping you understand what each parameter does.
 

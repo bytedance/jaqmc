@@ -116,7 +116,7 @@ jaqmc molecule train --yml li_h_diatomic.yml workflow.save_path=./runs/li_h_diat
 ```
 
 (molecule-basis-sets-and-ecps)=
-## Basis Sets and ECPs
+## Basis Sets and Pseudopotentials
 
 The `basis` parameter controls the basis set used for the HF calculation. Any basis set supported by PySCF works:
 
@@ -133,10 +133,11 @@ element. Two pseudopotential families are supported:
 - An ECP name (e.g. `ccecp`) — a semi-local effective core potential resolved
   by PySCF. See <project:/guide/estimators/ecp.md>.
 - The reserved literal `"ph"` — a local Pseudo-Hamiltonian pseudopotential,
-  parallel to ECP. See <project:/guide/estimators/ph.md>.
+  parallel to the semi-local ECP family. See
+  <project:/guide/estimators/ph.md>.
 
 Atoms whose element is not in the `pp` mapping are treated all-electron, so a
-single system may mix PH, ECP, and all-electron elements freely.
+single system may mix PH, semi-local ECP, and all-electron elements freely.
 
 ```yaml
 system:
@@ -160,8 +161,8 @@ system:
 
 The training stage computes energy from several components: kinetic energy,
 electron-nucleus potential, and, when a pseudopotential is configured through
-`system.pp`, ECP and/or PH contributions. All stats keys that start with
-`energy:` are summed into `total_energy` automatically.
+`system.pp`, pseudopotential contributions from ECP and/or PH atoms. All stats
+keys that start with `energy:` are summed into `total_energy` automatically.
 
 For the full list of molecule estimators beyond energy, see the
 [estimator configuration reference](#molecule-estimators). For the physics
@@ -200,7 +201,7 @@ for your run.
 :::{admonition} Checking convergence
 :class: tip
 
-Plot `total_energy` from `train_stats.csv` over training steps (see [Reading Training Statistics](../../guide/training-stats.md)). The energy should plateau. For final energy estimates, follow <project:#recipe-resume-evaluate> — training energies are biased because the parameters change at every step.
+Plot `total_energy` from `train_stats.csv` over training steps (see [Reading Training Statistics](../../guide/training-stats.md)). The energy should plateau. For final energy estimates, follow [Resume, branch, or evaluate](#recipe-resume-evaluate) — training energies are biased because the parameters change at every step.
 :::
 
 :::{admonition} Multi-GPU training

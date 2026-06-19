@@ -19,41 +19,10 @@ This cycle continues for a fixed number of steps. The energy estimate should dec
 
 The VMC training loop is built from four independent components. Each one handles a specific part of the cycle, and each can be swapped via <project:../guide/configuration.md> without touching the others.
 
-```{graphviz}
-digraph {
-    layout=circo
-    node [shape=box, style=rounded]
-
-    E [label=<
-      <table border="0" cellspacing="0" cellpadding="2">
-        <tr><td><b>Estimators</b></td></tr>
-        <tr><td>e.g. local energy</td></tr>
-      </table>
-    >]
-    O [label=<
-      <table border="0" cellspacing="0" cellpadding="2">
-        <tr><td><b>Optimizer</b></td></tr>
-        <tr><td>e.g. KFAC, Adam</td></tr>
-      </table>
-    >]
-    W [label=<
-      <table border="0" cellspacing="0" cellpadding="2">
-        <tr><td><b>Wavefunction</b></td></tr>
-        <tr><td>e.g. FermiNet</td></tr>
-      </table>
-    >]
-    S [label=<
-      <table border="0" cellspacing="0" cellpadding="2">
-        <tr><td><b>Sampler</b></td></tr>
-        <tr><td>e.g. MCMC</td></tr>
-      </table>
-    >]
-
-    W -> S [headlabel="sample from |ψ|²", labeldistance=4, labelangle=-70]
-    S -> E [taillabel="electron positions", labeldistance=4, labelangle=70]
-    E -> O [headlabel="energy gradient", labeldistance=4, labelangle=-70]
-    O -> W [xlabel="updated params"]
-}
+```{image} img/workflow.svg
+:alt: VMC training workflow
+:class: rounded-3
+:align: center
 ```
 
 ### Wavefunction
@@ -76,7 +45,7 @@ $$
 E_L(\mathbf{r}) = \frac{\hat{H}\,\psi(\mathbf{r})}{\psi(\mathbf{r})}
 $$
 
-where $\hat{H}$ is the Hamiltonian and $\mathbf{r}$ is an electron configuration. The local energy is evaluated at each walker position, and its mean over walkers gives the variational energy estimate — the number reported as `energy` in the training output.
+where $\hat{H}$ is the Hamiltonian and $\mathbf{r}$ is an electron configuration. The local energy is evaluated at each walker position, and its mean over walkers gives the variational energy estimate — the quantity recorded as `total_energy` in statistics files and often shown as `loss` or `energy` in terminal summaries.
 
 Estimators also compute individual energy components (kinetic, electron-electron, electron-ion) and can compute non-energy observables like $\langle S^2 \rangle$. Multiple estimators run in a pipeline, and their outputs are written to the training statistics files. See <project:../guide/estimators/index.md> for details.
 

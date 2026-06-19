@@ -273,9 +273,9 @@ Added automatically when `system.pp` selects an ECP for at least one atom.
 ### PH energy (`estimators.energy.ph.*`)
 
 Added automatically when `system.pp` selects PH (`"ph"`) for at least one
-atom. PH is a pseudopotential option parallel to ECP in this workflow: a
-mixed system may use PH atoms, ECP atoms, and all-electron atoms together in
-the same run.
+atom. PH is the local pseudopotential family, parallel to the semi-local ECP
+family, in this workflow: a mixed system may use PH atoms, ECP atoms, and
+all-electron atoms together in the same run.
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.estimator.ph.PHEnergy
