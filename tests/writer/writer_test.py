@@ -82,6 +82,7 @@ def test_wandb_writer_logs_only_scalars(tmp_path: Path, monkeypatch):
         "project": "project",
         "name": "run",
     }
+    assert fake_wandb.run is not None
     assert fake_wandb.run.logs == [({"loss": 1.5, "acceptance": 0.25}, 3)]
     assert fake_wandb.run.finished
 
@@ -97,5 +98,6 @@ def test_wandb_writer_reuses_active_run(tmp_path: Path, monkeypatch):
         writer.write(2, {"loss": 1.0})
 
     assert fake_wandb.init_kwargs is None
+    assert fake_wandb.run is not None
     assert fake_wandb.run.logs == [({"loss": 1.0}, 2)]
     assert not fake_wandb.run.finished

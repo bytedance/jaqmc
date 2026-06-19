@@ -105,6 +105,7 @@ def test_hall_workflow_penalty_default_loss_key():
     workflow = HallTrainWorkflow(ConfigManager({"system": {"lz_penalty": 1.0}}))
     grads = workflow.train_stage.estimators.estimators["grads"]
 
+    assert isinstance(grads, LossAndGrad)
     assert grads.loss_key == "penalized_loss"
 
 
@@ -123,5 +124,6 @@ def test_hall_workflow_train_grads_override():
     )
     grads = workflow.train_stage.estimators.estimators["grads"]
 
+    assert isinstance(grads, LossAndGrad)
     assert grads.clip_method == "none"
     np.testing.assert_allclose(grads.clip_scale, 7.0)

@@ -1,6 +1,8 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+from typing import Any
+
 import chex
 import jax
 from jax import numpy as jnp
@@ -21,8 +23,8 @@ def test_chunked_vmap_matches_vmap_for_nested_axes():
         "y": jnp.ones((3, 21)),
         "z": jnp.arange(5),
     }
-    in_axes = ({"x": 0, "y": 1, "z": None},)
-    out_axes = {"a": 0, "b": None, "c": 1}
+    in_axes: tuple[dict[str, Any], ...] = ({"x": 0, "y": 1, "z": None},)
+    out_axes: dict[str, Any] = {"a": 0, "b": None, "c": 1}
     if not hasattr(jax.tree, "broadcast"):
         # no broadcast available, need to fully specify in_axes and out_axes
         in_axes[0]["x"] = (0, 0)
@@ -54,7 +56,7 @@ def test_chunked_vmap_preserves_none_output_leaf():
 
     params = {"w": jnp.array([1.0])}
     data = jnp.arange(10.0)
-    prev_walker_stats = {}
+    prev_walker_stats: dict[str, Any] = {}
     state = None
     rngs = jax.random.split(jax.random.PRNGKey(0), 10)
     in_axes = (None, 0, 0, None, 0)

@@ -98,9 +98,13 @@ def test_between_rejects_bad_input():
 
 def test_scaled_f_boundary_values():
     """f(0) = 0 and f(+-pi) = 0.75*pi."""
-    np.testing.assert_allclose(pbc.scaled_f(0.0), 0.0, atol=1e-12)
-    np.testing.assert_allclose(pbc.scaled_f(jnp.pi), jnp.pi * 0.75, atol=1e-6)
-    np.testing.assert_allclose(pbc.scaled_f(-jnp.pi), jnp.pi * 0.75, atol=1e-6)
+    np.testing.assert_allclose(pbc.scaled_f(jnp.array(0.0)), 0.0, atol=1e-12)
+    np.testing.assert_allclose(
+        pbc.scaled_f(jnp.array(jnp.pi)), jnp.pi * 0.75, atol=1e-6
+    )
+    np.testing.assert_allclose(
+        pbc.scaled_f(jnp.array(-jnp.pi)), jnp.pi * 0.75, atol=1e-6
+    )
 
 
 def test_scaled_f_is_even():
@@ -111,9 +115,9 @@ def test_scaled_f_is_even():
 
 def test_scaled_g_boundary_values():
     """g(0) = 0 and g(+-pi) = 0."""
-    np.testing.assert_allclose(pbc.scaled_g(0.0), 0.0, atol=1e-12)
-    np.testing.assert_allclose(pbc.scaled_g(jnp.pi), 0.0, atol=1e-6)
-    np.testing.assert_allclose(pbc.scaled_g(-jnp.pi), 0.0, atol=1e-6)
+    np.testing.assert_allclose(pbc.scaled_g(jnp.array(0.0)), 0.0, atol=1e-12)
+    np.testing.assert_allclose(pbc.scaled_g(jnp.array(jnp.pi)), 0.0, atol=1e-6)
+    np.testing.assert_allclose(pbc.scaled_g(jnp.array(-jnp.pi)), 0.0, atol=1e-6)
 
 
 def test_scaled_g_is_odd():
@@ -147,11 +151,11 @@ def _general_mic_distance(lattice, r1, r2):
             for k in [-1, 0, 1]:
                 shifts.append(np.array([i, j, k]) @ lattice)
 
-    best_disp = None
-    best_dist = np.inf
+    best_disp: np.ndarray | None = None
+    best_dist = float(np.inf)
     for s in shifts:
         diff = r1 - r2 + s
-        d = np.linalg.norm(diff)
+        d = float(np.linalg.norm(diff))
         if d < best_dist:
             best_dist = d
             best_disp = diff

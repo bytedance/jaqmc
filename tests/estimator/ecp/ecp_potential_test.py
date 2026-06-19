@@ -65,7 +65,7 @@ def _make_ecp_coefficients(channels):
         pyscf_l = l_idx - 1  # 0 → -1 (local), 1 → 0 (s), 2 → 1 (p), ...
         # Group terms by power_idx
         max_power = max((t[0] for t in terms), default=-1) + 1
-        radial = [[] for _ in range(max_power)]
+        radial: list[list[list[float]]] = [[] for _ in range(max_power)]
         for power_idx, alpha, c in terms:
             radial[power_idx].append([alpha, c])
         pyscf_channels.append([pyscf_l, radial])

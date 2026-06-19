@@ -51,7 +51,7 @@ class TestEnvelope:
         ae_vectors, r_ae = make_test_inputs(n_elec, n_atoms)
 
         params = module.init(TEST_KEY, ae_vectors, r_ae)
-        output = module.apply(params, ae_vectors, r_ae)
+        output: jax.Array = module.apply(params, ae_vectors, r_ae)  # type: ignore[assignment]
 
         assert output.shape == (ndets, n_elec, n_elec)
         assert jnp.all(jnp.isfinite(output))
@@ -72,7 +72,7 @@ class TestEnvelope:
         ae_vectors, r_ae = make_test_inputs(n_elec, n_atoms)
 
         params = module.init(TEST_KEY, ae_vectors, r_ae)
-        output = module.apply(params, ae_vectors, r_ae)
+        output: jax.Array = module.apply(params, ae_vectors, r_ae)  # type: ignore[assignment]
 
         assert output.shape == (ndets, n_elec, n_elec)
         assert jnp.allclose(output, 1.0)
@@ -102,8 +102,8 @@ class TestEnvelope:
         ae_vectors_b, r_ae_b = make_test_inputs(n_elec, n_atoms, jax.random.PRNGKey(99))
 
         params = module.init(TEST_KEY, ae_vectors_a, r_ae_a)
-        out_a = module.apply(params, ae_vectors_a, r_ae_a)
-        out_b = module.apply(params, ae_vectors_b, r_ae_b)
+        out_a: jax.Array = module.apply(params, ae_vectors_a, r_ae_a)  # type: ignore[assignment]
+        out_b: jax.Array = module.apply(params, ae_vectors_b, r_ae_b)  # type: ignore[assignment]
 
         # Different positions must produce different envelope values
         assert not jnp.allclose(out_a, out_b)

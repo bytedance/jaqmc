@@ -43,7 +43,9 @@ def _make_lll(nelec: int, Q: int):
 
 
 def _eval_single(estimator, data):
-    return estimator.evaluate_single_walker(None, data, {}, None, None)[0]
+    return estimator.evaluate_single_walker({}, data, {}, None, jax.random.PRNGKey(0))[
+        0
+    ]
 
 
 class TestHallData:
@@ -166,7 +168,9 @@ class TestSpherePotential:
         )
         electrons = jnp.array([[0.0, 0.0], [jnp.pi, 0.0]])
         data = HallData(electrons=electrons)
-        stats, _ = estimator.evaluate_single_walker(None, data, {}, None, None)
+        stats, _ = estimator.evaluate_single_walker(
+            {}, data, {}, None, jax.random.PRNGKey(0)
+        )
         assert jnp.allclose(stats["energy:potential"], 0.5, atol=1e-5)
 
 
@@ -177,7 +181,13 @@ class TestPenalizedLoss:
         """With zero penalties, loss == total_energy."""
         est = PenalizedLoss(lz_penalty=0.0, l2_penalty=0.0)
         stats = {"total_energy": 5.0}
-        out, _ = est.evaluate_single_walker(None, None, stats, None, None)
+        out, _ = est.evaluate_single_walker(
+            {},
+            HallData(electrons=jnp.zeros((1, 2))),
+            stats,
+            None,
+            jax.random.PRNGKey(0),
+        )
         np.testing.assert_allclose(out["penalized_loss"], 5.0)
 
     def test_lz_penalty_only(self):
@@ -189,7 +199,13 @@ class TestPenalizedLoss:
             "angular_momentum_z_square": 9.0,
         }
         # penalty = 2.0 * (9 - 2*1*3 + 1^2) = 2.0 * 4 = 8
-        out, _ = est.evaluate_single_walker(None, None, stats, None, None)
+        out, _ = est.evaluate_single_walker(
+            {},
+            HallData(electrons=jnp.zeros((1, 2))),
+            stats,
+            None,
+            jax.random.PRNGKey(0),
+        )
         np.testing.assert_allclose(out["penalized_loss"], 18.0)
 
     def test_both_penalties(self):
@@ -201,7 +217,13 @@ class TestPenalizedLoss:
             "angular_momentum_z_square": 4.0,
             "angular_momentum_square": 6.0,
         }
-        out, _ = est.evaluate_single_walker(None, None, stats, None, None)
+        out, _ = est.evaluate_single_walker(
+            {},
+            HallData(electrons=jnp.zeros((1, 2))),
+            stats,
+            None,
+            jax.random.PRNGKey(0),
+        )
         # energy(1) + lz_penalty(4) + l2_penalty(3) = 8
         np.testing.assert_allclose(out["penalized_loss"], 8.0)
 
@@ -214,7 +236,7 @@ class TestSphericalJastrow:
         jastrow = SphericalJastrow(nspins=(3, 0))
         electrons = _sample(jax.random.PRNGKey(0), 1, 3)[0]
         params = jastrow.init(jax.random.PRNGKey(1), electrons)
-        out = jastrow.apply(params, electrons)
+        out: jax.Array = jastrow.apply(params, electrons)  # type: ignore[assignment]
         assert jnp.isfinite(out)
 
     def test_mixed_spins(self):
@@ -222,7 +244,7 @@ class TestSphericalJastrow:
         jastrow = SphericalJastrow(nspins=(2, 1))
         electrons = _sample(jax.random.PRNGKey(0), 1, 3)[0]
         params = jastrow.init(jax.random.PRNGKey(1), electrons)
-        out = jastrow.apply(params, electrons)
+        out: jax.Array = jastrow.apply(params, electrons)  # type: ignore[assignment]
         assert jnp.isfinite(out)
 
     def test_one_per_spin(self):
@@ -230,7 +252,7 @@ class TestSphericalJastrow:
         jastrow = SphericalJastrow(nspins=(1, 1))
         electrons = _sample(jax.random.PRNGKey(0), 1, 2)[0]
         params = jastrow.init(jax.random.PRNGKey(1), electrons)
-        out = jastrow.apply(params, electrons)
+        out: jax.Array = jastrow.apply(params, electrons)  # type: ignore[assignment]
         assert jnp.isfinite(out)
 
     def test_symmetric_under_same_spin_swap(self):
@@ -238,9 +260,9 @@ class TestSphericalJastrow:
         jastrow = SphericalJastrow(nspins=(3, 0))
         electrons = _sample(jax.random.PRNGKey(7), 1, 3)[0]
         params = jastrow.init(jax.random.PRNGKey(1), electrons)
-        original = jastrow.apply(params, electrons)
+        original: jax.Array = jastrow.apply(params, electrons)  # type: ignore[assignment]
         e_swap = electrons.at[0].set(electrons[1]).at[1].set(electrons[0])
-        swapped = jastrow.apply(params, e_swap)
+        swapped: jax.Array = jastrow.apply(params, e_swap)  # type: ignore[assignment]
         np.testing.assert_allclose(float(original), float(swapped), atol=1e-5)
 
 

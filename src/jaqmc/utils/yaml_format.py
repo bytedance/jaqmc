@@ -4,7 +4,7 @@
 """Utilities for YAML processing and annotation."""
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from enum import StrEnum
 from typing import Any
 
@@ -82,7 +82,7 @@ def dump_yaml(data: Any, *, sort_keys: bool = False) -> str:
 
 def annotate_yaml_with_sources(
     yaml_str: str,
-    source_map: dict[str, tuple[str, int, str | None]],
+    source_map: Mapping[str, tuple[str, int, str | None]],
     verbose: bool = False,
 ) -> str:
     """Annotate YAML string with source location comments.
