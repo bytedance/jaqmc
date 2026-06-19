@@ -215,6 +215,7 @@ class WorkStage(ABC):
         template: Any,
         *,
         prefix: str = "",
+        strict: bool = False,
     ) -> Any:
         """Restore state from a checkpoint.
 
@@ -222,6 +223,8 @@ class WorkStage(ABC):
             checkpoint_path: Path to checkpoint file or directory.
             template: Template state for deserialization.
             prefix: Checkpoint filename prefix to match.
+            strict: If ``True``, raise when no matching checkpoint can be
+                restored.
 
         Returns:
             Restored state.
