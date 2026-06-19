@@ -26,26 +26,29 @@ network ansatz for solids follows [Li et al., Nat. Commun. 13, 7895
 
 In the most general form, you define the primitive cell directly in YAML using
 the schema shown in the [system configuration reference](#solid-train-system).
-This is the most flexible interface and the source of
-truth for solid systems.
+This is the most flexible interface and the source of truth for solid systems.
 
-When you define a crystal directly, enter `lattice_vectors` and atomic
-coordinates in Bohr. The shortcut modules described later accept their own
-`unit` field and convert internally.
+Direct solid YAML uses Bohr by default for both `lattice_vectors` and atomic
+coordinates. If your source cell is in angstrom, set `system.unit: angstrom`.
+JaQMC converts both the lattice vectors and atomic coordinates to Bohr before
+SCF and training. The shortcut modules described later accept their own `unit`
+field and convert internally.
 
-For example, save the following LiH primitive cell as `lih_solid.yml`:
+For example, save the following LiH primitive cell in angstrom as
+`lih_solid.yml`:
 
 ```yaml
 system:
-  lattice_vectors:            # 3x3 primitive cell vectors (Bohr)
-    - [0.0, 3.78, 3.78]
-    - [3.78, 0.0, 3.78]
-    - [3.78, 3.78, 0.0]
+  unit: angstrom
+  lattice_vectors:            # 3x3 primitive cell vectors
+    - [0.0, 2.0, 2.0]
+    - [2.0, 0.0, 2.0]
+    - [2.0, 2.0, 0.0]
   atoms:
     - symbol: Li
       coords: [0.0, 0.0, 0.0]
     - symbol: H
-      coords: [3.78, 3.78, 3.78]
+      coords: [2.0, 2.0, 2.0]
   electron_spins: [2, 2]     # [n_up, n_down] per primitive cell
   basis: sto-3g
 ```

@@ -25,6 +25,35 @@ CASES = [
         "molecule train system.module=atom system.symbol=Li",
     ),
     CliDryRunCase(
+        "molecule_water_angstrom_yaml",
+        "molecule train --yml water_angstrom.yml",
+        {
+            "water_angstrom.yml": """
+system:
+  unit: angstrom
+  atoms:
+    - symbol: O
+      coords: [0.0, 0.0, 0.0]
+    - symbol: H
+      coords: [0.0, 0.757, 0.586]
+    - symbol: H
+      coords: [0.0, -0.757, 0.586]
+  electron_spins: [5, 5]
+workflow:
+  batch_size: 4
+wf:
+  hidden_dims_single: [4, 4]
+  hidden_dims_double: [2, 2]
+pretrain:
+  run:
+    iterations: 1
+train:
+  run:
+    iterations: 1
+""",
+        },
+    ),
+    CliDryRunCase(
         "molecule_water_yaml",
         "molecule train --yml water.yml",
         {
