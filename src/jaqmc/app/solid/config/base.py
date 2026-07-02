@@ -8,6 +8,7 @@ import numpy as np
 
 from jaqmc.utils.atomic.atomic_system import AtomicSystemConfig
 from jaqmc.utils.config import configurable_dataclass
+from jaqmc.utils.units import LengthUnit
 
 __all__ = ["SolidConfig"]
 
@@ -37,6 +38,7 @@ class SolidConfig(AtomicSystemConfig):
         default_factory=lambda: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
     )
     twist: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
+    unit: LengthUnit = LengthUnit.bohr
     scale: int = field(init=False, metadata={"serde_skip": True})
     supercell_lattice: Any = field(init=False, metadata={"serde_skip": True})
 

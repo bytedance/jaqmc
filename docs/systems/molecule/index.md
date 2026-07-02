@@ -24,18 +24,23 @@ In the most general form, you define the molecule directly in YAML using the
 schema shown in the [system configuration reference](#molecule-train-system).
 For most runs, put that definition in a file and pass it with `--yml`.
 
-For example, to train a neural wavefunction for water, save the following as
-`water.yml`:
+Direct molecule YAML uses Bohr by default. If your source geometry is in
+angstrom, set `system.unit: angstrom`. JaQMC converts the coordinates to Bohr
+before Hartree-Fock and training.
+
+For example, to train a neural wavefunction for water from an angstrom-scale
+geometry, save the following as `water.yml`:
 
 ```yaml
 system:
+  unit: angstrom
   atoms:
     - symbol: O
-      coords: [0.0, 0.0, 0.2217]
+      coords: [0.0, 0.0, 0.0]
     - symbol: H
-      coords: [0.0, 1.4309, -0.8867]
+      coords: [0.0, 0.757, 0.586]
     - symbol: H
-      coords: [0.0, -1.4309, -0.8867]
+      coords: [0.0, -0.757, 0.586]
   electron_spins: [5, 5]  # [n_up, n_down]
 ```
 

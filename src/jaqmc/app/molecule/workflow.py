@@ -3,6 +3,7 @@
 
 import logging
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from functools import partial
 from typing import Any
 
@@ -28,6 +29,7 @@ from jaqmc.utils.atomic import (
 from jaqmc.utils.atomic.pp import get_ph_effective_charge
 from jaqmc.utils.atomic.pretrain import make_pretrain_log_amplitude, make_pretrain_loss
 from jaqmc.utils.config import ConfigManager, ConfigManagerLike
+from jaqmc.utils.units import ONE_ANGSTROM_IN_BOHR, LengthUnit
 from jaqmc.wavefunction import Wavefunction
 from jaqmc.workflow.evaluation import EvaluationWorkflow
 from jaqmc.workflow.stage.evaluation import EvaluationWorkStage
@@ -125,6 +127,7 @@ def configure_system(
     )
     if callable(system_config):
         system_config = system_config()
+    system_config = _normalize_molecule_config_units(system_config)
 
     wf = cfg.get_module("wf", "jaqmc.app.molecule.wavefunction.ferminet")
     wf.nspins = system_config.electron_spins
@@ -135,6 +138,26 @@ def configure_system(
             f"got {type(wf).__name__}"
         )
     return system_config, wf
+
+
+def _normalize_molecule_config_units(system_config: MoleculeConfig) -> MoleculeConfig:
+    if system_config.unit == LengthUnit.bohr:
+        return system_config
+    if system_config.unit != LengthUnit.angstrom:
+        raise ValueError(f"Unsupported molecule length unit: {system_config.unit!r}")
+
+    atoms = [
+        replace(
+            atom,
+            coords=[coord * ONE_ANGSTROM_IN_BOHR for coord in atom.coords],
+        )
+        for atom in system_config.atoms
+    ]
+    return replace(
+        system_config,
+        atoms=atoms,
+        unit=LengthUnit.bohr,
+    )
 
 
 def make_scf(system_config: MoleculeConfig) -> MolecularSCF:
