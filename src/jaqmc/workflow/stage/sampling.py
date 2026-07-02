@@ -177,6 +177,7 @@ class SamplingWorkStage(WorkStage):
         template: Any,
         *,
         prefix: str = "",
+        strict: bool = False,
     ):
         """Restore state from a checkpoint.
 
@@ -184,13 +185,15 @@ class SamplingWorkStage(WorkStage):
             checkpoint_path: Path to checkpoint file or directory.
             template: Template state for deserialization.
             prefix: Checkpoint filename prefix to match.
+            strict: If ``True``, raise when no matching checkpoint can be
+                restored.
 
         Returns:
             Restored state.
         """
         checkpoint_path = UPath(checkpoint_path)
         ckpt = NumPyCheckpointManager(checkpoint_path, checkpoint_path, prefix=prefix)
-        _, state = ckpt.restore(template)
+        _, state = ckpt.restore(template, strict=strict)
         return state
 
     def create_state(  # type: ignore[override]

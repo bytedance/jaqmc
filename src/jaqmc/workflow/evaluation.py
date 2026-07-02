@@ -103,7 +103,7 @@ class EvaluationWorkflow(Workflow):
         # train_ckpt_*.npz in the directory.
         prefix = "" if source_path.is_file() else "train"
         restored = self.evaluation_stage.restore_checkpoint(
-            source_path, wrapper, prefix=prefix
+            source_path, wrapper, prefix=prefix, strict=True
         )
         state = replace(
             state,

@@ -90,7 +90,9 @@ class NumPyCheckpointManager:
         logger.info("Restored checkpoint %s", restore_path)
         return step + 1, cast(ValueT, data)
 
-    def restore[ValueT](self, fallback: ValueT) -> tuple[int, ValueT]:
+    def restore[ValueT](
+        self, fallback: ValueT, *, strict: bool = False
+    ) -> tuple[int, ValueT]:
         """Restore the latest checkpoint from ``restore_path`` if available.
 
         The manager searches for the newest ``ckpt_*.npz`` file under
@@ -101,6 +103,8 @@ class NumPyCheckpointManager:
         Args:
             fallback: Reference PyTree to use for structure and default values
                 when no checkpoint exists or all are unreadable.
+            strict: If ``True``, raise when no matching checkpoint can be
+                restored instead of returning ``fallback``.
 
         Returns:
             A tuple ``(step, restored)``:
@@ -111,8 +115,18 @@ class NumPyCheckpointManager:
 
         Type Parameters:
             ValueT: Reference-tree type that is preserved in the restored value.
+
+        Raises:
+            FileNotFoundError: If ``strict`` is ``True`` and ``restore_path``
+                does not exist, or no matching checkpoints are found.
+            RuntimeError: If ``strict`` is ``True`` and every matching
+                checkpoint fails to restore.
         """
         if not self.restore_path.exists():
+            if strict:
+                raise FileNotFoundError(
+                    f"Checkpoint path does not exist: {self.restore_path}"
+                )
             logger.warning("No checkpoint to restore in: %s", self.restore_path)
             return 0, fallback
         if self.restore_path.is_file():
@@ -121,6 +135,11 @@ class NumPyCheckpointManager:
             self.restore_path.glob(f"{self.prefix}ckpt_*.npz"), reverse=True
         )
         if not ckpt_files:
+            if strict:
+                raise FileNotFoundError(
+                    "No matching checkpoints found in "
+                    f"{self.restore_path}: {self.prefix}ckpt_*.npz"
+                )
             if self.restore_path != self.save_path:
                 logger.warning(
                     "Directory exists but no matching "
@@ -129,11 +148,18 @@ class NumPyCheckpointManager:
                     self.prefix,
                 )
             return 0, fallback
+        last_error: Exception | None = None
         for ckpt_path in ckpt_files:
             try:
                 return self.restore_from_file(ckpt_path, fallback)
-            except (OSError, EOFError, BadZipFile):
+            except (OSError, EOFError, BadZipFile) as err:
+                last_error = err
                 logger.warning("Fail to restore checkpoint %s", ckpt_path)
+        if strict:
+            raise RuntimeError(
+                "Failed to restore any checkpoint from "
+                f"{self.restore_path}: {self.prefix}ckpt_*.npz"
+            ) from last_error
         return 0, fallback
 
     def save(self, step: int, data):
