@@ -164,7 +164,6 @@ from `train.grads.*`. See [Loss and gradient](../../guide/estimators/loss-grad.m
 
 ---
 
-(hall-estimators)=
 ## Estimators (`estimators.*`)
 
 Energy estimators are configured programmatically by the workflow and are not

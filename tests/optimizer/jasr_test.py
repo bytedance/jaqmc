@@ -738,16 +738,24 @@ def test_multi_device_parity(complex, mode, chunk_size):
     state_s = opt_single.init(params)
     updates_s, _ = opt_single.update(grads, state_s, params, samples)
 
-    map_args = dict(axis_name="i", in_axes=(None, None, None, 0), out_axes=None)
-
     if mode == "pmap":
         samples = samples.reshape(n_devices, n_local, n_params)
-        update_mapped = jax.pmap(opt_multi.update, **map_args)
+        update_mapped = jax.pmap(
+            opt_multi.update,
+            axis_name="i",
+            in_axes=(None, None, None, 0),
+            out_axes=None,
+        )
         updates_m, _ = update_mapped(grads, state_s, params, samples)
     elif mode == "smap":
         if not hasattr(jax, "smap") or not hasattr(jax, "set_mesh"):
             pytest.skip("smap not available")
-        update_mapped = jax.smap(opt_multi.update, **map_args)
+        update_mapped = jax.smap(
+            opt_multi.update,
+            axis_name="i",
+            in_axes=(None, None, None, 0),
+            out_axes=None,
+        )
         mesh = jax.sharding.Mesh(np.array(jax.devices()), ("i",))
         with jax.set_mesh(mesh):
             updates_m, _ = update_mapped(grads, state_s, params, samples)
@@ -804,7 +812,9 @@ def test_calc_gram_chunked_no_all_gather():
     with jax.set_mesh(mesh):
         lowered = jit_fn.lower(score_rows, s)
 
-    hlo = lowered.compiler_ir(dialect="hlo").as_hlo_text()
+    hlo_module = lowered.compiler_ir(dialect="hlo")
+    assert hlo_module is not None
+    hlo = hlo_module.as_hlo_text()
     assert hlo.count("all-gather") == 1  # only once for row factor
 
 
@@ -825,17 +835,19 @@ def test_calc_gram_multi_device_parity(mode, num_chunks):
     calc_fn = partial(
         calc_gram_matrix, num_chunks=num_chunks, use_x64=False, axis_name="i"
     )
-    map_args = dict(axis_name="i", in_axes=(0, None), out_axes=None)
-
     if mode == "pmap":
         score_rows = score_rows.reshape(n_devices, n_local, n_params)
-        gram_m = jax.pmap(calc_fn, **map_args)(score_rows, s)
+        gram_m = jax.pmap(calc_fn, axis_name="i", in_axes=(0, None), out_axes=None)(
+            score_rows, s
+        )
     elif mode == "smap":
         if not hasattr(jax, "smap") or not hasattr(jax, "set_mesh"):
             pytest.skip("smap not available")
         mesh = jax.sharding.Mesh(np.array(jax.devices()), ("i",))
         with jax.set_mesh(mesh):
-            gram_m = jax.smap(calc_fn, **map_args)(score_rows, s)
+            gram_m = jax.smap(calc_fn, axis_name="i", in_axes=(0, None), out_axes=None)(
+                score_rows, s
+            )
     else:
         pytest.skip(f"mode {mode} not supported")
 
@@ -983,7 +995,7 @@ def test_scale_by_constrained_norm_correctness(max_norm):
     g_flat, _ = ravel_pytree(grads)
     g_norm = jnp.linalg.norm(g_flat)
     if max_norm is None:
-        expected_scale = lr
+        expected_scale: float | jax.Array = lr
     else:
         constraint_scale = max_norm / (g_norm + 1e-8)
         expected_scale = jnp.minimum(lr, constraint_scale)

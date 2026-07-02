@@ -29,8 +29,7 @@ are identical to the [training system config](#molecule-train-system).
 ## Wavefunction (`wf.*`)
 
 Must match the training run. The effective defaults and built-in module choices
-are identical to the
-[training wavefunction config](#molecule-train-wf).
+are identical to the [training wavefunction config](#molecule-train-wf).
 
 ## Run Options (`run.*`)
 
@@ -110,9 +109,9 @@ Added automatically when `system.pp` selects an ECP for at least one atom.
 ### PH energy (`estimators.energy.ph.*`)
 
 Added automatically when `system.pp` selects PH (`"ph"`) for at least one
-atom. PH is a pseudopotential option parallel to ECP in this workflow: a
-mixed system may use PH atoms, ECP atoms, and all-electron atoms together in
-the same run.
+atom. PH is the local pseudopotential family, parallel to the semi-local ECP
+family, in this workflow: a mixed system may use PH atoms, ECP atoms, and
+all-electron atoms together in the same run.
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.estimator.ph.PHEnergy
@@ -121,19 +120,27 @@ the same run.
 
 ### Density (`estimators.density.*`)
 
-Produces independent 1-D histograms of electron positions projected onto Cartesian directions.
+Produces a joint histogram of electron positions projected onto selected Cartesian directions.
 
-When enabled without overrides, the workflow wires three independent 1-D
-histograms along x, y, and z, each with 50 bins and a range auto-computed from
-atom coordinates with 5 bohr padding. To keep only specific axes, set the
-others to `null`. Each axis override accepts `direction`, `bins`, and `range`.
+When enabled without overrides, the workflow wires one 3-D histogram with x, y,
+and z as the active axes. Each axis uses 50 bins, and its range is
+auto-computed from atom coordinates with 5 bohr padding. To keep only specific
+axes, set the others to `null`; one remaining axis gives a 1-D histogram, and
+two remaining axes give a 2-D histogram.
+
+```{eval-rst}
+.. config-defaults:: jaqmc.estimator.density.cartesian.CartesianAxis
+   :prefix: estimators.density.axes.(x|y|z)
+```
 
 ```yaml
-# Just enable with defaults (x, y, z histograms, auto-ranged):
+# Just enable with defaults (joint x/y/z histogram):
 estimators:
   enabled:
     density: true
+```
 
+```yaml
 # Keep only z with custom bins and range:
 estimators:
   enabled:

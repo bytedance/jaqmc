@@ -256,7 +256,7 @@ class ConfigManagerLike(Protocol):
     def get_collection(
         self,
         name: str,
-        defaults: dict[str, str | dict] | None = None,
+        defaults: Mapping[str, str | dict[str, Any]] | None = None,
         context: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Instantiate a collection of modules from configuration.
@@ -303,7 +303,7 @@ class ScopedConfigManager(ConfigManagerLike):
     def get_collection(
         self,
         name: str,
-        defaults: dict[str, str | dict] | None = None,
+        defaults: Mapping[str, str | dict[str, Any]] | None = None,
         context: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         return self._cfg.get_collection(self._key(name), defaults, context)
@@ -521,7 +521,7 @@ class ConfigManager(ConfigManagerLike):
     def get_collection(
         self,
         name: str,
-        defaults: dict[str, str | dict] | None = None,
+        defaults: Mapping[str, str | dict[str, Any]] | None = None,
         context: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         context = context or {}

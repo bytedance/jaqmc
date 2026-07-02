@@ -22,7 +22,18 @@ The result is a raw count histogram stored in the estimator state under `"histog
 
 ## Configuring axes
 
-Both `CartesianDensity` and `FractionalDensity` provide all axes by default (x/y/z for molecules, a/b/c for solids). Each entry in the `axes` dictionary defines a histogram dimension:
+For `CartesianDensity` and `FractionalDensity`, each active entry in the
+`axes` dictionary defines one histogram dimension. One active axis gives a 1-D
+histogram, two active axes give a 2-D histogram, and three active axes give a
+3-D histogram.
+
+The estimator classes themselves do not supply a fixed set of default axes.
+Instead, each workflow chooses defaults that match its geometry. The molecule
+and solid evaluation workflows wire three axes by default (`x`/`y`/`z` for
+molecules, `a`/`b`/`c` for solids), while other workflows may choose a
+different default configuration.
+
+This example keeps only the `z` axis active:
 
 ```yaml
 estimators:
@@ -36,9 +47,13 @@ estimators:
         range: [-15.0, 15.0]   # min/max bounds in bohr
 ```
 
-### Disabling default axes
+### Disabling workflow-provided default axes
 
-Because the config system deep-merges user overrides into defaults, specifying only one axis does not remove the others. To keep a subset, set the unwanted ones to `null`. This works for both `CartesianDensity` and `FractionalDensity`:
+Because the config system deep-merges user overrides into workflow defaults,
+specifying only one axis does not remove the others. For example, overriding
+only `z` in the molecule evaluation workflow still leaves the default `x` and
+`y` axes active. To keep a subset, set the unwanted ones to `null`. This works
+for both `CartesianDensity` and `FractionalDensity`:
 
 ```yaml
 estimators:

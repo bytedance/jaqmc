@@ -114,7 +114,7 @@ def run_distributed_test(run, num_processes, tmp_path, mode="cpu"):
         Sorted list of worker results.
     """
     coordinator_address = f"127.0.0.1:{find_free_port()}"
-    queue = multiprocessing.Queue()
+    queue: multiprocessing.Queue = multiprocessing.Queue()
 
     processes = []
     for process_id, env_vars in enumerate(setup_envs(num_processes, mode)):

@@ -23,8 +23,8 @@ class FractionalAxis:
         bins: Number of histogram bins.
     """
 
-    lattice_index: int = 0
-    bins: int = 50
+    lattice_index: int
+    bins: int
 
 
 @configurable_dataclass
