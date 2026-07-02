@@ -1,6 +1,8 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -35,7 +37,9 @@ class TestSolidModules:
         )
 
         variables = features_layer.init(self.key, self.electrons, self.atoms)
-        embedding = features_layer.apply(variables, self.electrons, self.atoms)
+        embedding: dict[str, Any] = features_layer.apply(
+            variables, self.electrons, self.atoms
+        )  # type: ignore[assignment]
 
         # Check AE features shape
         # AE features are reshaped to (nelec, natom * feature_dim)
@@ -88,12 +92,14 @@ class TestSolidModules:
             sym_type=SymmetryType.minimal,
         )
         feat_vars = features_layer.init(self.key, self.electrons, self.atoms)
-        embedding = features_layer.apply(feat_vars, self.electrons, self.atoms)
+        embedding: dict[str, Any] = features_layer.apply(
+            feat_vars, self.electrons, self.atoms
+        )  # type: ignore[assignment]
 
         variables = envelope_layer.init(
             self.key, embedding["ae_vec"], embedding["r_ae"]
         )
-        envelope_val = envelope_layer.apply(
+        envelope_val: jax.Array = envelope_layer.apply(  # type: ignore[assignment]
             variables, embedding["ae_vec"], embedding["r_ae"]
         )
 
@@ -114,12 +120,16 @@ class TestSolidModules:
         )
 
         variables = features_layer.init(self.key, self.electrons, self.atoms)
-        embedding_orig = features_layer.apply(variables, self.electrons, self.atoms)
+        embedding_orig: dict[str, Any] = features_layer.apply(
+            variables, self.electrons, self.atoms
+        )  # type: ignore[assignment]
 
         # Shift all electrons by a lattice vector
         lattice_vector = LATTICE[0]  # [10, 0, 0]
         shifted = self.electrons + lattice_vector
-        embedding_shifted = features_layer.apply(variables, shifted, self.atoms)
+        embedding_shifted: dict[str, Any] = features_layer.apply(
+            variables, shifted, self.atoms
+        )  # type: ignore[assignment]
 
         for key in ("ae_features", "ee_features", "r_ae"):
             assert jnp.allclose(
@@ -143,12 +153,16 @@ class TestSolidModules:
         )
         feat_vars = features_layer.init(self.key, self.electrons, self.atoms)
 
-        embedding = features_layer.apply(feat_vars, self.electrons, self.atoms)
+        embedding: dict[str, Any] = features_layer.apply(
+            feat_vars, self.electrons, self.atoms
+        )  # type: ignore[assignment]
         env_vars = envelope_layer.init(self.key, embedding["ae_vec"], embedding["r_ae"])
 
         def loss_fn(electrons):
-            emb = features_layer.apply(feat_vars, electrons, self.atoms)
-            val = envelope_layer.apply(env_vars, emb["ae_vec"], emb["r_ae"])
+            emb: dict[str, Any] = features_layer.apply(feat_vars, electrons, self.atoms)  # type: ignore[assignment]
+            val: jax.Array = envelope_layer.apply(  # type: ignore[assignment]
+                env_vars, emb["ae_vec"], emb["r_ae"]
+            )
             return jnp.sum(val**2)
 
         grad_fn = jax.grad(loss_fn)

@@ -66,15 +66,16 @@ def test_local_estimator_chunks_default_vmap():
         fields_with_batch=["x"],
     )
     prev_walker_stats = {"bias": jnp.arange(7.0) * 10}
+    params: dict[str, jnp.ndarray] = {}
 
     full_est = _LocalValueEstimator()
     chunked_est = _LocalValueEstimator(vmap_chunk_size=3)
 
     full, _ = full_est.evaluate_batch_walkers(
-        None, batched_data, prev_walker_stats, None, jax.random.PRNGKey(0)
+        params, batched_data, prev_walker_stats, None, jax.random.PRNGKey(0)
     )
     chunked, _ = chunked_est.evaluate_batch_walkers(
-        None, batched_data, prev_walker_stats, None, jax.random.PRNGKey(0)
+        params, batched_data, prev_walker_stats, None, jax.random.PRNGKey(0)
     )
 
     np.testing.assert_allclose(chunked["value"], full["value"])

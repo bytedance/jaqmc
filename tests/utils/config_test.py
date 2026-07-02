@@ -205,7 +205,7 @@ def test_get_collection(mocker):
 def test_get_collection_override_none(mocker):
     mocker.patch("jaqmc.utils.config.resolve_object", return_value=simple_func)
 
-    data = [
+    data: list[dict[str, Any]] = [
         {"collection": {"item1": {"a": 3}, "item2": None}},
         {"collection": {"item2": {"a": 4}}},
     ]

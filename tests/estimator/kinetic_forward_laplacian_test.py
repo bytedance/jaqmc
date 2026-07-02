@@ -3,6 +3,7 @@
 
 import copy
 from dataclasses import dataclass
+from typing import Any
 
 import h5py
 import jax
@@ -47,7 +48,7 @@ def test_forward_laplacian_vs_scan_equivalence(n_particles, n_dims, coeff):
     key = jax.random.key(42 + n_particles * 10 + n_dims)
     positions = jax.random.normal(key, (n_particles, n_dims))
     data = SimpleData(positions=positions)
-    params = {}
+    params: dict[str, jnp.ndarray] = {}
 
     estimator_scan = EuclideanKinetic(
         mode=LaplacianMode.scan, f_log_psi=log_psi, data_field="positions"
@@ -86,7 +87,7 @@ def test_forward_laplacian_kinetic_with_complex_wavefunction():
     key = jax.random.key(777)
     positions = jax.random.normal(key, (2, 3))
     data = SimpleData(positions=positions)
-    params = {}
+    params: dict[str, jnp.ndarray] = {}
 
     estimator_fwd_lap = EuclideanKinetic(
         mode=LaplacianMode.forward_laplacian,
@@ -130,7 +131,7 @@ def test_forward_laplacian_kinetic_edge_cases():
         del params
         return -0.5 * jnp.sum(data["positions"] ** 2)
 
-    params = {}
+    params: dict[str, jnp.ndarray] = {}
     key = jax.random.key(42)
 
     estimator_fwd_lap = EuclideanKinetic(
@@ -215,14 +216,14 @@ def test_forward_laplacian_vs_scan_molecule_workflow(tmp_path):
     }
 
     # Run with scan
-    config_scan = copy.deepcopy(base_config)
+    config_scan: dict[str, Any] = copy.deepcopy(base_config)
     config_scan["workflow"]["save_path"] = str(tmp_path / "scan")
     config_scan["energy"] = {"kinetic": {"mode": "scan"}}
     cfg_scan = ConfigManager(config_scan)
     hydrogen_atom_train_workflow(cfg_scan)()
 
     # Run with forward_laplacian
-    config_fwd_lap = copy.deepcopy(base_config)
+    config_fwd_lap: dict[str, Any] = copy.deepcopy(base_config)
     config_fwd_lap["workflow"]["save_path"] = str(tmp_path / "forward_laplacian")
     config_fwd_lap["energy"] = {"kinetic": {"mode": "forward_laplacian"}}
     cfg_fwd_lap = ConfigManager(config_fwd_lap)

@@ -83,7 +83,7 @@ class TestOneRDMEvaluateSingleWalker:
         estimator.init(data, jax.random.PRNGKey(1))
 
         stats, _ = estimator.evaluate_single_walker(
-            None, data, {}, None, jax.random.PRNGKey(2)
+            {}, data, {}, None, jax.random.PRNGKey(2)
         )
         assert "one_rdm" in stats
         norbs = flux + 1
@@ -101,7 +101,7 @@ class TestOneRDMEvaluateSingleWalker:
         estimator.init(data, jax.random.PRNGKey(1))
 
         jitted = jax.jit(
-            lambda d, k: estimator.evaluate_single_walker(None, d, {}, None, k)
+            lambda d, k: estimator.evaluate_single_walker({}, d, {}, None, k)
         )
         stats, _ = jitted(data, jax.random.PRNGKey(2))
         assert stats["one_rdm"].shape == (flux + 1, flux + 1)
@@ -143,7 +143,7 @@ class TestOneRDMSmoke:
             eval_keys = jax.random.split(eval_key, n_walkers)
             walker_stats, _ = jax.vmap(
                 lambda elec, k: estimator.evaluate_single_walker(
-                    None, HallData(electrons=elec), {}, None, k
+                    {}, HallData(electrons=elec), {}, None, k
                 ),
                 in_axes=(0, 0),
             )(electrons, eval_keys)
@@ -183,11 +183,12 @@ class TestOneRDMPipeline:
             fields_with_batch=["electrons"],
         )
 
-        state = estimator.init(batched_data.unbatched_example(), jax.random.PRNGKey(1))
+        estimator.init(batched_data.unbatched_example(), jax.random.PRNGKey(1))
+        state = None
 
         # evaluate_batch_walkers vmaps evaluate_single_walker over walkers
         walker_stats, state = estimator.evaluate_batch_walkers(
-            None, batched_data, {}, state, jax.random.PRNGKey(2)
+            {}, batched_data, {}, state, jax.random.PRNGKey(2)
         )
 
         norbs = flux + 1

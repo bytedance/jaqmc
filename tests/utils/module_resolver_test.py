@@ -76,7 +76,7 @@ class TestResolveObject:
         """Test shorthand notation fails when __all__ is empty."""
         # Setup: create module with empty __all__
         module = ModuleType("test_module_empty_all")
-        module.__all__ = []
+        module.__all__ = []  # type: ignore[attr-defined]
         sys.modules["test_module_empty_all"] = module
 
         # Test: should raise ValueError
@@ -116,7 +116,7 @@ class TestResolveObject:
         sys.modules["test_parent"] = parent
 
         submodule = ModuleType("test_parent.submodule")
-        submodule.target = "target_object"
+        submodule.target = "target_object"  # type: ignore[attr-defined]
         sys.modules["test_parent.submodule"] = submodule
 
         # Test: resolve with package parameter (relative import)
@@ -132,7 +132,7 @@ class TestImportModuleOrFile:
         """Test importing a regular Python module."""
         # Setup: create a test module
         module = ModuleType("test_regular_module")
-        module.value = 42
+        module.value = 42  # type: ignore[attr-defined]
         sys.modules["test_regular_module"] = module
 
         # Test: import should work
@@ -170,7 +170,7 @@ class TestImportModuleOrFile:
         """Test package parameter with fallback to absolute import."""
         # Setup: create a module only in absolute namespace
         module = ModuleType("absolute_module")
-        module.value = "absolute"
+        module.value = "absolute"  # type: ignore[attr-defined]
         sys.modules["absolute_module"] = module
 
         # Test: even with package specified, should fallback to absolute import

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from jax import numpy as jnp
@@ -35,8 +36,8 @@ class _DummyWavefunction:
 def test_molecule_workflow_wires_ph_parallel_to_ecp():
     """Keep molecule workflows wiring PH as a runtime estimator parallel to ECP."""
     cfg = ConfigManager({})
-    wf = _DummyWavefunction()
-    scf = SimpleNamespace(_mol=SimpleNamespace(_ecp={"Li": object()}))
+    wf: Any = _DummyWavefunction()
+    scf: Any = SimpleNamespace(_mol=SimpleNamespace(_ecp={"Li": object()}))
     system_config = MoleculeConfig(
         atoms=[
             Atom("Fe", [0.0, 0.0, 0.0], charge=16),
@@ -62,8 +63,8 @@ def test_ph_workflow_rejects_kinetic_mode_override_via_cfg_finalize():
     cfg = ConfigManager(
         {}, dotlist=["estimators.energy.kinetic.mode=forward_laplacian"]
     )
-    wf = _DummyWavefunction()
-    scf = SimpleNamespace(_mol=SimpleNamespace(_ecp={}))
+    wf: Any = _DummyWavefunction()
+    scf: Any = SimpleNamespace(_mol=SimpleNamespace(_ecp={}))
     system_config = MoleculeConfig(
         atoms=[Atom("Fe", [0.0, 0.0, 0.0], charge=16)],
         electron_spins=(8, 8),
