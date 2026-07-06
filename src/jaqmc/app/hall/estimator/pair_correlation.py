@@ -21,6 +21,7 @@ from jaqmc.array_types import PRNGKey
 from jaqmc.data import BatchedData, Data
 from jaqmc.estimator.base import Estimator
 from jaqmc.utils.config import configurable_dataclass
+from jaqmc.utils.wiring import runtime_dep
 
 
 @configurable_dataclass
@@ -33,9 +34,12 @@ class PairCorrelation(Estimator):
 
     Args:
         bins: Number of histogram bins.
+        data_field: Name of the coordinate field (runtime dep, default
+            ``"electrons"``).
     """
 
     bins: int = 200
+    data_field: str = runtime_dep(default="electrons")
 
     def init(self, data: Data, rngs: PRNGKey) -> jnp.ndarray:
         return jnp.zeros(self.bins)
@@ -49,7 +53,7 @@ class PairCorrelation(Estimator):
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], jnp.ndarray]:
         del params, prev_walker_stats, rngs
-        electrons = batched_data.data.electrons
+        electrons = batched_data.data[self.data_field]
         batch_size, nelec, _ = electrons.shape
         theta, phi = electrons[..., 0], electrons[..., 1]
 

@@ -25,10 +25,23 @@ class _TestData(Data):
     electrons: jnp.ndarray
 
 
+class _PositionData(Data):
+    """Minimal data container with a custom positions field."""
+
+    positions: jnp.ndarray
+
+
 def _make_batched(electrons: jnp.ndarray) -> BatchedData:
     return BatchedData(
         data=_TestData(electrons=electrons),
         fields_with_batch=["electrons"],
+    )
+
+
+def _make_batched_positions(positions: jnp.ndarray) -> BatchedData:
+    return BatchedData(
+        data=_PositionData(positions=positions),
+        fields_with_batch=["positions"],
     )
 
 
@@ -152,6 +165,17 @@ class TestSphericalDensity:
         }
         assert SphericalDensity().finalize_stats({}, state) == {}
 
+    def test_custom_data_field(self):
+        est = SphericalDensity(bins_theta=4, data_field="positions")
+        positions = jnp.array([[[math.pi / 8, 0.0], [5 * math.pi / 8, 0.0]]])
+        batched = _make_batched_positions(positions)
+        data = _PositionData(positions=jnp.zeros((1, 2)))
+        state = est.init(data, KEY)
+        _, state = est.evaluate_batch_walkers({}, batched, {}, state, KEY)
+        hist = state["histogram"][0]
+        _assert_bin(hist, 0, 1.0)
+        _assert_bin(hist, 2, 1.0)
+
 
 # -------------------------------------------------------------------
 # CartesianDensity
@@ -255,6 +279,20 @@ class TestCartesianDensity:
         assert state["histogram"].shape == (n, 10)
         _assert_bin(state["histogram"][0], 5, 1.0)
 
+    def test_custom_data_field(self):
+        est = CartesianDensity(
+            axes={
+                "z": CartesianAxis(direction=(0, 0, 1), bins=10, range=(0, 10)),
+            },
+            data_field="positions",
+        )
+        positions = jnp.array([[[0.0, 0.0, 5.5]]])
+        batched = _make_batched_positions(positions)
+        data = _PositionData(positions=jnp.zeros((1, 3)))
+        state = est.init(data, KEY)
+        _, state = est.evaluate_batch_walkers({}, batched, {}, state, KEY)
+        _assert_bin(state["histogram"][0], 5, 1.0)
+
 
 # -------------------------------------------------------------------
 # FractionalDensity
@@ -352,4 +390,18 @@ class TestFractionalDensity:
         _, state = est.evaluate_batch_walkers({}, batched, {}, state, KEY)
         n = jax.device_count()
         assert state["histogram"].shape == (n, 10)
+        _assert_bin(state["histogram"][0], 5, 1.0)
+
+    def test_custom_data_field(self):
+        inv_lattice = jnp.linalg.inv(10.0 * jnp.eye(3))
+        est = FractionalDensity(
+            axes={"c": FractionalAxis(lattice_index=2, bins=10)},
+            inv_lattice=inv_lattice,
+            data_field="positions",
+        )
+        positions = jnp.array([[[0.0, 0.0, 5.0]]])
+        batched = _make_batched_positions(positions)
+        data = _PositionData(positions=jnp.zeros((1, 3)))
+        state = est.init(data, KEY)
+        _, state = est.evaluate_batch_walkers({}, batched, {}, state, KEY)
         _assert_bin(state["histogram"][0], 5, 1.0)

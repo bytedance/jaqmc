@@ -10,6 +10,7 @@ from jax import numpy as jnp
 from jaqmc.data import Data
 from jaqmc.estimator.histogram import HistogramEstimator
 from jaqmc.utils.config import configurable_dataclass
+from jaqmc.utils.wiring import runtime_dep
 
 
 @configurable_dataclass
@@ -26,10 +27,13 @@ class SphericalDensity(HistogramEstimator):
         bins_theta: Number of bins for the polar angle.
         bins_phi: Number of bins for the azimuthal angle.
             ``None`` (default) produces a 1-D theta-only histogram.
+        data_field: Field name holding spherical coordinates in the
+            structured :class:`~jaqmc.data.Data` object.
     """
 
     bins_theta: int = 50
     bins_phi: int | None = None
+    data_field: str = runtime_dep(default="electrons")
 
     def _histogram_spec(
         self,
@@ -40,4 +44,4 @@ class SphericalDensity(HistogramEstimator):
 
     def extract(self, data: Data) -> jnp.ndarray:
         ndim = 1 if self.bins_phi is None else 2
-        return data["electrons"][..., :ndim]
+        return data[self.data_field][..., :ndim]

@@ -46,11 +46,14 @@ class SpinSquared(PerWalkerEstimator):
         n_down: Number of spin-down electrons.
         phase_logpsi: Wavefunction evaluate function returning
             ``(sign, log|psi|)`` (runtime dep).
+        data_field: Name of the coordinate field (runtime dep, default
+            ``"electrons"``).
     """
 
     n_up: int = runtime_dep()
     n_down: int = runtime_dep()
     phase_logpsi: Any = runtime_dep()
+    data_field: str = runtime_dep(default="electrons")
 
     def init(self, data: Data, rngs: PRNGKey) -> None:
         n_up, n_down = self.n_up, self.n_down
@@ -133,11 +136,11 @@ class SpinSquared(PerWalkerEstimator):
         Returns:
             Stacked data with shape ``[n_majority, ...]``.
         """
-        electrons: jnp.ndarray = data["electrons"]
+        electrons: jnp.ndarray = data[self.data_field]
 
         def _swap_one(maj_idx: jnp.ndarray) -> Data:
             perm = self._idx_all.at[min_idx].set(maj_idx)
             perm = perm.at[maj_idx].set(min_idx)
-            return data.merge({"electrons": electrons[perm]})
+            return data.merge({self.data_field: electrons[perm]})
 
         return jax.vmap(_swap_one)(self._majority_idx)
