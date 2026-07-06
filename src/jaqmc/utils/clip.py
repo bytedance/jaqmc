@@ -3,10 +3,9 @@
 
 from typing import Literal
 
-import jax
 from jax import numpy as jnp
 
-from jaqmc.utils.parallel_jax import BATCH_AXIS_NAME
+from jaqmc.utils import parallel_jax
 
 
 def iqr_clip(x: jnp.ndarray, scale: float = 100.0) -> jnp.ndarray:
@@ -19,7 +18,7 @@ def iqr_clip(x: jnp.ndarray, scale: float = 100.0) -> jnp.ndarray:
     """
     if jnp.iscomplexobj(x):
         return iqr_clip(x.real, scale) + 1j * iqr_clip(x.imag, scale)
-    all_x = jax.lax.all_gather(x, axis_name=BATCH_AXIS_NAME, tiled=True)
+    all_x = parallel_jax.all_gather(x)
     q1 = jnp.nanquantile(all_x, 0.25)
     q3 = jnp.nanquantile(all_x, 0.75)
     iqr = q3 - q1
@@ -36,7 +35,7 @@ def mad_clip(x: jnp.ndarray, scale: float = 100.0) -> jnp.ndarray:
     """
     if jnp.iscomplexobj(x):
         return mad_clip(x.real, scale) + 1j * mad_clip(x.imag, scale)
-    all_x = jax.lax.all_gather(x, axis_name=BATCH_AXIS_NAME, tiled=True)
+    all_x = parallel_jax.all_gather(x)
     median = jnp.nanmedian(all_x)
     absdev = jnp.nanmedian(jnp.abs(all_x - median))
     return jnp.clip(x, median - scale * absdev, median + scale * absdev)

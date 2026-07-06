@@ -24,12 +24,12 @@ from jaqmc.wavefunction import WavefunctionLike
 from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
 from jaqmc.writer import Writers
 
-from .base import WorkStage, WorkStageConfig
+from .base import StageState, WorkStage, WorkStageConfig
 
 logger = logging.getLogger(__name__)
 
 
-class SamplingState(metaclass=JAXDataclassMeta):
+class SamplingState(StageState, metaclass=JAXDataclassMeta):
     """Base state for sampling-based work stages.
 
     Contains the common fields shared across VMC and evaluation stages.
@@ -56,8 +56,8 @@ class SamplingState(metaclass=JAXDataclassMeta):
             estimator_state=parallel_jax.DATA_PARTITION,
         )
 
-    def all_gather(self) -> Self:
-        return replace(self, batched_data=self.batched_data.all_gather())
+    def process_allgather(self) -> Self:
+        return replace(self, batched_data=self.batched_data.process_allgather())
 
 
 class SamplingStageBuilder:

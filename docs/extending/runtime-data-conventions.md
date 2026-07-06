@@ -144,7 +144,7 @@ JaQMC uses it to drive real framework behavior:
   batch size
 - {meth}`~jaqmc.data.BatchedData.fully_batched_data` can broadcast shared
   fields across the batch
-- {meth}`~jaqmc.data.BatchedData.all_gather` gathers batched fields from
+- {meth}`~jaqmc.data.BatchedData.process_allgather` gathers batched fields from
   sharded execution
 
 Built-in molecule, solid, and Hall apps all currently batch only `electrons`.

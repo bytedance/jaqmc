@@ -11,7 +11,7 @@ import jax.core
 from jax import numpy as jnp
 
 from jaqmc.utils.jax_dataclass import JAXDataclassMeta
-from jaqmc.utils.parallel_jax import BATCH_AXIS_NAME, all_gather
+from jaqmc.utils.parallel_jax import BATCH_AXIS_NAME, process_allgather
 
 
 class Data(metaclass=JAXDataclassMeta):
@@ -256,7 +256,7 @@ class BatchedData[DataT: Data]:
             },
         )
 
-    def all_gather(self) -> Self:
+    def process_allgather(self) -> Self:
         """Gather distributed arrays from all devices to each local node.
 
         For fields that are batched (sharded along the batch axis), this
@@ -269,7 +269,7 @@ class BatchedData[DataT: Data]:
         gathered = dataclasses.replace(
             self.data,
             **{
-                name: jax.tree.map(all_gather, self.data[name])
+                name: jax.tree.map(process_allgather, self.data[name])
                 for name in self.data.field_names
                 if name in self.fields_with_batch
             },

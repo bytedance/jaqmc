@@ -89,6 +89,7 @@ Wrappers for extracting real/imaginary parts and handling complex-valued JAX fun
 .. autofunction:: jaqmc.utils.parallel_jax.pvary
 .. autofunction:: jaqmc.utils.parallel_jax.pmean
 .. autofunction:: jaqmc.utils.parallel_jax.all_gather
+.. autofunction:: jaqmc.utils.parallel_jax.process_allgather
 .. autofunction:: jaqmc.utils.parallel_jax.addressable_data
 ```
 

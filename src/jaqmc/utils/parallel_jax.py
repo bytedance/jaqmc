@@ -115,7 +115,20 @@ def pmean[ValueT](x: ValueT) -> ValueT:
         return x
 
 
-def all_gather[ValueT](x: ValueT) -> ValueT:
+def all_gather(x):
+    """Gather ``x`` from every device along the batch axis and tile the result.
+
+    Args:
+        x: Per-device shard to gather across ``BATCH_AXIS_NAME``.
+
+    Returns:
+        Array containing the concatenated shards from all devices, with the
+        gathered axis merged into the existing leading batch dimension.
+    """
+    return jax.lax.all_gather(x, axis_name=BATCH_AXIS_NAME, tiled=True)
+
+
+def process_allgather[ValueT](x: ValueT) -> ValueT:
     """Gather arrays from all devices along the batch axis.
 
     Collects arrays sharded across devices and materializes the complete
@@ -138,20 +151,17 @@ def all_gather[ValueT](x: ValueT) -> ValueT:
     Type Parameters:
         ValueT: Arbitrary pytree-like value type preserved across the call.
     """
-    mesh = make_mesh()
+    with suppress(ImportError, AttributeError):
+        from jax.experimental import multihost_utils
 
-    def gather_fn(y):
-        return jax.lax.all_gather(y, axis_name=BATCH_AXIS_NAME, tiled=True)
-
-    # Determine partition specs based on input structure
-    in_spec = jax.tree.map(lambda _: jax.sharding.PartitionSpec(BATCH_AXIS_NAME), x)
-    out_spec = jax.tree.map(lambda _: jax.sharding.PartitionSpec(), x)
+        return multihost_utils.process_allgather(x, tiled=True)
 
     return shard_map(
-        gather_fn,
-        mesh=mesh,
-        in_specs=in_spec,
-        out_specs=out_spec,
+        all_gather,
+        mesh=make_mesh(),
+        # Determine partition specs based on input structure
+        in_specs=jax.tree.map(lambda _: jax.sharding.PartitionSpec(BATCH_AXIS_NAME), x),
+        out_specs=jax.tree.map(lambda _: jax.sharding.PartitionSpec(), x),
         check_vma=False,
     )(x)
 
