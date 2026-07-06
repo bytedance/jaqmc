@@ -114,13 +114,14 @@ system:
   formula: LiH
   bond_length: 3.015
   unit: bohr
-  basis: sto-3g
 workflow:
   batch_size: 4
 wf:
   hidden_dims_single: [4, 4]
   hidden_dims_double: [2, 2]
 pretrain:
+  reference:
+    basis: sto-3g
   run:
     iterations: 1
 train:
@@ -137,7 +138,6 @@ train:
 system:
   module: atom
   symbol: Fe
-  basis: ccecpccpvdz
   pp: ccecp
 workflow:
   batch_size: 4
@@ -145,6 +145,9 @@ wf:
   hidden_dims_single: [4, 4]
   hidden_dims_double: [2, 2]
 pretrain:
+  reference:
+    basis: ccecpccpvdz
+    method: UHF
   run:
     iterations: 1
 train:
@@ -198,13 +201,14 @@ system:
     - symbol: H
       coords: [3.78, 3.78, 3.78]
   electron_spins: [2, 2]
-  basis: sto-3g
 workflow:
   batch_size: 4
 wf:
   hidden_dims_single: [4, 4]
   hidden_dims_double: [2, 2]
 pretrain:
+  reference:
+    basis: sto-3g
   run:
     iterations: 1
 train:
@@ -224,13 +228,15 @@ system:
   symbol_b: H
   lattice_constant: 4.0
   unit: angstrom
-  basis: sto-3g
 workflow:
   batch_size: 4
 wf:
   hidden_dims_single: [4, 4]
   hidden_dims_double: [2, 2]
 pretrain:
+  reference:
+    basis: sto-3g
+    method: KRHF
   run:
     iterations: 1
 train:
@@ -297,6 +303,9 @@ workflow:
 wf:
   hidden_dims_single: [4, 4]
   hidden_dims_double: [2, 2]
+reference:
+  basis: sto-3g
+  method: KRHF
 run:
   iterations: 1
 estimators:

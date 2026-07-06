@@ -9,8 +9,6 @@ from typing import Any
 
 import numpy as np
 
-from jaqmc.app.molecule.config import MoleculeConfig
-from jaqmc.app.molecule.data import data_init
 from jaqmc.estimator import EstimatorLike
 from jaqmc.estimator.density import CartesianAxis, CartesianDensity
 from jaqmc.estimator.ecp import ECPEnergy
@@ -36,6 +34,8 @@ from jaqmc.workflow.stage.evaluation import EvaluationWorkStage
 from jaqmc.workflow.stage.vmc import VMCWorkStage
 from jaqmc.workflow.vmc import VMCWorkflow
 
+from .config import MoleculeConfig, MoleculePretrainReferenceConfig
+from .data import data_init
 from .hamiltonian import potential_energy
 from .wavefunction import MoleculeWavefunction
 
@@ -53,7 +53,12 @@ class MoleculeTrainWorkflow(VMCWorkflow):
         return {
             "pretrain": {
                 "run": {"iterations": 2_000},
-                "optim": {"learning_rate": {"rate": 3e-4}},
+                "optim": {
+                    "learning_rate": {
+                        "module": "jaqmc.optimizer.schedule:Constant",
+                        "rate": 3e-4,
+                    }
+                },
             },
             "train": {
                 "run": {"iterations": 200_000},
@@ -66,7 +71,8 @@ class MoleculeTrainWorkflow(VMCWorkflow):
         system_config, wf = configure_system(cfg)
 
         nspins = system_config.electron_spins
-        self.scf = make_scf(system_config)
+        pretrain_config = cfg.get("pretrain.reference", MoleculePretrainReferenceConfig)
+        self.scf = make_scf(pretrain_config, system_config)
         self.data_init = partial(data_init, system_config)
         sampler = cfg.get("sampler", MCMCSampler)
 
@@ -74,7 +80,9 @@ class MoleculeTrainWorkflow(VMCWorkflow):
             orbitals_fn=wf.orbitals, scf=self.scf, nspins=nspins, full_det=wf.full_det
         )
         pretrain_f_log_amplitude = make_pretrain_log_amplitude(
-            wf.logpsi, lambda data: self.scf.eval_slater(data.electrons, nspins)[1]
+            wf.logpsi,
+            lambda data: self.scf.eval_slater(data.electrons, nspins)[1],
+            scf_fraction=pretrain_config.sample_fraction,
         )
 
         pretrain = VMCWorkStage.builder(cfg.scoped("pretrain"), wf)
@@ -87,7 +95,7 @@ class MoleculeTrainWorkflow(VMCWorkflow):
         train.configure_sample_plan(wf.logpsi, {"electrons": sampler})
         train.configure_optimizer(default=KFACOptimizer, f_log_psi=wf.logpsi)
         estimators = make_estimators(
-            cfg, wf, self.scf, system_config, always_enable_energy=True
+            cfg, wf, system_config, self.scf._mol._ecp, always_enable_energy=True
         )
         train.configure_estimators(**estimators)
         train.configure_loss_grads(f_log_psi=wf.logpsi)
@@ -106,13 +114,16 @@ class MoleculeEvalWorkflow(EvaluationWorkflow):
         system_config, wf = configure_system(cfg)
 
         self.data_init = partial(data_init, system_config)
-        scf = make_scf(system_config)
 
         evaluation = EvaluationWorkStage.builder(cfg, wf, name="evaluation")
         sampler = cfg.get("sampler", MCMCSampler)
         evaluation.configure_sample_plan(wf.logpsi, {"electrons": sampler})
+
+        # Build a default reference SCF only to extract ECP coefficients for
+        # evaluation-time estimators; molecule eval does not expose reference config.
+        scf = make_scf(MoleculePretrainReferenceConfig(), system_config)
         eval_estimators: dict[str, EstimatorLike] = make_estimators(
-            cfg, wf, scf, system_config
+            cfg, wf, system_config, scf._mol._ecp
         )
         evaluation.configure_estimators(**eval_estimators)
 
@@ -160,23 +171,29 @@ def _normalize_molecule_config_units(system_config: MoleculeConfig) -> MoleculeC
     )
 
 
-def make_scf(system_config: MoleculeConfig) -> MolecularSCF:
+def make_scf(
+    pretrain_config: MoleculePretrainReferenceConfig, system_config: MoleculeConfig
+) -> MolecularSCF:
     pseudopotential = resolve_pseudopotential_config(
         system_config.atoms, system_config.pp
     )
+    restricted = pretrain_config.method == "RHF"
     return MolecularSCF(
         system_config.atoms,
         system_config.electron_spins,
-        basis=system_config.basis,
+        basis=pretrain_config.basis,
         pseudopotential=pseudopotential,
+        restricted=restricted,
+        verbose=pretrain_config.verbose,
+        pyscf_options=pretrain_config.extra,
     )
 
 
 def make_estimators(
     cfg: ConfigManagerLike,
     wf: MoleculeWavefunction,
-    scf: MolecularSCF,
     system_config: MoleculeConfig,
+    ecp_coefficients: dict[str, Any] | None = None,
     always_enable_energy: bool = False,
 ) -> dict[str, EstimatorLike]:
     pseudopotential = resolve_pseudopotential_config(
@@ -192,11 +209,6 @@ def make_estimators(
                 "estimators.energy.kinetic", EuclideanKinetic(f_log_psi=wf.logpsi)
             )
         else:
-            # Skip reading `estimators.energy.kinetic.*` so that any user
-            # override on a PH run is left unread and surfaces as a
-            # `cfg.finalize(raise_on_unused=True)` error rather than a silent
-            # no-op. The PH derivative backend is selected by
-            # `estimators.energy.ph.kinetic_backend`.
             logger.warning(
                 "PH is active: the regular EuclideanKinetic estimator is "
                 "inactive, and `estimators.energy.kinetic.*` overrides are "
@@ -204,14 +216,14 @@ def make_estimators(
                 "select the PH derivative backend."
             )
         if pseudopotential.uses_runtime_ecp():
+            if ecp_coefficients is None:
+                raise ValueError(
+                    "ECP coefficients are required when system.pp uses ECP."
+                )
             runtime_ecp_coefficients = _runtime_ecp_coefficients(
-                pseudopotential,
-                scf._mol._ecp,
+                pseudopotential, ecp_coefficients
             )
-            logger.info(
-                "ECP enabled for elements: %s",
-                list(runtime_ecp_coefficients),
-            )
+            logger.info("ECP enabled for elements: %s", list(runtime_ecp_coefficients))
             estimators["ecp"] = cfg.get(
                 "estimators.energy.ecp",
                 ECPEnergy(

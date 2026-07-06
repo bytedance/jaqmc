@@ -106,7 +106,7 @@ def test_resolve_atom_pp_resolves_dict_per_symbol():
 
 def test_diatomic_config_supports_ph_treatment():
     """Guard PH valence charge propagation in mixed molecule config factories."""
-    cfg = diatomic_config(formula="FeH", basis="sto-3g", pp={"Fe": "ph"}, spin=1)
+    cfg = diatomic_config(formula="FeH", pp={"Fe": "ph"}, spin=1)
 
     assert cfg.pp == {"Fe": "ph"}
     assert cfg.atoms[0].charge == 16

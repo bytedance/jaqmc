@@ -30,7 +30,6 @@ def rock_salt_config(
     lattice_constant: float = 4.0,
     unit: LengthUnit = LengthUnit.angstrom,
     supercell: list[int] | None = None,
-    basis: str = "sto-3g",
     pp: str | dict[str, str] | None = None,
     electron_init_width: float = 1.0,
 ):
@@ -42,7 +41,6 @@ def rock_salt_config(
         lattice_constant: Lattice constant.
         unit: Unit of the lattice constant ('angstrom' or 'bohr').
         supercell: Supercell dimensions [nx, ny, nz]. Defaults to [1, 1, 1].
-        basis: Basis set name for HF pretrain.
         pp: Pseudopotential specification. Can be ``None`` (all-electron),
             a string (e.g., ``"ccecp"``), or a per-element mapping
             (e.g., ``{"Li": "ccecp"}``).
@@ -58,7 +56,6 @@ def rock_salt_config(
     if unit == LengthUnit.angstrom:
         L *= ONE_ANGSTROM_IN_BOHR
 
-    # FCC primitive lattice vectors
     lattice_vectors = (np.ones((3, 3)) - np.eye(3)) * L / 2
 
     atoms = []
@@ -71,7 +68,6 @@ def rock_salt_config(
         atoms.append(atom)
         n_electrons += int(atom.charge)
 
-    # Compute electron spins with net spin = 0 (closed shell)
     n_up = n_electrons // 2
     n_down = n_electrons - n_up
 
@@ -84,7 +80,6 @@ def rock_salt_config(
             [0, 0, supercell[2]],
         ],
         electron_spins=(n_up, n_down),
-        basis=basis,
         pp=pp,
         electron_init_width=electron_init_width,
     )

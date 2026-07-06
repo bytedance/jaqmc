@@ -24,7 +24,6 @@ def two_atom_chain(
     supercell: int = 1,
     vacuum_separation: float = 100.0,
     spin: int = 0,
-    basis: str = "sto-3g",
     pp: str | dict[str, str] | None = None,
     electron_init_width: float = 1.0,
 ):
@@ -38,7 +37,6 @@ def two_atom_chain(
         vacuum_separation: Lattice constant in y and z directions (in Bohr)
             to isolate the 1D chain.
         spin: Total spin polarization (n_up - n_down) for the primitive cell.
-        basis: Basis set name for HF pretrain.
         pp: Pseudopotential specification. Can be ``None`` (all-electron),
             a string (e.g., ``"ccecp"``), or a per-element mapping
             (e.g., ``{"Li": "ccecp"}``).
@@ -53,7 +51,6 @@ def two_atom_chain(
     if unit == LengthUnit.angstrom:
         bond_length *= ONE_ANGSTROM_IN_BOHR
 
-    # 1D lattice vectors (large separation in y and z)
     lattice_vectors = [
         [2 * bond_length, 0.0, 0.0],
         [0.0, vacuum_separation, 0.0],
@@ -76,7 +73,6 @@ def two_atom_chain(
 
     if (electrons + spin) % 2 != 0:
         raise ValueError(f"Impossible to have spin {spin} for {electrons} electrons.")
-    # Compute electron spins per primitive cell
     n_up = (electrons + spin) // 2
     n_down = (electrons - spin) // 2
 
@@ -85,7 +81,6 @@ def two_atom_chain(
         lattice_vectors=lattice_vectors,
         supercell_matrix=[[supercell, 0, 0], [0, 1, 0], [0, 0, 1]],
         electron_spins=(n_up, n_down),
-        basis=basis,
         pp=pp,
         electron_init_width=electron_init_width,
     )

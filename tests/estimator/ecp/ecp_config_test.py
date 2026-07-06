@@ -10,6 +10,8 @@ Covers:
 - two_atom_chain: 1D chain with ECP
 """
 
+import pytest
+
 from jaqmc.utils.atomic import (
     Atom,
     AtomPseudopotentialKind,
@@ -93,6 +95,17 @@ class TestRockSaltConfig:
         assert cfg.atoms[0].charge == 1
         assert cfg.atoms[1].charge == 1
         assert cfg.electron_spins == (1, 1)
+
+    def test_ph_is_rejected_by_solid_workflows(self):
+        """Solid workflows are ECP-only even though the public key is unified `pp`."""
+        from jaqmc.app.solid.config.base import SolidPretrainReferenceConfig
+        from jaqmc.app.solid.config.rock_salt import rock_salt_config
+        from jaqmc.app.solid.workflow import make_scf
+
+        cfg = rock_salt_config(symbol_a="Fe", symbol_b="S", pp="ph")
+
+        with pytest.raises(ValueError, match="do not support PH pseudopotentials"):
+            make_scf(SolidPretrainReferenceConfig(), cfg)
 
 
 class TestTwoAtomChain:

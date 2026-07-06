@@ -59,6 +59,8 @@ Atom definitions, element properties, electronic structure (SCF), orbital evalua
 ## Pretraining
 
 ```{eval-rst}
+.. autoclass:: jaqmc.utils.atomic.pretrain.PretrainReferenceConfig
+
 .. autofunction:: jaqmc.utils.atomic.pretrain.make_pretrain_log_amplitude
 .. autofunction:: jaqmc.utils.atomic.pretrain.make_pretrain_loss
 ```
