@@ -38,7 +38,9 @@ PP_PH = "ph"
 
 
 # PH valence electron counts as defined by Bennett et al. (2022).
-_PH_NEON_CORE_ELEMENTS = frozenset({"Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "S"})
+_PH_NEON_CORE_ELEMENTS = frozenset(
+    {"Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "P", "S", "Cl"}
+)
 _PH_CORE_COUNTS = {symbol: 10 for symbol in _PH_NEON_CORE_ELEMENTS}
 
 SUPPORTED_PH_ELEMENTS: frozenset[str] = _PH_NEON_CORE_ELEMENTS

@@ -62,7 +62,9 @@ _PH_XML_INFO: dict[str, tuple[str, bool]] = {
     "Ni": ("TM", True),
     "Cu": ("TM", True),
     "Zn": ("TM", False),
+    "P": ("MG", False),
     "S": ("MG", False),
+    "Cl": ("MG", False),
 }
 _RAW_DATA_DIR = resources.files("jaqmc.estimator.ph").joinpath("raw_data")
 
