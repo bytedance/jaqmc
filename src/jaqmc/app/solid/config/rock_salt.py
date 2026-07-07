@@ -16,10 +16,9 @@ The FCC lattice vectors are::
 
 import numpy as np
 
-from jaqmc.utils.atomic import make_atom, resolve_atom_pp
-from jaqmc.utils.units import ONE_ANGSTROM_IN_BOHR, LengthUnit
+from jaqmc.utils.units import LengthUnit
 
-from .base import SolidConfig
+from .base import LatticeParams, SolidAtomConfig, SolidConfig
 
 __all__ = ["rock_salt_config"]
 
@@ -30,6 +29,7 @@ def rock_salt_config(
     lattice_constant: float = 4.0,
     unit: LengthUnit = LengthUnit.angstrom,
     supercell: list[int] | None = None,
+    s_z: float = 0,
     pp: str | dict[str, str] | None = None,
     electron_init_width: float = 1.0,
 ):
@@ -41,6 +41,8 @@ def rock_salt_config(
         lattice_constant: Lattice constant.
         unit: Unit of the lattice constant ('angstrom' or 'bohr').
         supercell: Supercell dimensions [nx, ny, nz]. Defaults to [1, 1, 1].
+        s_z: Total spin along the z direction of the explicit primitive-cell
+            electrons.
         pp: Pseudopotential specification. Can be ``None`` (all-electron),
             a string (e.g., ``"ccecp"``), or a per-element mapping
             (e.g., ``{"Li": "ccecp"}``).
@@ -52,34 +54,24 @@ def rock_salt_config(
     if supercell is None:
         supercell = [1, 1, 1]
 
-    L = lattice_constant
-    if unit == LengthUnit.angstrom:
-        L *= ONE_ANGSTROM_IN_BOHR
-
-    lattice_vectors = (np.ones((3, 3)) - np.eye(3)) * L / 2
-
     atoms = []
-    n_electrons = 0
-    for symbol, coords in [
+    for symbol, frac_coords in [
         (symbol_a, [0.0, 0.0, 0.0]),
-        (symbol_b, [L / 2, L / 2, L / 2]),
+        (symbol_b, [0.5, 0.5, 0.5]),
     ]:
-        atom = make_atom(symbol, coords, pp=resolve_atom_pp(symbol, pp))
-        atoms.append(atom)
-        n_electrons += int(atom.charge)
+        atoms.append(SolidAtomConfig(symbol=symbol, frac_coords=frac_coords))
 
-    n_up = n_electrons // 2
-    n_down = n_electrons - n_up
-
+    a = lattice_constant / np.sqrt(2)
     return SolidConfig(
-        atoms=atoms,
-        lattice_vectors=lattice_vectors.tolist(),
+        atom_configs=atoms,
+        unit=unit,
+        lattice=LatticeParams(a=a, b=a, c=a, alpha=60, beta=60, gamma=60),
         supercell_matrix=[
             [supercell[0], 0, 0],
             [0, supercell[1], 0],
             [0, 0, supercell[2]],
         ],
-        electron_spins=(n_up, n_down),
+        s_z=s_z,
         pp=pp,
         electron_init_width=electron_init_width,
     )

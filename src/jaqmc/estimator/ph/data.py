@@ -38,9 +38,11 @@ from importlib import resources
 
 import numpy as np
 
+from jaqmc.utils.atomic import elements
 from jaqmc.utils.atomic.pp import (
+    PP_PH,
     SUPPORTED_PH_ELEMENTS,
-    get_ph_effective_charge,
+    core_electrons_by_pp,
 )
 
 __all__ = ["load_ph_element_data"]
@@ -75,8 +77,9 @@ def load_ph_element_data(symbol: str) -> tuple[np.ndarray, np.ndarray]:
 
     **Local-channel sign convention.** The returned ``loc_data`` table is
     :math:`r \cdot \tilde v_{\mathrm{loc}}(r) + Z_a`, i.e. the bare paper-form
-    local channel plus the effective PH valence charge ``Z_a`` from
-    :func:`jaqmc.utils.atomic.pp.get_ph_effective_charge`. The estimator
+    local channel plus the effective PH valence charge ``Z_a`` computed as
+    atomic number minus the PH core count from
+    :func:`jaqmc.utils.atomic.pp.core_electrons_by_pp`. The estimator
     consumes this as ``loc_data(r) / r``, which decays to zero at large
     ``r`` and is bounded near the origin. Because the bare electron-nucleus
     Coulomb ``-Z_a / r`` is supplied separately by ``potential_energy``,
@@ -110,18 +113,20 @@ def load_ph_element_data(symbol: str) -> tuple[np.ndarray, np.ndarray]:
     if symbol not in SUPPORTED_PH_ELEMENTS:
         raise ValueError(f"unsupported PH element: {symbol}")
 
-    resource_path, charge = _element_resource_path_and_charge(symbol)
+    resource_path = _element_resource_path(symbol)
+    atomic_number = elements.from_symbol[symbol].atomic_number
+    charge = atomic_number - core_electrons_by_pp(symbol, PP_PH)
     loc_data, l2_data = _load_ph_data_from_xml(resource_path, charge)
     return loc_data.copy(), l2_data.copy()
 
 
-def _element_resource_path_and_charge(symbol: str) -> tuple[str, float]:
+def _element_resource_path(symbol: str) -> str:
     try:
         subdir, use_hf = _PH_XML_INFO[symbol]
     except KeyError as err:
         raise ValueError(f"unsupported PH element: {symbol}") from err
     filename = f"{symbol}.{'hf' if use_hf else 'cc'}.xml"
-    return f"{subdir}/{filename}", float(get_ph_effective_charge(symbol))
+    return f"{subdir}/{filename}"
 
 
 @cache

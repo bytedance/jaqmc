@@ -38,7 +38,6 @@ system:
       coords: [0.0, 0.757, 0.586]
     - symbol: H
       coords: [0.0, -0.757, 0.586]
-  electron_spins: [5, 5]
 workflow:
   batch_size: 4
 wf:
@@ -66,7 +65,6 @@ system:
       coords: [0.0, 0.757, 0.586]
     - symbol: H
       coords: [0.0, -0.757, 0.586]
-  electron_spins: [5, 5]
 workflow:
   batch_size: 4
 wf:
@@ -191,16 +189,15 @@ train:
         {
             "lih_solid.yml": """
 system:
-  lattice_vectors:
-    - [0.0, 3.78, 3.78]
-    - [3.78, 0.0, 3.78]
-    - [3.78, 3.78, 0.0]
+  lattice:
+    a: [0.0, 3.78, 3.78]
+    b: [3.78, 0.0, 3.78]
+    c: [3.78, 3.78, 0.0]
   atoms:
     - symbol: Li
-      coords: [0.0, 0.0, 0.0]
+      frac_coords: [0.0, 0.0, 0.0]
     - symbol: H
-      coords: [3.78, 3.78, 3.78]
-  electron_spins: [2, 2]
+      frac_coords: [0.5, 0.5, 0.5]
 workflow:
   batch_size: 4
 wf:

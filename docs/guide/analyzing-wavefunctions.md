@@ -100,7 +100,7 @@ cfg = ConfigManager(
     {
         "system": {
             "atoms": [{"symbol": "H", "coords": [0.0, 0.0, 0.0]}],
-            "electron_spins": [1, 0],
+            "s_z": 0.5,  # one-electron H atom
         },
         "workflow": {"batch_size": 256, "save_path": str(WORKING_DIR)},
         "wf": {"hidden_dims_single": [64, 64], "hidden_dims_double": [16, 16]},

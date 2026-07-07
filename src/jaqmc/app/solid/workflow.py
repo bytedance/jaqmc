@@ -3,7 +3,6 @@
 
 import logging
 from collections.abc import Callable
-from dataclasses import replace
 from functools import partial
 from typing import Any
 
@@ -20,11 +19,10 @@ from jaqmc.geometry.pbc import make_pbc_gaussian_proposal
 from jaqmc.optimizer.kfac import KFACOptimizer
 from jaqmc.optimizer.optax import adam
 from jaqmc.sampler.mcmc import MCMCSampler
-from jaqmc.utils.atomic import PeriodicSCF, resolve_pseudopotential_config
+from jaqmc.utils.atomic import PeriodicSCF
 from jaqmc.utils.atomic.pretrain import make_pretrain_log_amplitude, make_pretrain_loss
 from jaqmc.utils.config import ConfigManager, ConfigManagerLike
 from jaqmc.utils.supercell import get_reciprocal_vectors, get_supercell_kpts
-from jaqmc.utils.units import ONE_ANGSTROM_IN_BOHR, LengthUnit
 from jaqmc.utils.wiring import wire
 from jaqmc.wavefunction import Wavefunction
 from jaqmc.workflow.evaluation import EvaluationWorkflow
@@ -97,9 +95,7 @@ class SolidTrainWorkflow(VMCWorkflow):
         train = VMCWorkStage.builder(cfg.scoped("train"), wf)
         train.configure_sample_plan(wf.logpsi, {"electrons": sampler})
         train.configure_optimizer(default=KFACOptimizer, f_log_psi=wf.logpsi)
-        estimators = make_estimators(
-            cfg, wf, system_config, self.scf._cell._ecp, always_enable_energy=True
-        )
+        estimators = make_estimators(cfg, wf, system_config, always_enable_energy=True)
         train.configure_estimators(**estimators)
         train.configure_loss_grads(f_log_psi=wf.logpsi)
         self.train_stage = train.build()
@@ -126,9 +122,7 @@ class SolidEvalWorkflow(EvaluationWorkflow):
 
         reference_config = cfg.get("reference", SolidPretrainReferenceConfig)
         self.scf = make_scf(reference_config, system_config)
-        eval_estimators: dict[str, EstimatorLike] = make_estimators(
-            cfg, wf, system_config, self.scf._cell._ecp
-        )
+        eval_estimators = make_estimators(cfg, wf, system_config)
         evaluation.configure_estimators(**eval_estimators)
         self.evaluation_stage = evaluation.build()
 
@@ -148,13 +142,18 @@ def configure_system(
 
     Raises:
         TypeError: If the wavefunction does not implement SolidWavefunction.
+        ValueError: PH is used
     """
     system_config: SolidConfig | Callable[[], SolidConfig] = cfg.get_module(
-        "system", "jaqmc.app.solid.config.base"
+        "system", SolidConfig
     )
     if callable(system_config):
         system_config = system_config()
-    system_config = _normalize_solid_config_units(system_config)
+    if system_config.ph_elements:
+        raise ValueError(
+            "solid workflows do not support PH pseudopotentials; "
+            "system.pp may only select ECP or all-electron treatment."
+        )
 
     nspins = (
         system_config.electron_spins[0] * system_config.scale,
@@ -162,7 +161,7 @@ def configure_system(
     )
 
     supercell_lattice = jnp.asarray(system_config.supercell_lattice)
-    lattice_vectors = jnp.asarray(system_config.lattice_vectors)
+    lattice_vectors = system_config.lattice_vectors
 
     wf = cfg.get_module("wf", "jaqmc.app.solid.wavefunction")
     wf.nspins = nspins
@@ -181,9 +180,8 @@ def configure_system(
 def make_scf(
     pretrain_config: SolidPretrainReferenceConfig, system_config: SolidConfig
 ) -> PeriodicSCF:
-    pseudopotential = _resolve_supported_pseudopotential_config(system_config)
     S = jnp.array(system_config.supercell_matrix)
-    prim_rec_vecs = get_reciprocal_vectors(jnp.array(system_config.lattice_vectors))
+    prim_rec_vecs = get_reciprocal_vectors(jnp.asarray(system_config.lattice_vectors))
     kpts_folding = get_supercell_kpts(S, prim_rec_vecs)
     twist = jnp.array(system_config.twist)
     sim_rec_vecs = get_reciprocal_vectors(jnp.array(system_config.supercell_lattice))
@@ -193,39 +191,12 @@ def make_scf(
     return PeriodicSCF(
         system_config.atoms,
         system_config.electron_spins,
-        lattice_vectors=np.asarray(system_config.lattice_vectors),
+        lattice_vectors=system_config.lattice_vectors,
         kpts=np.asarray(kpts),
         basis=pretrain_config.basis,
         restricted=pretrain_config.method == "KRHF",
-        ecp=pseudopotential.scf_ecp,
-        core_electrons=pseudopotential.core_electrons,
         verbose=pretrain_config.verbose,
         pyscf_options=pretrain_config.extra,
-    )
-
-
-def _normalize_solid_config_units(system_config: SolidConfig) -> SolidConfig:
-    if system_config.unit == LengthUnit.bohr:
-        return system_config
-    if system_config.unit != LengthUnit.angstrom:
-        raise ValueError(f"Unsupported solid length unit: {system_config.unit!r}")
-
-    atoms = [
-        replace(
-            atom,
-            coords=[coord * ONE_ANGSTROM_IN_BOHR for coord in atom.coords],
-        )
-        for atom in system_config.atoms
-    ]
-    lattice_vectors = [
-        [coord * ONE_ANGSTROM_IN_BOHR for coord in vector]
-        for vector in system_config.lattice_vectors
-    ]
-    return replace(
-        system_config,
-        atoms=atoms,
-        lattice_vectors=lattice_vectors,
-        unit=LengthUnit.bohr,
     )
 
 
@@ -233,11 +204,8 @@ def make_estimators(
     cfg: ConfigManagerLike,
     wf: SolidWavefunction,
     system_config: SolidConfig,
-    ecp_coefficients: dict[str, Any] | None = None,
     always_enable_energy: bool = False,
 ) -> dict[str, EstimatorLike]:
-    pseudopotential = _resolve_supported_pseudopotential_config(system_config)
-
     estimators: dict[str, EstimatorLike] = {}
     if always_enable_energy or cfg.get("estimators.enabled.energy", True):
         supercell_lattice = jnp.asarray(system_config.supercell_lattice)
@@ -247,11 +215,7 @@ def make_estimators(
         estimators["kinetic"] = cfg.get(
             "estimators.energy.kinetic", EuclideanKinetic(f_log_psi=wf.logpsi)
         )
-        if pseudopotential.uses_runtime_ecp():
-            if ecp_coefficients is None:
-                raise ValueError(
-                    "ECP coefficients are required when system.pp uses ECP."
-                )
+        if ecp_coefficients := system_config.ecp_coefficients:
             logger.info("ECP enabled for elements: %s", list(ecp_coefficients.keys()))
             estimators["ecp"] = cfg.get(
                 "estimators.energy.ecp",
@@ -290,15 +254,3 @@ def make_estimators(
         wire(density, inv_lattice=inv_lattice)
         estimators["density"] = density
     return estimators
-
-
-def _resolve_supported_pseudopotential_config(system_config: SolidConfig):
-    pseudopotential = resolve_pseudopotential_config(
-        system_config.atoms, system_config.pp
-    )
-    if pseudopotential.uses_runtime_ph():
-        raise ValueError(
-            "solid workflows do not support PH pseudopotentials; "
-            "system.pp may only select ECP or all-electron treatment."
-        )
-    return pseudopotential

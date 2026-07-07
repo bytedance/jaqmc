@@ -222,7 +222,6 @@ def make_workflow_config(tmp_path, wf_config: dict) -> ConfigManager:
             "workflow": {"seed": 42, "save_path": str(tmp_path), "batch_size": 64},
             "wf": wf_config,
             "system": {
-                "electron_spins": [1, 1],
                 "atoms": [
                     {"symbol": "H", "coords": [1, 0, 0]},
                     {"symbol": "H", "coords": [-1, 0, 0]},

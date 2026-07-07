@@ -59,7 +59,12 @@ def configurable_dataclass(cls=None, *, frozen: bool = False, kw_only: bool = Tr
         # for child classes of dataclasses even if themselves have not been processed.
         if "__dataclass_fields__" not in cls.__dict__:
             cls = dataclass(cls, frozen=frozen, kw_only=kw_only)
-        return serde.serde(cls, type_check=serde.coerce, deny_unknown_fields=True)
+        return serde.serde(
+            cls,
+            type_check=serde.coerce,
+            deny_unknown_fields=True,
+            tagging=serde.Untagged,
+        )
 
     if cls is None:
         return wrap
@@ -233,12 +238,6 @@ class ConfigManagerLike(Protocol):
             NotImplementedError: If the type of `default` is not supported.
         """
 
-    @overload
-    def get_module[ModuleT: type | Callable](
-        self, name: str, default_module: ModuleT
-    ) -> ModuleT: ...
-    @overload
-    def get_module(self, name: str, default_module: str) -> Any: ...
     def get_module(self, name: str, default_module: str | Callable | type = ""):
         """Instantiate a class or function specified in the configuration.
 
@@ -485,12 +484,6 @@ class ConfigManager(ConfigManagerLike):
             f"Getting config for type {type(default)} is not supported."
         )
 
-    @overload
-    def get_module[ModuleT: type | Callable](
-        self, name: str, default_module: ModuleT
-    ) -> ModuleT: ...
-    @overload
-    def get_module(self, name: str, default_module: str) -> Any: ...
     def get_module(self, name: str, default_module: str | Callable | type = ""):
         if isinstance(default_module, str):
             module_base = (

@@ -13,7 +13,6 @@ def test_molecule_run(tmp_path):
             "workflow": {"seed": 42, "save_path": str(tmp_path), "batch_size": 256},
             "wf": {"hidden_dims_single": [64, 64], "hidden_dims_double": [8, 8]},
             "system": {
-                "electron_spins": [1, 1],
                 "atoms": [
                     {"symbol": "H", "coords": [1, 0, 0]},
                     {"symbol": "H", "coords": [-1, 0, 0]},
@@ -46,7 +45,7 @@ def test_without_pretrain(tmp_path):
             "workflow": {"seed": 42, "save_path": str(tmp_path), "batch_size": 4},
             "wf": {"hidden_dims_single": [8, 8], "hidden_dims_double": [4, 4]},
             "system": {
-                "electron_spins": [1, 0],
+                "s_z": 0.5,
                 "atoms": [{"symbol": "H", "coords": [0, 0, 0]}],
             },
             "pretrain": {"run": {"iterations": 0}},

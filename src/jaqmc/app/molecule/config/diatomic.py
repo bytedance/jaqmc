@@ -3,15 +3,10 @@
 
 import re
 
-from jaqmc.utils.atomic import (
-    electron_spins_from_total,
-    elements,
-    make_atom,
-    resolve_atom_pp,
-)
+from jaqmc.utils.atomic import elements
 from jaqmc.utils.units import ONE_ANGSTROM_IN_BOHR, LengthUnit
 
-from .base import MoleculeConfig
+from .base import AtomConfig, MoleculeConfig
 
 __all__ = ["diatomic_config"]
 
@@ -55,7 +50,7 @@ def diatomic_config(
     bond_length: float = 1.4,
     unit: LengthUnit = LengthUnit.bohr,
     pp: str | dict[str, str] | None = None,
-    spin: int = 0,
+    s_z: float = 0,
     electron_init_width: float = 1.0,
 ):
     """Create a MoleculeConfig for a diatomic molecule.
@@ -71,8 +66,8 @@ def diatomic_config(
         pp: Pseudopotential specification. Can be ``None``
             (all-electron), a string (e.g., ``"ccecp"``, ``"ph"``), or a
             per-element mapping (e.g., ``{"Li": "ccecp", "Cu": "ph"}``).
-        spin: Total spin (number of unpaired electrons). Defaults to 0
-            (singlet).
+        s_z: Total spin along the z direction of the explicit electrons.
+            Defaults to 0 (singlet).
         electron_init_width: Width of Gaussian for electron initialization.
 
     Returns:
@@ -85,18 +80,14 @@ def diatomic_config(
     half = bond_length / 2
 
     atoms = []
-    total_electrons = 0
     for i, symbol in enumerate((sym1, sym2)):
         sign = -1 if i == 0 else 1
         coord = [0.0, 0.0, sign * half]
-        atom_pp = resolve_atom_pp(symbol, pp)
-        atom = make_atom(symbol, coord, pp=atom_pp)
-        atoms.append(atom)
-        total_electrons += int(atom.charge)
+        atoms.append(AtomConfig(symbol=symbol, coords=coord))
 
     return MoleculeConfig(
-        atoms=atoms,
-        electron_spins=electron_spins_from_total(total_electrons, spin),
+        atom_configs=atoms,
+        s_z=s_z,
         electron_init_width=electron_init_width,
         pp=pp,
     )

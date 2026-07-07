@@ -29,11 +29,19 @@ In the most general form, you define the primitive cell directly in YAML using
 the schema shown in the [system configuration reference](#solid-train-system).
 This is the most flexible interface and the source of truth for solid systems.
 
-Direct solid YAML uses Bohr by default for both `lattice_vectors` and atomic
-coordinates. If your source cell is in angstrom, set `system.unit: angstrom`.
-JaQMC converts both the lattice vectors and atomic coordinates to Bohr before
-SCF and training. The shortcut modules described later accept their own `unit`
-field and convert internally.
+Direct solid YAML uses Bohr by default for lattice data and fractional
+coordinates for the primitive-cell atoms. If your source cell is in angstrom,
+set `system.unit: angstrom`. JaQMC converts the lattice to Bohr before SCF and
+training, while the atoms remain specified as fractional coordinates. The
+shortcut modules described later accept their own `unit` field and convert
+internally.
+
+For arbitrary solids, the config describes the primitive-cell nuclei plus the
+electronic constraints. JaQMC resolves each atom's effective charge from its
+element symbol and optional `system.pp`, then derives the primitive-cell
+spin-up and spin-down electron counts from the resolved explicit electron count
+plus `system.s_z`. Use `system.total_charge` when the simulated primitive cell
+is ionic.
 
 For example, save the following LiH primitive cell in angstrom as
 `lih_solid.yml`:
@@ -41,24 +49,43 @@ For example, save the following LiH primitive cell in angstrom as
 ```yaml
 system:
   unit: angstrom
-  lattice_vectors:            # 3x3 primitive cell vectors
-    - [0.0, 2.0, 2.0]
-    - [2.0, 0.0, 2.0]
-    - [2.0, 2.0, 0.0]
+  lattice:                    # primitive cell vectors in direct form
+    a: [0.0, 2.0, 2.0]
+    b: [2.0, 0.0, 2.0]
+    c: [2.0, 2.0, 0.0]
   atoms:
     - symbol: Li
-      coords: [0.0, 0.0, 0.0]
+      frac_coords: [0.0, 0.0, 0.0]
     - symbol: H
-      coords: [2.0, 2.0, 2.0]
-  electron_spins: [2, 2]     # [n_up, n_down] per primitive cell
+      frac_coords: [0.5, 0.5, 0.5]
+  s_z: 0                      # singlet
 ```
 
-`electron_spins` is counted per primitive cell and describes the electrons JaQMC
-samples explicitly. In an all-electron solid, that is the full electron count
-per primitive cell. With an ECP, core electrons are replaced by the
-pseudopotential, so `electron_spins` should count only the valence electrons.
-If you later expand to a supercell, JaQMC multiplies these primitive-cell counts
-by the number of primitive cells in the supercell.
+You can also specify `system.lattice` with cell parameters instead of direct
+vectors:
+
+```yaml
+system:
+  unit: angstrom
+  lattice:
+    a: 4.0
+    b: 4.0
+    c: 6.0
+    alpha: 90
+    beta: 90
+    gamma: 120
+  atoms:
+    - symbol: Li
+      frac_coords: [0.0, 0.0, 0.0]
+```
+
+This LiH example is neutral and all-electron, so JaQMC resolves four explicit
+electrons in the primitive cell and assigns two spin-up and two spin-down
+electrons from `s_z: 0`. With an ECP, `system.pp` changes the resolved
+per-atom charges and therefore the derived explicit electron count
+automatically. If you later expand to a supercell, JaQMC multiplies these
+primitive-cell electron counts by the number of primitive cells in the
+supercell.
 
 Then run training:
 
@@ -88,9 +115,9 @@ that generate the underlying configuration for you.
 
 For FCC rock-salt structures such as LiH or NaCl, `system.module=rock_salt` is
 a shortcut. You provide the species and lattice constant, and JaQMC builds the
-primitive cell and fills in the corresponding electron counts automatically. It
-uses all-electron counts by default; when `system.pp` selects an ECP, it uses valence
-counts instead.
+primitive cell and derives the corresponding primitive-cell electron counts
+automatically. It uses all-electron charges by default; when `system.pp`
+selects an ECP, it switches to valence charges instead.
 
 ```yaml
 system:
@@ -111,9 +138,9 @@ jaqmc solid train --yml rock_salt.yml workflow.save_path=./runs/rock_salt
 ### Two-Atom Chain
 
 For simple one-dimensional test systems, `system.module=two_atom_chain` is a
-shortcut. You provide the element, bond length, and optional spin for the
+shortcut. You provide the element, bond length, and optional `s_z` for the
 simulated electrons. JaQMC builds a primitive cell with two atoms along the
-chain direction.
+chain direction and derives the resulting primitive-cell spin counts.
 
 ```yaml
 system:
@@ -121,7 +148,7 @@ system:
   symbol: H                  # Atomic symbol (both atoms are the same element)
   bond_length: 1.8           # Distance between atoms along the chain
   unit: bohr                 # or "angstrom"
-  spin: 0                    # n_up - n_down per primitive cell
+  s_z: 0                     # singlet
   # supercell: 4             # Optional repetition along the chain direction
 ```
 
@@ -130,6 +157,10 @@ Save as `two_atom_chain.yml`, then run:
 ```bash
 jaqmc solid train --yml two_atom_chain.yml workflow.save_path=./runs/two_atom_chain
 ```
+
+`unit` applies to `bond_length` only. The optional `vacuum_separation` field is
+always interpreted in Bohr because it sets the explicit transverse lattice
+constants.
 
 (solid-ecps)=
 ## Effective core potentials
@@ -146,9 +177,9 @@ system:
 ```
 
 The `rock_salt` and `two_atom_chain` shortcuts use `system.pp` to choose
-valence electron counts automatically. If you define `atoms` and
-`electron_spins` directly, set `electron_spins` to the valence-electron count per
-primitive cell.
+valence electron counts automatically. If you define `atoms` directly, set
+`system.s_z` to the desired value for the explicit electrons and add
+`system.total_charge` if the simulated primitive cell is charged.
 
 Solid workflows currently support ECP and all-electron treatment only. The
 shared `pp` key accepts the same ECP names as molecules, but `pp: ph` is

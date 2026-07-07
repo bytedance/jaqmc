@@ -44,6 +44,11 @@ where $r = |\mathbf{r} - \mathbf{R}|$ is the electron-atom distance, $\mathbf{r}
 
 ## See also
 
-- The ECP estimator is automatically added when `system.pp` selects an ECP for at least one atom. See [Pseudopotentials](#molecule-pseudopotentials).
+- The ECP estimator is automatically added when `system.pp` selects an ECP for
+  at least one atom.
+- Because `system.pp` also changes the explicit electron count, arbitrary
+  molecule and solid configs should set `system.s_z` and optional
+  `system.total_charge` and let JaQMC derive the spin-up and spin-down counts.
+  See [Pseudopotentials](#molecule-pseudopotentials).
 - Configuration: [Molecule](#molecule-estimators), [Solid](#solid-estimators)
 - API: {class}`~jaqmc.estimator.ecp.estimator.ECPEnergy`

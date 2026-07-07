@@ -9,10 +9,9 @@ lattice constant 2 * bond_length. The lattice is made effectively 1D by
 using very large lattice constants in y and z directions.
 """
 
-from jaqmc.utils.atomic import make_atom, resolve_atom_pp
 from jaqmc.utils.units import ONE_ANGSTROM_IN_BOHR, LengthUnit
 
-from .base import SolidConfig
+from .base import LatticeDirect, SolidAtomConfig, SolidConfig
 
 __all__ = ["two_atom_chain"]
 
@@ -23,7 +22,7 @@ def two_atom_chain(
     unit: LengthUnit = LengthUnit.bohr,
     supercell: int = 1,
     vacuum_separation: float = 100.0,
-    spin: int = 0,
+    s_z: float = 0,
     pp: str | dict[str, str] | None = None,
     electron_init_width: float = 1.0,
 ):
@@ -36,7 +35,8 @@ def two_atom_chain(
         supercell: Supercell expansion factor along the chain direction.
         vacuum_separation: Lattice constant in y and z directions (in Bohr)
             to isolate the 1D chain.
-        spin: Total spin polarization (n_up - n_down) for the primitive cell.
+        s_z: Total spin along the z direction of the explicit primitive-cell
+            electrons.
         pp: Pseudopotential specification. Can be ``None`` (all-electron),
             a string (e.g., ``"ccecp"``), or a per-element mapping
             (e.g., ``{"Li": "ccecp"}``).
@@ -44,43 +44,28 @@ def two_atom_chain(
 
     Returns:
         A SolidConfig instance for the two-atom chain.
-
-    Raises:
-        ValueError: Electrons per unit cell and given spin have different parity.
     """
     if unit == LengthUnit.angstrom:
         bond_length *= ONE_ANGSTROM_IN_BOHR
 
-    lattice_vectors = [
-        [2 * bond_length, 0.0, 0.0],
-        [0.0, vacuum_separation, 0.0],
-        [0.0, 0.0, vacuum_separation],
+    frac_coords_list = [
+        [0.0, 0.5, 0.5],
+        [0.5, 0.5, 0.5],
     ]
 
-    yz_center = vacuum_separation / 2
-    coords_list = [
-        [0.0, yz_center, yz_center],
-        [bond_length, yz_center, yz_center],
+    atoms = [
+        SolidAtomConfig(symbol=symbol, frac_coords=frac_coords)
+        for frac_coords in frac_coords_list
     ]
-
-    per_atom_pp = resolve_atom_pp(symbol, pp)
-    atoms = []
-    electrons = 0
-    for coords in coords_list:
-        atom = make_atom(symbol, coords, pp=per_atom_pp)
-        atoms.append(atom)
-        electrons += int(atom.charge)
-
-    if (electrons + spin) % 2 != 0:
-        raise ValueError(f"Impossible to have spin {spin} for {electrons} electrons.")
-    n_up = (electrons + spin) // 2
-    n_down = (electrons - spin) // 2
-
     return SolidConfig(
-        atoms=atoms,
-        lattice_vectors=lattice_vectors,
+        atom_configs=atoms,
+        lattice=LatticeDirect(
+            a=(2 * bond_length, 0.0, 0.0),
+            b=(0.0, vacuum_separation, 0.0),
+            c=(0.0, 0.0, vacuum_separation),
+        ),
         supercell_matrix=[[supercell, 0, 0], [0, 1, 0], [0, 0, 1]],
-        electron_spins=(n_up, n_down),
+        s_z=s_z,
         pp=pp,
         electron_init_width=electron_init_width,
     )

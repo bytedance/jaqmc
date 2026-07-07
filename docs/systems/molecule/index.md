@@ -29,6 +29,13 @@ Direct molecule YAML uses Bohr by default. If your source geometry is in
 angstrom, set `system.unit: angstrom`. JaQMC converts the coordinates to Bohr
 before Hartree-Fock and training.
 
+For arbitrary molecules, the config describes the nuclei plus the electronic
+constraints rather than separate spin counts directly. JaQMC resolves each atom's
+effective charge from its element symbol and optional `system.pp`, then derives
+the spin-up and spin-down electron counts from the resolved total electron
+count plus `system.s_z`. Use `system.total_charge` when the simulated system is
+ionic.
+
 For example, to train a neural wavefunction for water from an angstrom-scale
 geometry, save the following as `water.yml`:
 
@@ -42,14 +49,24 @@ system:
       coords: [0.0, 0.757, 0.586]
     - symbol: H
       coords: [0.0, -0.757, 0.586]
-  electron_spins: [5, 5]  # [n_up, n_down]
+  s_z: 0                  # singlet
 ```
 
-`electron_spins` gives `[n_up, n_down]` for the electrons included in the QMC
-simulation. This water example is all-electron, so `[5, 5]` includes all ten
-electrons. If you later add an ECP, leave out the core electrons it replaces;
-`electron_spins` should count only the valence electrons JaQMC samples
-explicitly.
+This water example is neutral and all-electron, so JaQMC resolves ten explicit
+electrons and assigns five spin-up and five spin-down electrons from `s_z: 0`.
+If you later enable an ECP or PH pseudopotential, JaQMC derives the
+valence-electron count automatically after pseudopotential resolution. For
+ions, add `system.total_charge`; for example, `total_charge: 1` removes one
+explicit electron from the simulated system.
+
+If you need finer control over charge resolution or electron initialization:
+
+- `atoms[*].charge` overrides the effective charge seen by the simulated electrons.
+- `atoms[*].initialization.local_s_z` biases the initial alpha/beta split near one atom.
+- `atoms[*].initialization.local_charge` shifts how many electrons are seeded near one atom initially.
+
+Those per-atom initialization fields affect only the starting walker positions,
+not the physical Hamiltonian.
 
 Then run training:
 
@@ -88,10 +105,10 @@ that generate the underlying configuration for you.
 ### Single Atoms
 
 For a single atom, `system.module=atom` is a shortcut. You provide the element
-symbol, and JaQMC fills in the matching electron spin configuration
-automatically. By default it uses the all-electron count; when `system.pp`
-selects a pseudopotential for that atom, it uses the corresponding valence
-count instead.
+symbol, and JaQMC places it at the origin and fills in the default `s_z` for
+the neutral atom automatically. By default it uses the all-electron charge;
+when `system.pp` selects a pseudopotential for that atom, the derived explicit
+electron count switches to the corresponding valence count automatically.
 
 ```yaml
 system:
@@ -109,9 +126,9 @@ jaqmc molecule train --yml atom_li.yml workflow.save_path=./runs/atom_li
 ### Diatomic Molecules
 
 For common two-atom systems, `system.module=diatomic` is a shortcut. You provide
-the chemical formula, bond length, and optional spin for the simulated
-electrons. JaQMC places the atoms along the z-axis and computes
-`electron_spins` for you.
+the chemical formula, bond length, and optional `s_z` for the simulated
+electrons. JaQMC places the atoms along the z-axis, resolves atom charges, and
+derives the resulting spin-up and spin-down counts for you.
 
 ```yaml
 system:
@@ -119,7 +136,7 @@ system:
   formula: LiH        # Chemical formula (H2, LiH, N2, ClF, ...)
   bond_length: 3.015  # Distance between atoms
   unit: bohr          # Length unit for bond_length
-  spin: 0             # n_up - n_down for electrons being simulated
+  s_z: 0              # singlet
 ```
 
 Save as `li_h_diatomic.yml`, then run:
@@ -161,11 +178,12 @@ usual choice for QMC runs.
 Atoms whose element is not in the `pp` mapping are treated all-electron, so a
 single system may mix PH, semi-local ECP, and all-electron elements freely.
 
-Once an ECP is enabled, `electron_spins` describes the electrons being sampled,
-not the full electron count of the physical atoms. The `atom` and `diatomic`
-shortcuts use `system.pp` to choose the corresponding simulated-electron count
-automatically. If you define `atoms` and `electron_spins` directly, set
-`electron_spins` to the valence-electron system you want to simulate.
+Once an ECP is enabled, JaQMC derives the explicit electron count from the
+valence system rather than from the all-electron atoms. The `atom` and
+`diatomic` shortcuts use `system.pp` to choose the corresponding
+simulated-electron count automatically. If you define `atoms` directly, set
+`system.s_z` to the desired value for the explicit electrons, and add
+`system.total_charge` if the simulated valence system is charged.
 
 For mixed systems, apply ECPs only to the elements that need them:
 
