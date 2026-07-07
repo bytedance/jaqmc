@@ -4,7 +4,7 @@
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
+from typing import ClassVar, Literal
 
 import jax
 from jax.experimental import multihost_utils
@@ -64,6 +64,7 @@ class VMCWorkflow(Workflow):
         data_init: Function to initialize electron configurations.
     """
 
+    config_namespace: ClassVar[str] = "train"
     data_init: Callable[[int, PRNGKey], Data | BatchedData]
     pretrain_stage: VMCWorkStage | None = None
     train_stage: VMCWorkStage

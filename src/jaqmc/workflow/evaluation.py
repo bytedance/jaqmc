@@ -46,6 +46,7 @@ class EvaluationWorkflow(Workflow):
     """
 
     config_class: ClassVar[type[EvaluationWorkflowConfig]] = EvaluationWorkflowConfig
+    config_namespace: ClassVar[str] = "evaluation"
     config: EvaluationWorkflowConfig
     evaluation_stage: EvaluationWorkStage
     data_init: Callable

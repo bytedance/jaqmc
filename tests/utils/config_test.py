@@ -627,8 +627,8 @@ def _yaml_roundtrip(
 class TestYamlRoundTrip:
     """Resolved YAML can be parsed back to produce identical configs.
 
-    This simulates the resume scenario: first run dumps config.yaml,
-    second run loads it via ``--yml config.yaml`` and optionally
+    This simulates the resume scenario: first run dumps a resolved YAML snapshot,
+    second run loads it via ``--yml ...`` and optionally
     overrides values with dotlist (e.g. ``train.run.iterations=200``).
     """
 

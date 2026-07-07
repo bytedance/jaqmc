@@ -84,8 +84,8 @@ def test_checkpoint_restoration(tmp_path: Path):
     ckpts = list((tmp_path).glob("train_ckpt_*.npz"))
     assert ckpts, "Expected checkpoints to be created"
 
-    assert (tmp_path / "config.yaml").exists()
-    assert "iterations: 5" in (tmp_path / "config.yaml").read_text()
+    assert (tmp_path / "train_config.yaml").exists()
+    assert "iterations: 5" in (tmp_path / "train_config.yaml").read_text()
 
     ckpt_iterations = sorted(int(ckpt.stem.split("_")[-1]) for ckpt in ckpts)
     assert ckpt_iterations == [4], (
@@ -114,8 +114,11 @@ def test_checkpoint_restoration(tmp_path: Path):
         f"Expected checkpoints at 4 and 7, got {ckpt_iterations_after}"
     )
 
-    assert (tmp_path / "config.yaml").exists()
-    assert "iterations: 8" in (tmp_path / "config.yaml").read_text()
+    assert (tmp_path / "train_config.yaml").exists()
+    assert "iterations: 8" in (tmp_path / "train_config.yaml").read_text()
+    backups = sorted((tmp_path / "config_history").glob("train_config.backup_*.yaml"))
+    assert len(backups) == 1
+    assert "iterations: 5" in backups[0].read_text()
 
     # Verify restored run has 3 iterations (steps 5-7 inclusive)
     with h5py.File(tmp_path / "train_stats2.h5", "r") as f:
