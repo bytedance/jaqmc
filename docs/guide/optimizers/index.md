@@ -36,14 +36,16 @@ See the [configuration reference](#train-optim) for all KFAC options.
 
 ### Stochastic Reconfiguration (SR)
 
-[Stochastic reconfiguration](https://doi.org/10.1103/PhysRevLett.80.4558) updates parameters following imaginary-time evolution. JaQMC's SR implementation supports a robust SR formulation together with the [SPRING](https://doi.org/10.1016/j.jcp.2024.113351) momentum extension and the [MARCH](http://arxiv.org/abs/2507.02644) adaptive metric.
+[Stochastic reconfiguration](https://doi.org/10.1103/PhysRevLett.80.4558) updates parameters following imaginary-time evolution. JaQMC's SR implementation supports a configurable robust-SR fallback together with the [SPRING](https://doi.org/10.1016/j.jcp.2024.113351) momentum extension and the [MARCH](http://arxiv.org/abs/2507.02644) adaptive metric.
 
-By default, SR enables `spring_mu=0.9`, `march_beta=0.5`, `march_mode=var`, and adaptive damping bounded by `max_cond_num=1e7`. To disable SPRING or MARCH, set the corresponding field to `null`:
+By default, SR uses `robust_gamma=sqrt`, `spring_mu=0.9`, `march_beta=0.995`, `march_mode=var`, `max_norm=fixed`, and adaptive damping bounded by `max_cond_num=1e7`. To disable SPRING or MARCH, set the corresponding field to `null`:
 
 ```bash
 train.optim.spring_mu=null
 train.optim.march_beta=null
 ```
+
+`max_norm=fixed` means the optimizer normalizes each step to the norm implied by `learning_rate`. Set `train.optim.max_norm=<float>` if you want an explicit norm cap instead, or `train.optim.max_norm=null` to remove the norm constraint entirely.
 
 **When to use:** When you want an exact SR-style natural-gradient update instead of KFAC's structured approximation.
 
@@ -56,7 +58,8 @@ train.optim.module=sr
 The key tunable parameters are:
 
 - `damping` (default `1e-3`) - regularization for the Gram matrix.
-- `max_norm` (default `0.1`) - constrains the update norm.
+- `robust_gamma` (default `"sqrt"`) - controls how strongly low-curvature directions fall back from SR toward first-order scaling. Set `null` for standard damped SR or `1.0` for the more conservative legacy robust-SR behavior.
+- `max_norm` (default `"fixed"`) - ties the update norm to `learning_rate`. Set a float for an explicit cap or `null` to disable the norm constraint.
 - `max_cond_num` (default `1e7`) - adaptively raises damping to limit Gram-matrix conditioning.
 - `score_chunk_size` / `gram_num_chunks` - trade speed for lower memory use on large systems.
 

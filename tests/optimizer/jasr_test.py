@@ -119,8 +119,9 @@ def test_sr_matches_kernel_formulation(with_jit, complex, chunks):
         score_matrix.shape[0], dtype=score_matrix.dtype
     )
     w = jnp.linalg.solve(F, u_g)
-    z = jnp.linalg.solve(F, u_g - w)
-    delta_ref = g_flat - score_matrix.T @ z
+    gamma = 1.0
+    z = jnp.linalg.solve(F, gamma * u_g - (1.0 - gamma * lam) * w)
+    delta_ref = gamma * g_flat - score_matrix.T @ z
 
     chex.assert_trees_all_close(delta_num, delta_ref, atol=1e-5)
     assert new_state.counter == 1
@@ -146,15 +147,17 @@ def test_sr_reduces_to_identity_when_large_damping(complex):
 
 @pytest.mark.parametrize("complex", [False, True])
 def test_sr_reduces_to_standard_when_small_damping(complex):
-    """For small damping, SR reduces to standard Fisher inverse."""
+    """With ``robust_gamma=None``, SR matches the standard Fisher inverse."""
     n_batch = 5
     n_params = 4 if not complex else 8
     params, samples, grads = _setup_linear_case(
         n_batch=n_batch, n_params=n_params, complex=complex
     )
 
-    lam = 1e-10
-    opt = scale_by_fisher_inverse(_simple_log_psi, damping=lam, spring_mu=None)
+    lam = 1e-3
+    opt = scale_by_fisher_inverse(
+        _simple_log_psi, damping=lam, robust_gamma=None, spring_mu=None
+    )
     state = opt.init(params)
 
     updates, _ = opt.update(grads, state, params, samples)
@@ -289,12 +292,55 @@ def test_sr_matches_parameter_space_formula_in_1d():
     h = jnp.dot(centered_score, centered_score) / centered_score.shape[0]
 
     # Analytic robust SR operator in 1D:
-    # G(h) = 1 - h/(h+lambda) + h/(h+lambda)^2
+    # G(h) = gamma * (1 - h/F) + h * (1 - gamma * lambda) / F^2
+    # with F = h + lambda.
     g = grads["w"][0]
-    G_h = 1.0 - h / (h + lam) + h / (h + lam) ** 2
+    gamma = 1.0
+    F = h + lam
+    G_h = gamma * (1.0 - h / F) + h * (1.0 - gamma * lam) / F**2
     delta_expected = G_h * g
 
     chex.assert_trees_all_close(delta[0], delta_expected, atol=1e-5)
+
+
+@pytest.mark.parametrize("robust_gamma", [1.0, "sqrt", None])
+def test_robust_gamma_matches_analytic_formula_in_1d(robust_gamma):
+    """In 1D, gamma modes match the robust kernel formula."""
+    params = {"w": jnp.array([1.0], dtype=jnp.float32)}
+    samples = jnp.array([[0.0], [1.0], [2.0], [3.0]], dtype=jnp.float32)
+    grads = {"w": jnp.array([2.0], dtype=jnp.float32)}
+
+    lam = 0.25
+    opt = scale_by_fisher_inverse(
+        _simple_log_psi,
+        damping=lam,
+        robust_gamma=robust_gamma,
+        spring_mu=None,
+    )
+    state = opt.init(params)
+    updates, _ = opt.update(grads, state, params, samples)
+    delta, _ = ravel_pytree(updates)
+
+    x = samples[:, 0]
+    centered_score = x - jnp.mean(x)
+    h = jnp.dot(centered_score, centered_score) / centered_score.shape[0]
+    g = grads["w"][0]
+    lam_array = jnp.asarray(lam, dtype=h.dtype)
+    F = h + lam_array
+    if robust_gamma is None:
+        gamma = 1.0 / lam_array
+    elif robust_gamma == "sqrt":
+        gamma = 1.0 / jnp.sqrt(lam_array)
+    else:
+        gamma = jnp.asarray(robust_gamma, dtype=h.dtype)
+    gamma = jnp.clip(
+        gamma,
+        min=jnp.minimum(1.0, 1.0 / lam_array),
+        max=jnp.maximum(1.0, 1.0 / lam_array),
+    )
+    G_h = gamma * (1.0 - h / F) + h * (1.0 - gamma * lam) / F**2
+
+    chex.assert_trees_all_close(delta[0], G_h * g, atol=1e-5)
 
 
 def test_spring_matches_analytic_formula_in_1d():
@@ -324,10 +370,12 @@ def test_spring_matches_analytic_formula_in_1d():
     p = mu * prev_delta[0]
 
     # Analytic SPRING formula in 1D derived from the kernel algorithm:
-    # delta = (g + p) * [1 - h/(h+lambda)] + g * h/(h+lambda)^2
-    G1 = 1.0 - h / (h + lam)
-    G2 = h / (h + lam) ** 2
-    delta_expected = (g + p) * G1 + g * G2
+    # delta = A - h/F * (A - (1 - gamma * lambda) * g/F)
+    # with A = gamma * g + p and F = h + lambda.
+    gamma = 1.0
+    F = h + lam
+    A = gamma * g + p
+    delta_expected = A - h / F * (A - (1.0 - gamma * lam) * g / F)
 
     chex.assert_trees_all_close(delta_num[0], delta_expected, atol=1e-5)
 
@@ -379,10 +427,12 @@ def test_march_matches_analytic_formula_in_1d(march_mode):
     # Analytic MARCH formula in 1D for fixed M^{-1} = m:
     # u_g = score (m g), u_p = score p, F_M = lambda I + m score score^T.
     # The kernel algorithm simplifies to:
-    #   delta = m g + p - m h/(lambda + m h) * (m g + p - m g/(lambda + m h))
-    A = m * g + p
-    B = m * g / (lam + m * h)
-    delta_expected = A - m * h / (lam + m * h) * (A - B)
+    #   delta = A - m h/F * (A - (1 - gamma lambda) m g/F)
+    gamma = 1.0
+    F = lam + m * h
+    A = gamma * m * g + p
+    B = (1.0 - gamma * lam) * m * g / F
+    delta_expected = A - m * h / F * (A - B)
 
     chex.assert_trees_all_close(delta_num[0], delta_expected, atol=1e-5)
 
@@ -445,8 +495,9 @@ def test_sr_score_in_axes_none():
         score_matrix.shape[0], dtype=score_matrix.dtype
     )
     w = jnp.linalg.solve(F, u_g)
-    z = jnp.linalg.solve(F, u_g - w)
-    delta_ref = g_flat - score_matrix.T @ z
+    gamma = 1.0
+    z = jnp.linalg.solve(F, gamma * u_g - (1.0 - gamma * lam) * w)
+    delta_ref = gamma * g_flat - score_matrix.T @ z
 
     chex.assert_trees_all_close(delta_num, delta_ref, atol=1e-5, rtol=1e-5)
 
@@ -501,8 +552,9 @@ def test_sr_score_norm_clip_matches_reference(complex):
         score_matrix.shape[0], dtype=score_matrix.dtype
     )
     w = jnp.linalg.solve(F, u_g)
-    z = jnp.linalg.solve(F, u_g - w)
-    delta_ref = g_flat - score_matrix.T @ z
+    gamma = 1.0
+    z = jnp.linalg.solve(F, gamma * u_g - (1.0 - gamma * lam) * w)
+    delta_ref = gamma * g_flat - score_matrix.T @ z
 
     # Sanity: ensure at least one row was clipped and at least one was not.
     assert (row_scale < 1.0).any()
@@ -1033,6 +1085,27 @@ def test_scale_by_constrained_norm_stability():
     g_norm = jnp.linalg.norm(g_flat)
     expected_scale = jnp.minimum(0.1, 1.0 / (g_norm + 1e-8))
     chex.assert_trees_all_close(t_flat, g_flat * expected_scale, atol=1e-12, rtol=1e-12)
+
+
+def test_robust_sr_fixed_max_norm_sets_update_norm():
+    """`max_norm='fixed'` uses the learning-rate schedule as the target norm."""
+    params, samples, grads = _setup_linear_case(n_batch=5, n_params=4, complex=False)
+    target_norm = 0.05
+
+    opt = robust_sr(
+        _simple_log_psi,
+        learning_rate=target_norm,
+        max_norm="fixed",
+        damping=1e-2,
+        robust_gamma=1.0,
+        spring_mu=None,
+        march_beta=None,
+    )
+    state = opt.init(params)
+    updates, _ = opt.update(grads, state, params, data=samples)
+    flat, _ = ravel_pytree(updates)
+
+    chex.assert_trees_all_close(jnp.linalg.norm(flat), target_norm, atol=1e-6)
 
 
 @pytest.mark.parametrize(

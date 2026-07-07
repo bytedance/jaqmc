@@ -5,7 +5,7 @@ import dataclasses
 from collections.abc import Callable, Sequence
 from enum import Enum
 from functools import partial, reduce
-from typing import Any, Literal, NamedTuple
+from typing import Any, Literal, NamedTuple, overload
 
 import jax
 import numpy as np
@@ -40,10 +40,12 @@ def get_preset_params(f32_dot: bool = False) -> dict:
         A dictionary of preset parameters.
     """
     params = dict(
+        max_norm="fixed",
         damping=1e-3,
         max_cond_num=1e7,
+        robust_gamma="sqrt",
         spring_mu=0.9,
-        march_beta=0.5,
+        march_beta=0.995,
         march_mode="var",
         eps=1e-8,
         mixed_precision=True,  # double precision is important in inversion
@@ -57,7 +59,7 @@ def get_preset_params(f32_dot: bool = False) -> dict:
         params.update(
             gram_num_chunks=16,  # This is necessary to have smaller numerical error
             gram_dot_prec="F32_HIGH",  # use single precision to speed up dot product
-            march_beta=0.8,  # larger beta might smooth out some numerical instability
+            march_beta=0.95,  # larger beta might smooth out some numerical instability
         )
     return params
 
@@ -66,9 +68,10 @@ def robust_sr(
     log_psi_fn: Callable,
     *,
     learning_rate: optax.ScalarOrSchedule = 1e-2,
-    max_norm: optax.ScalarOrSchedule | None = None,
+    max_norm: optax.ScalarOrSchedule | Literal["fixed"] | None = None,
     damping: optax.ScalarOrSchedule = 1e-3,
     max_cond_num: float | None = None,
+    robust_gamma: optax.ScalarOrSchedule | Literal["sqrt"] | None = None,
     spring_mu: optax.ScalarOrSchedule | None = None,
     march_beta: optax.ScalarOrSchedule | None = None,
     march_mode: Literal["diff", "var"] = "diff",
@@ -85,45 +88,56 @@ def robust_sr(
     """Robust SR optimizer using constrained-norm scaling via ``optax.chain``.
 
     Constructs an Optax transformation by chaining:
-      ``scale_by_fisher_inverse`` → ``scale_by_constrained_norm`` → ``scale(-1)``.
+        ``scale_by_fisher_inverse`` → ``scale_by_constrained_norm`` →
+        ``scale(-1)``.
 
     Args:
-        log_psi_fn: Callable ``log_psi_fn(params, sample) -> scalar`` used to build
-        the centered score matrix.
+        log_psi_fn: Callable ``log_psi_fn(params, sample) -> scalar`` used to
+            build the centered score matrix.
         learning_rate: Step size (scalar or schedule).
-        max_norm: Constrained update norm ``C`` (scalar or schedule). If ``None``,
-        only the learning-rate scaling is applied.
+        max_norm: Constrained update norm ``C`` (scalar or schedule). If
+            ``None``, only the learning-rate scaling is applied. If
+            ``'fixed'``, the update is normalized to have norm set by
+            ``learning_rate``.
         damping: Damping ``lambda`` (scalar or schedule).
-        max_cond_num: Maximum condition number for the gram matrix by tuning damping.
-        If ``None``, no adaptive damping is applied.
+        max_cond_num: Maximum condition number for the gram matrix by tuning
+            damping. If ``None``, no adaptive damping is applied.
+        robust_gamma: Gamma factor for the robust update (scalar or schedule).
+            If ``None`` (default), uses standard SR (``gamma = 1 / damping``).
+            If ``'sqrt'``, uses ``gamma = 1 / sqrt(damping)``. Values are
+            clipped between ``1`` and ``1 / damping``.
         spring_mu: Decay factor for the SPRING momentum accumulator (scalar or
-        schedule). If ``None``, no SPRING momentum is used.
+            schedule). If ``None``, no SPRING momentum is used.
         march_beta: Decay factor for the MARCH variance accumulator (scalar or
-        schedule). If ``None``, no MARCH metric is used.
+            schedule). If ``None``, no MARCH metric is used.
         march_mode: Mode for calculating the MARCH variance accumulator. Can be
-        'diff' (default, using update differences) or 'var' (using score variance
-        along sample axis).
+            'diff' (default, using update differences) or 'var' (using score
+            variance along sample axis).
         eps: Small numerical constant for numerical stability.
-        mixed_precision: Whether to use mixed precision for the gram factorization.
-        score_in_axes: Axes for score computation that will be passed to vmap when
-        computing the score matrix.
-        score_chunk_size: Chunk size for score computation. If ``None``, full-batch
-        score computation is used.
+        mixed_precision: Whether to use mixed precision for the gram
+            factorization.
+        score_in_axes: Axes for score computation that will be passed to vmap
+            when computing the score matrix.
+        score_chunk_size: Chunk size for score computation. If ``None``,
+            full-batch score computation is used.
         score_norm_clip: Optional clip value for the mean of absolute values of
-        each row of the score matrix. If ``None``, no clipping is applied.
+            each row of the score matrix. If ``None``, no clipping is applied.
         gram_num_chunks: Number of chunks for gram computation. If ``None``,
-        full-batch gram computation is used.
+            full-batch gram computation is used.
         gram_dot_prec: Precision for the gram matrix computation. If ``None``,
-        use the default (highest in dtype) precision.
+            use the default (highest in dtype) precision.
         axis_name: Axis name for multi-device mapping.
-        prune_inactive: Whether to structurally prune parameter leaves that do not
-        contribute to the linearized ``log_psi_fn`` for the current sample
-        shape. This reduces the width of the score matrix and the SR solve, but
-        keeps the optimizer state layout unchanged.
+        prune_inactive: Whether to structurally prune parameter leaves that do
+            not contribute to the linearized ``log_psi_fn`` for the current
+            sample shape. This reduces the width of the score matrix and the SR
+            solve, but keeps the optimizer state layout unchanged.
 
     Returns:
         An ``optax.GradientTransformationExtraArgs`` that supports
-        ``update(grads, state, params, data=...)``.
+        ``update(grads, state, params, data)``.
+
+    Raises:
+        ValueError: If ``max_norm`` is a string other than ``"fixed"``.
 
     Example:
         >>> from jax import numpy as jnp
@@ -151,6 +165,7 @@ def robust_sr(
         log_psi_fn,
         damping=damping,
         max_cond_num=max_cond_num,
+        robust_gamma=robust_gamma,
         spring_mu=spring_mu,
         march_beta=march_beta,
         march_mode=march_mode,
@@ -165,10 +180,21 @@ def robust_sr(
         prune_inactive=prune_inactive,
     )
 
-    # Constrained-norm scaling stage.
+    # Constrained-norm scaling stage. ``max_norm='fixed'`` reuses the clipped
+    # transform with a very large learning-rate cap and the user learning-rate
+    # schedule as the target update norm.
+    if isinstance(max_norm, str):
+        if max_norm != "fixed":
+            raise ValueError("max_norm must be None, a scalar/schedule, or 'fixed'.")
+        constrain_learning_rate = 1e8
+        constrain_max_norm = learning_rate
+    else:
+        constrain_learning_rate = learning_rate
+        constrain_max_norm = max_norm
+
     constrain = scale_by_constrained_norm(
-        learning_rate=learning_rate,
-        max_norm=max_norm,
+        learning_rate=constrain_learning_rate,
+        max_norm=constrain_max_norm,
         eps=eps,
     )
 
@@ -193,11 +219,12 @@ class FisherInverseState(NamedTuple):
     acc_var: Array
 
 
-def scale_by_fisher_inverse(
+def scale_by_fisher_inverse(  # noqa: C901
     log_psi_fn: Callable,
     *,
     damping: optax.ScalarOrSchedule = 1e-3,
     max_cond_num: float | None = None,
+    robust_gamma: optax.ScalarOrSchedule | Literal["sqrt"] | None = 1.0,
     spring_mu: optax.ScalarOrSchedule | None = None,
     march_beta: optax.ScalarOrSchedule | None = None,
     march_mode: Literal["diff", "var"] = "diff",
@@ -219,46 +246,56 @@ def scale_by_fisher_inverse(
     The update operates on the flattened gradient ``g`` (``tilde{delta}``) and
     uses the centered score matrix ``O`` built from ``log_psi_fn``:
 
-      * Robust SR (no SPRING, no MARCH):
+        * Robust SR (no SPRING, no MARCH):
 
-        delta_k = (g + p) - O^T z
+            delta_k = gamma g - O^T z
 
-        with p = 0 and
+            with
 
-          F = O O^T + lambda I
-          u_g = O g
-          w   = F^{-1} u_g
-          z   = F^{-1} (u_g - w)
+                F = O O^T + lambda I
+                u_g = O g
+                w   = F^{-1} u_g
+                z   = F^{-1} (gamma u_g - (1 - gamma lambda) w)
 
-      * Robust SPRING: same as above but with momentum
+        * Robust SPRING: same as above but with momentum
 
-          p = mu * delta_{k-1}
+            p = mu * delta_{k-1}
+            z = F^{-1} (gamma u_g + O p - (1 - gamma lambda) w)
+            delta_k = gamma g + p - O^T z
 
-      * Robust MARCH: additionally introduces a diagonal metric M based on an
-        exponential moving average of squared update differences (mode='diff')
-        or score variance along sample axis (mode='var'), using the
-        previous step statistics to build the metric for the current update.
+        * Robust MARCH: additionally introduces a diagonal metric M based on an
+            exponential moving average of squared update differences
+            (mode='diff') or score variance along sample axis (mode='var'),
+            using the previous step statistics to build the metric for the
+            current update.
 
     Args:
         log_psi_fn: Callable ``log_psi_fn(params, sample) -> scalar``.
         damping: Damping lambda (scalar or schedule).
-        max_cond_num: Maximum condition number for the gram matrix by tuning damping.
-            If ``None``, no adaptive damping is applied.
+        max_cond_num: Maximum condition number for the gram matrix by tuning
+            damping. If ``None``, no adaptive damping is applied.
+        robust_gamma: Gamma factor for the always-on robust update (scalar or
+            schedule). Defaults to ``1.0``. If ``None``, uses standard SR
+            (``gamma = 1 / damping``). If ``'sqrt'``, uses
+            ``gamma = 1 / sqrt(damping)``. Values are clipped between ``1`` and
+            ``1 / damping`` after any adaptive damping adjustment.
         spring_mu: Decay factor for the SPRING momentum accumulator (scalar or
             schedule). If ``None``, no SPRING momentum is used.
         march_beta: Decay factor for the MARCH variance accumulator (scalar or
-            schedule). If ``None``, no MARCH metric is used.Goo
+            schedule). If ``None``, no MARCH metric is used.
         march_mode: Mode for calculating the MARCH variance accumulator. Can be
-            'diff' (default, using update differences) or 'var' (using score variance
-            along sample axis). For 'var' mode, the acc_var is updated with current
-            score before it is used to calculate the scale.
+            'diff' (default, using update differences) or 'var' (using score
+            variance along sample axis). For 'var' mode, ``acc_var`` is
+            updated with current score before it is used to calculate the
+            scale.
         eps: Small numerical constant for numerical stability.
         mixed_precision: Whether to use mixed precision for the Cholesky
             factorization.
-        score_in_axes: Axes for score computation that will be passed to vmap when
-            computing the score matrix.
+        score_in_axes: Axes for score computation that will be passed to vmap
+            when computing the score matrix.
         score_chunk_size: Chunk size for the score matrix computation.
-            If ``None``, use vmap, otherwise use lax.map to reduce memory footprint.
+            If ``None``, use vmap, otherwise use lax.map to reduce memory
+            footprint.
         score_norm_clip: Optional clip value for the mean of absolute values of
             each row of the score matrix. If ``None``, no clipping is applied.
         gram_num_chunks: Number of chunks for the gram matrix computation.
@@ -268,17 +305,41 @@ def scale_by_fisher_inverse(
         axis_name: Axis name for multi-device mapping.
         prune_inactive: Whether to structurally prune parameter leaves that are
             inactive in the linearized ``log_psi_fn``. When enabled, the score
-            matrix and SR solve operate only on active leaves, while the optimizer
-            state remains full-sized for API compatibility.
+            matrix and SR solve operate only on active leaves, while the
+            optimizer state remains full-sized for API compatibility.
 
     Returns:
         An ``optax.GradientTransformationExtraArgs`` taking ``(params, data)``.
+
+    Raises:
+        ValueError: If ``robust_gamma`` is an unsupported string value, or if
+            ``prune_inactive=True`` removes every parameter leaf for the
+            current input signature.
     """
+    if isinstance(robust_gamma, str) and robust_gamma != "sqrt":
+        raise ValueError("robust_gamma must be None, 'sqrt', a scalar, or a schedule.")
+
     grad_log_psi = adaptive_grad(log_psi_fn, argnums=0)
 
-    get_damping = ensure_schedule(damping)
-    get_mu = ensure_schedule(spring_mu)
-    get_beta = ensure_schedule(march_beta)
+    get_damping = ensure_schedule(damping, default=0.0)
+    get_mu = ensure_schedule(spring_mu, default=0.0)
+    get_beta = ensure_schedule(march_beta, default=0.0)
+
+    def limit_gamma(gamma, lam):
+        b1, b2 = 1.0, 1.0 / jnp.maximum(lam, eps)
+        bmin, bmax = jnp.minimum(b1, b2), jnp.maximum(b1, b2)
+        return jnp.clip(gamma, bmin, bmax)
+
+    def get_gamma(step, lam):
+        if callable(robust_gamma):
+            gamma = robust_gamma(step)
+        elif robust_gamma is None:
+            gamma = 1.0 / jnp.maximum(lam, eps)
+        elif isinstance(robust_gamma, str) and robust_gamma == "sqrt":
+            gamma = lax.rsqrt(jnp.maximum(lam, eps))
+        else:
+            gamma = robust_gamma
+        return limit_gamma(gamma, lam)
 
     paxis = PAxis(axis_name)
 
@@ -292,24 +353,19 @@ def scale_by_fisher_inverse(
         """Apply robust Fisher preconditioning.
 
         Args:
-          grads: Pytree of raw gradients ``tilde{delta}``.
-          state: ``FisherInverseState``.
-          params: Parameter pytree.
-          data: Monte Carlo samples; a pytree whose leaves have leading
-            dimension ``n_batch``.
+            grads: Pytree of raw gradients ``tilde{delta}``.
+            state: ``FisherInverseState``.
+            params: Parameter pytree.
+            data: Monte Carlo samples; a pytree whose leaves have leading
+                dimension ``n_batch``.
 
         Returns:
-          Tuple of preconditioned updates and the new optimizer state.
+            Tuple of preconditioned updates and the new optimizer state.
 
         Raises:
-          ValueError: If structural pruning removes every parameter leaf.
+            ValueError: If structural pruning removes every parameter leaf.
         """
         count, prev_delta, acc_var = state
-
-        # Schedules for this step.
-        lam = get_damping(count) if get_damping is not None else 0.0
-        mu = get_mu(count) if get_mu is not None else 0.0
-        beta = get_beta(count) if get_beta is not None else 0.0
 
         # Flatten gradient.
         grad_flat, unravel_fn = ravel_pytree(grads)
@@ -371,9 +427,11 @@ def scale_by_fisher_inverse(
         score /= n_batch**0.5
 
         # Momentum term p = mu * delta_{k-1}.
+        mu = get_mu(count)
         momentum = mu * prev_delta if spring_mu is not None else 0.0
         momentum_active = get_idx(momentum, active_idx)
 
+        beta = get_beta(count)
         # Update acc_var first for 'var' mode before calculating scale
         if march_beta is not None and march_mode == "var":
             score_var = paxis.psum(jnp.sum((score * score.conj()).real, axis=0))
@@ -383,7 +441,6 @@ def scale_by_fisher_inverse(
             acc_var_updated = beta * acc_var_active + (1.0 - beta) * score_var
             acc_var_active = jnp.where(var_mask, acc_var_updated, acc_var_active)
             acc_var = set_idx(acc_var, active_idx, acc_var_active)
-
         # Spring/SR => scale = 1, MARCH => learned scale.
         scale = jax.lax.rsqrt(acc_var + eps) if march_beta is not None else 1.0
         scale_active = get_idx(scale, active_idx)
@@ -416,19 +473,27 @@ def scale_by_fisher_inverse(
                 axis_name=axis_name,
             )
             gram = lift_null_space(gram, n_batch, n_device)
+
+            # handle damping and robust gamma
+            lam = jnp.asarray(get_damping(count))
             if max_cond_num is not None:
                 lam = jnp.maximum(lam, estimate_required_damping(gram, max_cond_num))
+            gamma = get_gamma(count, lam)
             gram = gram + lam * jnp.eye(gram.shape[0])
 
             # inversion is done with cho_solve
             chol = jsp.linalg.cho_factor(gram)
             w = jsp.linalg.cho_solve(chol, u_g)
-            z = jsp.linalg.cho_solve(chol, u_g + u_p - w).astype(grad_flat.dtype)
+            z = jsp.linalg.cho_solve(
+                chol,
+                gamma * u_g + u_p - (1.0 - gamma * lam) * w,
+            ).astype(grad_flat.dtype)
+            gamma = gamma.astype(grad_flat.dtype)
 
         # Final update
         otz = paxis.psum(score.T @ paxis.pscatter(z, axis=0, tiled=True))
-        delta_active = scaled_grad_active + momentum_active - scale_active * otz
-        delta = set_idx(scaled_grad + momentum, active_idx, delta_active)
+        delta_active = gamma * scaled_grad_active + momentum_active - scale_active * otz
+        delta = set_idx(gamma * scaled_grad + momentum, active_idx, delta_active)
 
         # Update variance accumulator for 'diff' mode
         if march_beta is not None and march_mode == "diff":
@@ -647,12 +712,12 @@ def scale_by_constrained_norm(
     """Scale updates by a constrained norm with optional schedules.
 
     Implements the rule:
-      ``update = grad * min(eta_t, C_t / ||grad||)``
+        ``update = grad * min(eta_t, C_t / ||grad||)``
 
     Args:
         learning_rate: Step size ``eta`` (scalar or schedule).
-        max_norm: Constraint ``C`` (scalar or schedule). If ``None``, scales only
-        by the learning rate schedule (unconstrained).
+        max_norm: Constraint ``C`` (scalar or schedule). If ``None``, scales
+            only by the learning rate schedule (unconstrained).
         eps: Small constant for numerical stability.
 
     Returns:
@@ -716,7 +781,19 @@ def dot_with_precision(a, b, precision: Precision):
         return jnp.dot(a, b, precision=lax.Precision(precision.value))
 
 
-def ensure_schedule(value: float | optax.ScalarOrSchedule | None):
+@overload
+def ensure_schedule(value: None, default: None) -> None: ...
+@overload
+def ensure_schedule(
+    value: float | optax.ScalarOrSchedule, default: float | None = None
+) -> Callable[[int], float]: ...
+@overload
+def ensure_schedule(
+    value: float | optax.ScalarOrSchedule | None, default: float
+) -> Callable[[int], float]: ...
+def ensure_schedule(
+    value: float | optax.ScalarOrSchedule | None, default: float | None = None
+) -> Callable[[int], float] | None:
     """Convert a scalar or schedule into a callable schedule.
 
     None is passed through and should be handled by the caller.
@@ -724,11 +801,13 @@ def ensure_schedule(value: float | optax.ScalarOrSchedule | None):
     Returns:
       ``None`` or a callable ``schedule(step)``.
     """
-    if value is None:
-        return None
     if callable(value):
         return value
-    return lambda step: value
+    if value is None:
+        if default is None:
+            return None
+        return lambda _: default
+    return lambda _: value
 
 
 def normalize_masked(
@@ -869,7 +948,7 @@ def active_leaf_indices(params, active_leaf_mask):
     active_idx = []
     start = 0
     for leaf, is_active in zip(flat_params, flat_mask):
-        leaf_size = int(np.prod(leaf.shape, dtype=np.int64))
+        leaf_size = int(np.prod(leaf.shape))
         if is_active:
             active_idx.extend(range(start, start + leaf_size))
         start += leaf_size
