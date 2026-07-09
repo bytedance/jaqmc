@@ -103,6 +103,13 @@ class SolidTrainWorkflow(VMCWorkflow):
     def run(self) -> None:
         self.scf.run()
         self.wf.klist = self.scf.get_orbital_kpoints()
+        logger.info(
+            "Using following k-points:\n%s",
+            "\n".join(
+                f"{alpha=}, {beta=}: {np.asarray(kpt).tolist()}"
+                for kpt, alpha, beta in self.scf.get_kpoint_occupancies()
+            ),
+        )
         super().run()
 
 
@@ -129,6 +136,13 @@ class SolidEvalWorkflow(EvaluationWorkflow):
     def run(self) -> None:
         self.scf.run()
         self.wf.klist = self.scf.get_orbital_kpoints()
+        logger.info(
+            "Using following k-points:\n%s",
+            "\n".join(
+                f"{alpha=}, {beta=}: {np.asarray(kpt).tolist()}"
+                for kpt, alpha, beta in self.scf.get_kpoint_occupancies()
+            ),
+        )
         super().run()
 
 

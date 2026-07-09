@@ -687,13 +687,10 @@ class PeriodicSCF:
         if self._mo_coeff is None:
             raise RuntimeError("Mean-field calculation has not been run.")
 
-        alpha_coeffs, beta_coeffs = self._mo_coeff
+        occupancies = self.get_kpoint_occupancies()
         kpts = self.kpts
-
-        # Count occupied orbitals per k-point for each spin
-        # coeff.shape[1] is the number of occupied orbitals at that k-point
-        alpha_counts = jnp.array([c.shape[1] for c in alpha_coeffs])
-        beta_counts = jnp.array([c.shape[1] for c in beta_coeffs])
+        alpha_counts = jnp.array([alpha for _, alpha, _ in occupancies])
+        beta_counts = jnp.array([beta for _, _, beta in occupancies])
 
         # Build k-point indices by repeating each k-index by its orbital count
         # e.g., counts=[1,2,1] -> indices=[0,1,1,2]
@@ -702,3 +699,18 @@ class PeriodicSCF:
         beta_indices = jnp.repeat(k_indices, beta_counts)
 
         return jnp.concatenate([kpts[alpha_indices], kpts[beta_indices]])
+
+    def get_kpoint_occupancies(self) -> list[tuple[jnp.ndarray, int, int]]:
+        """Return occupied alpha and beta orbital counts for each k-point.
+
+        Raises:
+            RuntimeError: If Hartree-Fock calculation has not been performed.
+        """
+        if self._mo_coeff is None:
+            raise RuntimeError("Mean-field calculation has not been run.")
+
+        alpha_coeffs, beta_coeffs = self._mo_coeff
+        return [
+            (self.kpts[k], alpha_coeffs[k].shape[1], beta_coeffs[k].shape[1])
+            for k in range(len(self.kpts))
+        ]

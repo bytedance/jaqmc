@@ -167,11 +167,13 @@ def test_get_orbital_kpoints_h2_supercell():
     pbc_scf.run()
 
     orbital_kpts = pbc_scf.get_orbital_kpoints()
+    occupancies = pbc_scf.get_kpoint_occupancies()
 
     # Should have 4 orbitals total: 2 alpha + 2 beta
     assert orbital_kpts.shape == (4, 3), (
         f"Expected shape (4, 3), got {orbital_kpts.shape}"
     )
+    assert len(occupancies) == len(kpts)
 
     # First 2 rows should be alpha orbitals (k0, k1)
     # Last 2 rows should be beta orbitals (k0, k1)
@@ -181,6 +183,11 @@ def test_get_orbital_kpoints_h2_supercell():
     np.testing.assert_allclose(
         orbital_kpts[2:], kpts, atol=1e-10, err_msg="Beta k-points mismatch"
     )
+    for occupancy, kpt in zip(occupancies, kpts, strict=True):
+        occupancy_kpt, alpha_count, beta_count = occupancy
+        np.testing.assert_allclose(occupancy_kpt, kpt, atol=1e-10)
+        assert alpha_count == 1
+        assert beta_count == 1
 
 
 def test_molecular_scf_accepts_mixed_pseudopotential_atoms():
