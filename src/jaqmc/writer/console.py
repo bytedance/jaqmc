@@ -91,8 +91,9 @@ class ConsoleWriter(Writer):
     interval: int = 1
     fields: str = "loss"
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self.fields_specs = [FieldSpec.parse(f.strip()) for f in self.fields.split(",")]
+        self._warned_missing_fields: set[str] = set()
 
     @contextmanager
     def open(self, working_dir, stage_name, initial_step: int = 0):
@@ -108,8 +109,21 @@ class ConsoleWriter(Writer):
             values[k] = self.to_scalar(v)
 
         final_parts = [f"step={step}"]
+        missing_fields: set[str] = set()
+
         for spec in self.fields_specs:
             if spec.key in values:
                 val = values[spec.key]
                 final_parts.append(f"{spec.display_name}={val:{spec.fmt or '.4f'}}")
+            elif spec.key not in self._warned_missing_fields:
+                missing_fields.add(spec.key)
+
+        if missing_fields:
+            available = ", ".join(sorted(values))
+            self.logger.warning(
+                "Console fields %s are not present in stats. Available fields: %s",
+                missing_fields,
+                available,
+            )
+            self._warned_missing_fields.update(missing_fields)
         self.logger.info(", ".join(final_parts))
