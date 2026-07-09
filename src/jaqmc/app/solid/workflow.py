@@ -44,7 +44,7 @@ class SolidTrainWorkflow(VMCWorkflow):
     @classmethod
     def default_preset(cls) -> dict[str, Any]:
         console_fields = (
-            "pmove:.2f,energy=total_energy:.4f,variance=total_energy_var:.4f"
+            "pmove:.2f,energy=total_energy:.4f,variance=total_energy_real_var:.4f"
         )
         return {
             "pretrain": {
