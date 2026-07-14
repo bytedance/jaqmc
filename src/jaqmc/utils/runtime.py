@@ -65,8 +65,11 @@ class JaxConfig:
     """Configuration for JAX global runtime flags.
 
     Args:
-        enable_x64: Enable 64-bit types to be used.
-            Note that neural networks parameters in Flax will stay float32 by default.
+        enable_x64: Enable 64-bit types for JAX arrays that request them. Does not
+            upgrade existing parameters. In JaQMC wavefunctions (Flax modules), layer
+            weights stay ``float32`` by default and direct ``self.param`` calls use
+            ``float32`` by convention, so parameters remain ``float32`` even when
+            ``enable_x64=true``.
         debug_infs: Add inf checks to every operation.
             When an inf is detected on the output of a jit-compiled computation, call
             into the un-compiled version in an attempt to more precisely identify the

@@ -37,7 +37,7 @@ class SphericalJastrow(nn.Module):
         )
 
         if r_ees_parallel.shape[0] > 0:
-            alpha_par = self.param("ee_par", nn.initializers.ones, (1,))
+            alpha_par = self.param("ee_par", nn.initializers.ones, (1,), jnp.float32)
             jastrow_ee_par = jnp.sum(
                 -(0.25 * alpha_par**2) / (alpha_par + r_ees_parallel)
             )
@@ -45,7 +45,7 @@ class SphericalJastrow(nn.Module):
             jastrow_ee_par = jnp.asarray(0.0)
 
         if r_ees[0][1].shape[0] > 0:
-            alpha_anti = self.param("ee_anti", nn.initializers.ones, (1,))
+            alpha_anti = self.param("ee_anti", nn.initializers.ones, (1,), jnp.float32)
             jastrow_ee_anti = jnp.sum(
                 -(0.5 * alpha_anti**2) / (alpha_anti + r_ees[0][1])
             )

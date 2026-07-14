@@ -58,7 +58,7 @@ class SimpleEEJastrow(nn.Module):
         n_up, n_down = self.nspins
 
         # Learnable decay parameters (initialized to alpha_init)
-        alpha_initializer = nn.initializers.constant(self.alpha_init)
+        alpha_initializer = nn.initializers.constant(self.alpha_init, dtype=jnp.float32)
         alpha_par = self.param("alpha_par", alpha_initializer, (1,))
         alpha_anti = self.param("alpha_anti", alpha_initializer, (1,))
 

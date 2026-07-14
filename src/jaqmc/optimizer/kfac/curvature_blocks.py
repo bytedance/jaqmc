@@ -17,9 +17,33 @@ support complex numbers.
 
 from math import prod
 from string import ascii_lowercase
+from typing import cast
 
 import kfac_jax
 from jax import numpy as jnp
+
+
+def _update_factor(
+    factor: kfac_jax.utils.WeightedMovingAverage,
+    value: kfac_jax.utils.Array,
+    ema_old: kfac_jax.utils.Numeric,
+    ema_new: kfac_jax.utils.Numeric,
+):
+    """Update a KFAC moving average while preserving its state dtype.
+
+    KFAC initializes curvature factor state from parameter dtypes.  With x64
+    enabled, activations and tangents can produce float64 curvature estimates
+    for float32 parameter blocks, so the update is cast at the accumulator
+    boundary to keep JAX control-flow branch types stable.
+    """
+    assert factor.value is not None
+    factor_value = cast(kfac_jax.utils.Array, factor.value)
+    factor_weight = jnp.asarray(factor.weight)
+
+    value = jnp.asarray(value, dtype=factor_value.dtype)
+    ema_old = jnp.asarray(ema_old, dtype=factor_weight.dtype)
+    ema_new = jnp.asarray(ema_new, dtype=factor_weight.dtype)
+    factor.update(value, ema_old, ema_new)
 
 
 class RepeatedDenseBlock(kfac_jax.DenseTwoKroneckerFactored):
@@ -111,8 +135,8 @@ class RepeatedDenseBlock(kfac_jax.DenseTwoKroneckerFactored):
         input_stats = jnp.einsum("ay,az->yz", x, x) / batch_size
         output_stats = jnp.einsum("ay,az->yz", dy.conj(), dy).real / batch_size
 
-        state.factors[0].update(input_stats, ema_old, ema_new)
-        state.factors[1].update(output_stats, ema_old, ema_new)
+        _update_factor(state.factors[0], input_stats, ema_old, ema_new)
+        _update_factor(state.factors[1], output_stats, ema_old, ema_new)
 
         return state
 
@@ -147,8 +171,8 @@ class DenseTwoKroneckerFactored(kfac_jax.DenseTwoKroneckerFactored):
         # Take care of complex numbers
         output_stats = jnp.einsum("ay,az->yz", dy.conj(), dy).real / batch_size
 
-        state.factors[0].update(input_stats, ema_old, ema_new)
-        state.factors[1].update(output_stats, ema_old, ema_new)
+        _update_factor(state.factors[0], input_stats, ema_old, ema_new)
+        _update_factor(state.factors[1], output_stats, ema_old, ema_new)
 
         return state
 
@@ -169,7 +193,9 @@ class NaiveDiagonal(kfac_jax.NaiveDiagonal):
 
         for factor, dw in zip(state.diagonal_factors, estimation_data.tangents.params):
             # Take care of complex numbers
-            factor.update(jnp.real(dw.conj() * dw) / batch_size, ema_old, ema_new)
+            _update_factor(
+                factor, jnp.real(dw.conj() * dw) / batch_size, ema_old, ema_new
+            )
 
         return state
 
@@ -214,7 +240,9 @@ class ScaleAndShiftDiagonal(kfac_jax.ScaleAndShiftDiagonal):
                 / batch_size
             )
 
-            state.diagonal_factors[0].update(scale_diag_update, ema_old, ema_new)
+            _update_factor(
+                state.diagonal_factors[0], scale_diag_update, ema_old, ema_new
+            )
 
         if self.has_shift:
             shift_shape = estimation_data.primals.params[-1].shape
@@ -232,7 +260,9 @@ class ScaleAndShiftDiagonal(kfac_jax.ScaleAndShiftDiagonal):
                 / batch_size
             )
 
-            state.diagonal_factors[-1].update(shift_diag_update, ema_old, ema_new)
+            _update_factor(
+                state.diagonal_factors[-1], shift_diag_update, ema_old, ema_new
+            )
 
         return state
 
