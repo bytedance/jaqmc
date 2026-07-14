@@ -131,8 +131,8 @@ class _IsotropicEnvelope(nn.Module):
     def __call__(self, ae_vectors: Array, r_ae: Array) -> Array:
         _, n_atoms = r_ae.shape
         shape = (self.n_orbitals, n_atoms, self.ndets)
-        pi = self.param("pi", nn.initializers.ones, shape)
-        sigma = self.param("sigma", nn.initializers.ones, shape)
+        pi = self.param("pi", nn.initializers.ones, shape, jnp.float32)
+        sigma = self.param("sigma", nn.initializers.ones, shape, jnp.float32)
 
         r = r_ae[:, None, :, None]
         exponent = -jnp.abs(sigma * r) if self.is_abs else sigma * -r
@@ -152,8 +152,8 @@ class _DiagonalEnvelope(nn.Module):
         ndim_feat = ae_vectors.shape[-1]
         pi_shape = (self.n_orbitals, n_atoms, self.ndets)
         sigma_shape = (self.n_orbitals, n_atoms, ndim_feat, self.ndets)
-        pi = self.param("pi", nn.initializers.ones, pi_shape)
-        sigma = self.param("sigma", nn.initializers.ones, sigma_shape)
+        pi = self.param("pi", nn.initializers.ones, pi_shape, jnp.float32)
+        sigma = self.param("sigma", nn.initializers.ones, sigma_shape, jnp.float32)
 
         # ae_vectors: (n_elec, n_atoms, ndim_feat) -> (n_elec, 1, n_atoms, ndim_feat, 1)
         ae_expanded = ae_vectors[:, None, :, :, None]

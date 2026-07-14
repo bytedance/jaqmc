@@ -5,6 +5,7 @@
 
 import jax
 import jax.numpy as jnp
+import pytest
 
 from jaqmc.wavefunction.jastrow import SimpleEEJastrow, _cusp_function
 
@@ -44,6 +45,14 @@ class TestCuspFunction:
 
 class TestSimpleEEJastrow:
     """Tests for SimpleEEJastrow module."""
+
+    @pytest.mark.x64_modes
+    def test_parameters_are_float32(self, x64_mode):
+        input_dtype = jnp.float64 if x64_mode else jnp.float32
+        r_ee = jnp.zeros((2, 2), dtype=input_dtype)
+        params = SimpleEEJastrow(nspins=(1, 1)).init(jax.random.PRNGKey(0), r_ee)
+
+        assert all(param.dtype == jnp.float32 for param in jax.tree.leaves(params))
 
     def test_jastrow_cusp_derivative_parallel_spins(self):
         """Test Jastrow provides correct cusp for parallel spins (dJ/dr = 0.25)."""

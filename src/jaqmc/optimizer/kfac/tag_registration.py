@@ -19,7 +19,9 @@ import numpy as np
 
 
 def _flax_dense(
-    x: kfac_jax.utils.Array, params: Sequence[kfac_jax.utils.Array], axes: int
+    x: kfac_jax.utils.Array,
+    params: Sequence[kfac_jax.utils.Array],
+    axes: int,
 ) -> kfac_jax.utils.Array:
     """Example of a dense layer function.
 
@@ -40,10 +42,13 @@ def _flax_dense(
     )
     match params:
         case [w, b]:
+            w = w.astype(x.dtype)
+            b = b.astype(x.dtype)
             y = jax.lax.dot_general(x, w, (dimensions_in, ((), ())))
             # This reshape is required to match flax dense layer
             return y + b.reshape((1, *b.shape))
         case [w]:
+            w = w.astype(x.dtype)
             return jax.lax.dot_general(x, w, (dimensions_in, ((), ())))
         case _:
             raise ValueError("Unsupported parameters list")
@@ -80,38 +85,95 @@ def _make_flax_dense_pattern(
         parameters_extractor_func=functools.partial(
             kfac_jax.tag_graph_matcher._dense_parameter_extractor, variant=variant
         ),
-        example_args=[np.zeros(x_shape), [np.zeros(s) for s in p_shapes]],
+        example_args=[
+            np.zeros(x_shape),
+            [np.zeros(s, dtype=np.float32) for s in p_shapes],
+        ],
     )
 
 
-def _make_scalar_scale_pattern() -> kfac_jax.tag_graph_matcher.GraphPattern:
-    """Scale pattern for scalar (rank-0) parameters.
+def _scale_and_shift(
+    x: kfac_jax.utils.Array,
+    params: Sequence[kfac_jax.utils.Array],
+    has_scale: bool,
+    has_shift: bool,
+) -> kfac_jax.utils.Array:
+    if has_scale and has_shift:
+        scale, shift = params
+        return x * scale.astype(x.dtype) + shift.astype(x.dtype)
+    elif has_scale:
+        [scale] = params
+        return x * scale.astype(x.dtype)
+    elif has_shift:
+        [shift] = params
+        return x + shift.astype(x.dtype)
+    else:
+        raise ValueError("You must have either `has_scale` or `has_shift` set to True.")
 
-    KFAC-JAX's built-in scale patterns only cover rank >= 1.  This pattern
-    matches ``x * scale`` where both operands are scalars, enabling KFAC to
-    recognise scalar variational parameters (e.g. a single exponent alpha).
+
+def _make_scalar_scale_pattern(
+    x_ndim: int, has_scale: bool, has_shift: bool
+) -> kfac_jax.tag_graph_matcher.GraphPattern:
+    """Build a scale/shift pattern that handles mixed parameter dtypes.
 
     Returns:
-        A ``GraphPattern`` matching scalar multiplication.
+        A KFAC graph pattern for the requested broadcast rank and operations.
+
+    Raises:
+        ValueError: If neither scaling nor shifting is requested.
     """
+    assert x_ndim >= 0
+    assert has_scale or has_shift
+
+    x_shape = [i + 2 for i in range(x_ndim)]
+    p_shapes = (
+        [x_shape[-1:], x_shape[-1:]] if (has_scale and has_shift) else [x_shape[-1:]]
+    )
+
+    if has_scale and has_shift:
+        name = f"scale_and_shift_broadcast_{x_ndim}"
+    elif has_scale:
+        name = f"scale_only_broadcast_{x_ndim}"
+    elif has_shift:
+        name = f"shift_only_broadcast_{x_ndim}"
+    else:
+        raise ValueError("Unreachable.")
+
+    return kfac_jax.tag_graph_matcher.GraphPattern(
+        name=name,
+        tag_primitive=kfac_jax.layers_and_loss_tags.layer_tag,
+        compute_func=functools.partial(
+            _scale_and_shift, has_scale=has_scale, has_shift=has_shift
+        ),
+        parameters_extractor_func=kfac_jax.tag_graph_matcher._scale_and_shift_parameter_extractor,
+        example_args=[
+            np.zeros(x_shape),
+            [np.zeros(s, dtype=np.float32) for s in p_shapes],
+        ],
+    )
     # noinspection PyProtectedMember
     return kfac_jax.tag_graph_matcher.GraphPattern(
         name="scalar_scale",
         tag_primitive=kfac_jax.layers_and_loss_tags.layer_tag,
         compute_func=functools.partial(
-            kfac_jax.tag_graph_matcher._scale_and_shift,
-            has_scale=True,
-            has_shift=False,
+            _scale_and_shift, has_scale=True, has_shift=False
         ),
         parameters_extractor_func=kfac_jax.tag_graph_matcher._scale_and_shift_parameter_extractor,
-        example_args=[np.zeros(()), [np.zeros(())]],
+        example_args=[
+            np.zeros(()),
+            [np.zeros((), dtype=np.float32)],
+        ],
     )
 
 
 def make_graph_patterns():
     return (
-        _make_scalar_scale_pattern(),
-        *tuple(
+        tuple(
+            _make_scalar_scale_pattern(x_ndim, has_scale, has_shift)
+            for x_ndim in (0, 1, 2)
+            for has_scale, has_shift in [(True, True), (True, False), (False, True)]
+        )
+        + tuple(
             _make_flax_dense_pattern(
                 with_bias=with_bias,
                 num_repeated_axes=repeat,
@@ -121,6 +183,6 @@ def make_graph_patterns():
             for with_bias, repeat, n_ins, n_outs in itertools.product(
                 (True, False), range(3), range(1, 3), range(1, 3)
             )
-        ),
-        *kfac_jax.tag_graph_matcher.DEFAULT_GRAPH_PATTERNS,
+        )
+        + kfac_jax.tag_graph_matcher.DEFAULT_GRAPH_PATTERNS
     )

@@ -32,6 +32,12 @@ KFAC is the default optimizer, so no configuration change is needed. The key tun
 - `damping` (default `1e-3`) - regularization added to the curvature matrix.
 - `norm_constraint` (default `1e-3`) - scales the update down so that its approximate squared Fisher norm is at most this value.
 
+JaQMC's KFAC tags cover parameters and inputs that share the same dtype, as
+well as the common mixed case where `float32` parameters receive `float64`
+inputs or produce `float64` values. Other dtype combinations may need
+additional validation. Check that graph registration matches the `float32`
+case before relying on them.
+
 See the [configuration reference](#train-optim) for all KFAC options.
 
 ### Stochastic Reconfiguration (SR)
@@ -99,7 +105,7 @@ The optimizer controls how gradients are *applied*. Gradient *estimation*, inclu
 
 ## See Also
 
-- **Configuration:** [Molecule](#train-optim), [Solid](#solid-train-optim), [Hall](#hall-train-optim)
+- **Configuration:** {ref}`Molecule <train-optim>`, {ref}`Solid <solid-train-optim>`, {ref}`Hall <hall-train-optim>`
 - **Extending:** <project:/extending/custom-components/optimizers.md>
 - **API reference:** <project:/api-reference/optimizers.md>
 

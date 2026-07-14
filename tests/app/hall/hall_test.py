@@ -231,6 +231,14 @@ class TestPenalizedLoss:
 class TestSphericalJastrow:
     """SphericalJastrow: symmetric under same-spin swaps."""
 
+    @pytest.mark.x64_modes
+    def test_parameters_are_float32(self, x64_mode):
+        input_dtype = jnp.float64 if x64_mode else jnp.float32
+        electrons = _sample(jax.random.PRNGKey(0), 1, 3)[0].astype(input_dtype)
+        params = SphericalJastrow(nspins=(2, 1)).init(jax.random.PRNGKey(1), electrons)
+
+        assert all(param.dtype == jnp.float32 for param in jax.tree.leaves(params))
+
     def test_all_same_spin(self):
         """All electrons same spin: parallel pairs only, no antiparallel."""
         jastrow = SphericalJastrow(nspins=(3, 0))

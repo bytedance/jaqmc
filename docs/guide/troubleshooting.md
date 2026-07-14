@@ -30,6 +30,10 @@ By default, VMC training stops when `loss` becomes NaN
 - If only rare rows spike while most rows are finite, treat it as a local-energy
   tail problem rather than a generic optimizer failure. See
   [Rare Spikes or Heavy Energy Tails](#rare-spikes-or-heavy-energy-tails).
+- Try `jax.enable_x64=true` to check whether the issue is sensitive to
+  numerical precision by enabling `float64`. Note that model parameters remain
+  `float32` by default, but wavefunction inputs and values, determinant
+  calculations, and similar computations are still affected.
 
 If this started after adding custom code, check shapes early. Custom component
 shape bugs often show up first as NaNs or other errors; see

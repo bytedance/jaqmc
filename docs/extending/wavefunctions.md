@@ -65,7 +65,9 @@ Minimal example:
 class MyWF(Wavefunction[MyData, jnp.ndarray]):
     @nn.compact
     def __call__(self, data: MyData) -> jnp.ndarray:
-        alpha = self.param("alpha", lambda *_: jnp.array(0.0))
+        alpha = self.param(
+            "alpha", nn.initializers.constant(0.0, dtype=jnp.float32), ()
+        )
         return alpha * jnp.linalg.norm(data.electrons)
 
 wf = MyWF()
@@ -73,6 +75,14 @@ params = wf.init_params(data, rngs)
 value = wf.evaluate(params, data)           # framework contract
 value2 = wf.apply(params, data)             # equivalent low-level Flax call
 ```
+
+The explicit `float32` dtype on `alpha` keeps its dtype consistent with other
+Flax-provided layers such as `nn.Dense`.
+Direct `self.param` calls without an explicit dtype can create `float64`
+parameters even when nearby Flax layer weights remain `float32`.
+Non-`float32` parameters are not inherently a problem, but they need extra care
+when you use KFAC, the default optimizer. Before relying on them, check that
+KFAC graph registration matches the `float32` case.
 
 ### Structured Return Types
 
