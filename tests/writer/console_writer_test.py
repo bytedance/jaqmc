@@ -1,6 +1,10 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+import logging
+
+import pytest
+
 from jaqmc.writer.console import ConsoleWriter
 
 
@@ -71,3 +75,23 @@ def test_console_writer_interval(mocker):
 
         writer.write(10, {"loss": 1.0})
         mock_logger.info.assert_called()
+
+
+def test_console_writer_warns_once_for_missing_field(
+    caplog: pytest.LogCaptureFixture,
+):
+    caplog.set_level(logging.WARNING, logger="jaqmc.writer.console")
+    writer = ConsoleWriter(interval=1, fields="loss, variance=missing_var")
+
+    with writer.open(None, "test"):
+        writer.write(1, {"loss": 1.0})
+        writer.write(2, {"loss": 2.0})
+
+    warnings = [
+        record
+        for record in caplog.records
+        if record.name == "jaqmc.writer.console"
+        and "missing_var" in record.getMessage()
+    ]
+    assert len(warnings) == 1
+    assert "Available fields: loss, step" in warnings[0].getMessage()
