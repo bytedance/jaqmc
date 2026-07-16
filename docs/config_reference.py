@@ -13,30 +13,46 @@ Usage in MyST markdown::
     ```{eval-rst}
     .. config-defaults:: jaqmc.optimizer.kfac.kfac.KFACOptimizer
        :prefix: train.optim
+       :scope: KFAC
     ```
 
 Each field renders as a compact stacked row showing the key, effective
 default, type, and a short description.
 """
 
+from __future__ import annotations
+
 import enum
 import importlib
 import inspect
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import MISSING, dataclass, is_dataclass
 from dataclasses import fields as dc_fields
-from typing import Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import serde
 from docutils import nodes
 from docutils.parsers.rst import directives
 from sphinx.application import Sphinx
+from sphinx.domains import Domain, ObjType
 from sphinx.ext.napoleon.docstring import GoogleDocstring
+from sphinx.locale import _, __
+from sphinx.roles import XRefRole
+from sphinx.util import logging
 from sphinx.util.docutils import SphinxDirective
+from sphinx.util.nodes import make_refnode
 
 from jaqmc.utils.module_resolver import resolve_object
 from jaqmc.utils.yaml_format import dump_yaml
+
+if TYPE_CHECKING:
+    from docutils.nodes import Element
+    from sphinx.addnodes import pending_xref
+    from sphinx.builders import Builder
+    from sphinx.environment import BuildEnvironment
+
+logger = logging.getLogger(__name__)
 
 _NO_OVERRIDE = object()
 _OptionSpec = dict[str, Callable[[str], Any]]
@@ -59,7 +75,7 @@ class ConfigDefaultEntry:
     default_block_str: str | None = None
     type_str: str | None = None
     description: str | None = None
-    children: list["ConfigDefaultEntry"] | None = None
+    children: list[ConfigDefaultEntry] | None = None
     classes: tuple[str, ...] = ()
     anchor_id: str | None = None
     ref_label: str | None = None
@@ -323,16 +339,6 @@ def _resolve_refs(text: str, mod: object) -> str:
     return re.sub(r":(\w+):`([^`]+)`", _replace, text)
 
 
-_SWAPPABLE_PREFIXES = {
-    "system",
-    "wf",
-    "train.optim",
-    "pretrain.optim",
-    "train.sampler",
-    "pretrain.sampler",
-}
-
-
 def _slugify(text: str) -> str:
     """Return a lowercase slug for HTML ids."""
     return re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-").lower()
@@ -341,80 +347,132 @@ def _slugify(text: str) -> str:
 def _anchor_slug(key: str, scope: str | None = None) -> str:
     """Return a stable HTML anchor for a config key."""
     if scope:
+        scope_slug = _slugify(scope)
         if "." in key:
             prefix, leaf = key.rsplit(".", 1)
-            slug = f"{_slugify(prefix)}-{_slugify(scope)}-{_slugify(leaf)}"
+            slug = f"{_slugify(prefix)}-{scope_slug}-{_slugify(leaf)}"
         else:
-            slug = f"{_slugify(key)}-{_slugify(scope)}"
+            slug = f"{_slugify(key)}-{scope_slug}"
     else:
         slug = _slugify(key)
     return f"cfg-{slug}" if slug else "cfg"
 
 
-def _label_slug(docname: str, anchor_id: str) -> str:
-    """Return a stable cross-reference label for a config key."""
-    return f"{docname.replace('/', '-')}-{anchor_id}"
+class ConfigKeyRole(XRefRole):
+    """Global ``cfgkey`` role alias for the ``jaqcfg`` domain."""
+
+    def process_link(
+        self,
+        env: BuildEnvironment,
+        refnode: Element,
+        has_explicit_title: bool,
+        title: str,
+        target: str,
+    ) -> tuple[str, str]:
+        refnode["refdomain"] = "jaqcfg"
+        refnode["reftype"] = "cfgkey"
+        return super().process_link(env, refnode, has_explicit_title, title, target)
 
 
-def _strip_common_suffixes(name: str) -> str:
-    """Strip conventional config object suffixes from a class or function name.
+class ConfigKeyDomain(Domain):
+    """Domain for searchable configuration keys rendered by ``config-defaults``."""
 
-    Returns:
-        The name without a known config-related suffix.
-    """
-    for suffix in (
-        "Wavefunction",
-        "Optimizer",
-        "Sampler",
-        "Writer",
-        "Config",
-        "WorkStageConfig",
-    ):
-        if name.endswith(suffix):
-            return name[: -len(suffix)]
-    return name
+    name = "jaqcfg"
+    label = "Configuration Keys"
+    data_version: ClassVar[int] = 1
 
+    object_types: ClassVar[dict[str, ObjType]] = {
+        "key": ObjType(_("config key"), "cfgkey"),
+    }
+    roles: ClassVar[dict[str, XRefRole]] = {
+        "cfgkey": XRefRole(innernodeclass=nodes.literal, warn_dangling=True),
+    }
+    initial_data: ClassVar[dict[str, Any]] = {
+        "objects": {},
+    }
 
-def _scope_from_object(obj: Any) -> str | None:
-    """Derive an implementation scope from a config object.
+    def note_config_key(
+        self,
+        ref_label: str,
+        anchor_id: str,
+        display_name: str,
+        location: Any = None,
+    ) -> None:
+        """Register a configuration key for cross-references and search."""
+        if ref_label in self.data["objects"]:
+            docname = self.data["objects"][ref_label][0]
+            logger.warning(
+                __("duplicate config key description of %s, other instance in %s"),
+                ref_label,
+                docname,
+                location=location,
+            )
+        self.data["objects"][ref_label] = (
+            self.env.current_document.docname,
+            anchor_id,
+            display_name,
+        )
 
-    Returns:
-        A slugified implementation name, or ``None`` if unavailable.
-    """
-    name = getattr(obj, "__name__", None) or getattr(obj, "__qualname__", "")
-    stripped = _strip_common_suffixes(str(name))
-    if stripped:
-        return _slugify(stripped)
-    return None
+    def clear_doc(self, docname: str) -> None:
+        to_remove = [
+            key
+            for key, (stored_docname, _, _) in self.data["objects"].items()
+            if stored_docname == docname
+        ]
+        for key in to_remove:
+            del self.data["objects"][key]
 
+    def merge_domaindata(self, docnames: set[str], otherdata: dict[str, Any]) -> None:
+        for key, data in otherdata["objects"].items():
+            if data[0] in docnames:
+                self.data["objects"][key] = data
 
-def _scope_from_module_name(module_name: str) -> str | None:
-    """Derive an implementation scope from a module_config target string.
+    def resolve_xref(
+        self,
+        env: BuildEnvironment,
+        fromdocname: str,
+        builder: Builder,
+        typ: str,
+        target: str,
+        node: pending_xref,
+        contnode: Element,
+    ) -> nodes.reference | None:
+        if target not in self.data["objects"]:
+            return None
+        docname, anchor_id, _display_name = self.data["objects"][target]
+        return make_refnode(builder, fromdocname, docname, anchor_id, contnode)
 
-    Returns:
-        A slugified implementation name parsed from the module path.
-    """
-    if ":" in module_name:
-        return _slugify(module_name.rsplit(":", 1)[1])
-    return _slugify(module_name.rsplit(".", 1)[1])
+    def resolve_any_xref(
+        self,
+        env: BuildEnvironment,
+        fromdocname: str,
+        builder: Builder,
+        target: str,
+        node: pending_xref,
+        contnode: Element,
+    ) -> list[tuple[str, nodes.reference]]:
+        result = self.resolve_xref(
+            env, fromdocname, builder, "cfgkey", target, node, contnode
+        )
+        if result is None:
+            return []
+        return [("jaqcfg:cfgkey", result)]
 
+    def get_type_name(self, type: ObjType, primary: bool = False) -> str:
+        return type.lname
 
-def _default_anchor_scope(obj: Any, prefix: str) -> str | None:
-    """Return the default scope prefix for swappable config sections."""
-    if prefix not in _SWAPPABLE_PREFIXES:
-        return None
-    return _scope_from_object(obj)
-
-
-def _merge_anchor_scopes(parent: str | None, child: str | None) -> str | None:
-    """Combine parent and child scopes for nested swappable config entries.
-
-    Returns:
-        The merged scope string, or whichever scope is available.
-    """
-    if parent and child:
-        return f"{parent}-{child}"
-    return child or parent
+    def get_objects(self) -> Iterator[tuple[str, str, str, str, str, int]]:
+        for ref_label, (docname, anchor_id, display_name) in sorted(
+            self.data["objects"].items()
+        ):
+            yield (
+                ref_label,
+                display_name,
+                "key",
+                docname,
+                anchor_id,
+                self.object_types["key"].attrs["searchprio"],
+            )
 
 
 def _resolve_qualified(name: str) -> Any:
@@ -687,6 +745,7 @@ class ConfigDefaults(ConfigDirectiveBase):
     option_spec: ClassVar[_OptionSpec] = {
         "prefix": directives.unchanged,
         "preset": directives.unchanged,
+        "scope": directives.unchanged,
         "exclude-fields": directives.unchanged,
         "exclude-inherited": directives.flag,
     }
@@ -771,10 +830,15 @@ class ConfigDefaults(ConfigDirectiveBase):
                 ids=[entry.anchor_id],
             )
             self.state.document.note_explicit_target(target)
-            self.env.domains.standard_domain.note_object(
-                "cfgkey",
+            cfg_domain = cast(ConfigKeyDomain, self.env.domains["jaqcfg"])
+            cfg_domain.note_config_key(
                 entry.ref_label,
                 entry.anchor_id,
+                (
+                    f"{entry.key} ({entry.anchor_scope})"
+                    if entry.anchor_scope
+                    else entry.key
+                ),
                 location=target,
             )
             item += target
@@ -856,7 +920,7 @@ class ConfigDefaults(ConfigDirectiveBase):
             count = used.get(base, 0)
             used[base] = count + 1
             entry.anchor_id = base if count == 0 else f"{base}-{count + 1}"
-            entry.ref_label = _label_slug(docname, entry.anchor_id)
+            entry.ref_label = f"{docname.replace('/', '-')}-{entry.anchor_id}"
             if entry.children:
                 self._assign_anchor_ids(entry.children, used)
 
@@ -919,10 +983,6 @@ class ConfigDefaults(ConfigDirectiveBase):
                 )
             )
             nested_obj = resolve_object(module_name, package=package)
-            nested_scope = _merge_anchor_scopes(
-                anchor_scope,
-                _scope_from_module_name(module_name),
-            )
             if is_dataclass(nested_obj):
                 nested_items.extend(
                     self._collect_dataclass_items(
@@ -930,7 +990,7 @@ class ConfigDefaults(ConfigDirectiveBase):
                         field_key,
                         nested_overrides,
                         importlib.import_module(nested_obj.__module__),
-                        anchor_scope=nested_scope,
+                        anchor_scope=anchor_scope,
                     )
                 )
         else:
@@ -1062,6 +1122,27 @@ class ConfigDefaults(ConfigDirectiveBase):
             )
         return items
 
+    def _warn_duplicate_scope(self, prefix: str, scope: str | None) -> None:
+        docname = self.env.current_document.docname
+        scopes_by_doc = self.env.temp_data.setdefault("config-defaults-scopes", {})
+        doc_scopes = scopes_by_doc.setdefault(docname, {})
+        scope_key = _slugify(scope) if scope else ""
+        entry_key = (prefix, scope_key)
+        if entry_key in doc_scopes:
+            logger.warning(
+                __(
+                    "duplicate config-defaults scope on %s: prefix=%r scope=%r "
+                    "(also at line %s)"
+                ),
+                docname,
+                prefix,
+                scope,
+                doc_scopes[entry_key],
+                location=self.get_location(),
+            )
+        else:
+            doc_scopes[entry_key] = str(self.lineno)
+
     def run(self) -> list[nodes.Node]:
         qualified = self.arguments[0]
         target = self._resolve_target(qualified)
@@ -1070,7 +1151,10 @@ class ConfigDefaults(ConfigDirectiveBase):
         obj, mod = target
 
         prefix = self.options.get("prefix", "")
-        anchor_scope = _default_anchor_scope(obj, prefix)
+        scope = self.options.get("scope")
+        if scope is not None:
+            scope = scope.strip() or None
+        self._warn_duplicate_scope(prefix, scope)
         overrides = self._resolve_overrides(qualified, prefix)
         if isinstance(overrides, list):
             return overrides
@@ -1082,11 +1166,11 @@ class ConfigDefaults(ConfigDirectiveBase):
                 overrides,
                 mod,
                 exclude_names=self._collect_exclude_names(obj),
-                anchor_scope=anchor_scope,
+                anchor_scope=scope,
             )
         elif callable(obj):
             lines = self._collect_callable_items(
-                obj, prefix, mod, overrides, anchor_scope=anchor_scope
+                obj, prefix, mod, overrides, anchor_scope=scope
             )
         else:
             return self._report_error(
@@ -1152,7 +1236,12 @@ def setup(app: Sphinx):
         man=(visit_config_defaults_separator_noop, None),
         texinfo=(visit_config_defaults_separator_noop, None),
     )
-    app.add_object_type("cfgkey", "cfgkey", objname="config key")
+    app.add_domain(ConfigKeyDomain)
+    app.add_role(
+        "cfgkey",
+        ConfigKeyRole(innernodeclass=nodes.literal, warn_dangling=True),
+        override=True,
+    )
     app.add_directive("config-context", ConfigContext)
     app.add_directive("config-defaults", ConfigDefaults)
     return {"version": "0.1", "parallel_read_safe": True}

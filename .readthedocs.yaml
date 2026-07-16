@@ -26,11 +26,3 @@ python:
    - method: uv
      command: sync
      groups: [docs]
-
-search:
-  ranking:
-    getting-started/*: 10
-    systems/*: 10
-    guide/*: 5
-    extending/*: 2
-    api-reference/*: -10

@@ -1,4 +1,4 @@
-# Training
+# Solid Training
 
 Configuration reference for `jaqmc solid train`.
 This page shows the effective defaults for the train workflow preset. Use
@@ -42,6 +42,7 @@ Defines the periodic solid system to simulate. The implementation is selected by
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.solid.config.base.SolidConfig
    :prefix: system
+   :scope: Solid
 ```
 
 ### Rock salt (`system.module=rock_salt`)
@@ -49,6 +50,7 @@ Defines the periodic solid system to simulate. The implementation is selected by
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.solid.config.rock_salt.rock_salt_config
    :prefix: system
+   :scope: rock-salt
 ```
 
 ### Two-atom chain (`system.module=two_atom_chain`)
@@ -56,6 +58,7 @@ Defines the periodic solid system to simulate. The implementation is selected by
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.solid.config.two_atom_chain.two_atom_chain
    :prefix: system
+   :scope: two-atom-chain
 ```
 
 (solid-train-wf)=
@@ -67,6 +70,7 @@ Defines the periodic solid system to simulate. The implementation is selected by
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.solid.wavefunction.SolidWavefunction
    :prefix: wf
+   :scope: Solid
 ```
 
 ---
@@ -95,6 +99,7 @@ The main VMC optimization loop. Samples electron configurations, computes energy
 ```{eval-rst}
 .. config-defaults:: jaqmc.optimizer.kfac.kfac.KFACOptimizer
    :prefix: train.optim
+   :scope: KFAC
 ```
 
 #### SR options
@@ -102,6 +107,7 @@ The main VMC optimization loop. Samples electron configurations, computes energy
 ```{eval-rst}
 .. config-defaults:: jaqmc.optimizer.sr.SROptimizer
    :prefix: train.optim
+   :scope: SR
 ```
 
 #### Adam options
@@ -109,6 +115,7 @@ The main VMC optimization loop. Samples electron configurations, computes energy
 ```{eval-rst}
 .. config-defaults:: jaqmc.optimizer.optax.adam
    :prefix: train.optim
+   :scope: Adam
 ```
 
 #### LAMB options
@@ -116,6 +123,7 @@ The main VMC optimization loop. Samples electron configurations, computes energy
 ```{eval-rst}
 .. config-defaults:: jaqmc.optimizer.optax.lamb
    :prefix: train.optim
+   :scope: LAMB
 ```
 
 (solid-train-sampler)=
@@ -126,6 +134,7 @@ The main VMC optimization loop. Samples electron configurations, computes energy
 ```{eval-rst}
 .. config-defaults:: jaqmc.sampler.mcmc.MCMCSampler
    :prefix: train.sampler
+   :scope: MCMC
 ```
 
 (solid-train-writers)=
@@ -199,6 +208,7 @@ target orbitals for pretraining. Most runs can keep the default settings.
 ```{eval-rst}
 .. config-defaults:: jaqmc.optimizer.optax.adam
    :prefix: pretrain.optim
+   :scope: Adam
 ```
 
 ### Sampler (`pretrain.sampler.*`)
@@ -208,6 +218,7 @@ target orbitals for pretraining. Most runs can keep the default settings.
 ```{eval-rst}
 .. config-defaults:: jaqmc.sampler.mcmc.MCMCSampler
    :prefix: pretrain.sampler
+   :scope: MCMC
 ```
 
 ### Writers (`pretrain.writers.*`)

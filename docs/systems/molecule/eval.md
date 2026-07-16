@@ -1,4 +1,4 @@
-# Evaluation
+# Molecule Evaluation
 
 Configuration reference for `jaqmc molecule evaluate`.
 This page shows the effective defaults for the evaluation workflow preset. Use

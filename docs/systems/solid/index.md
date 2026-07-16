@@ -330,6 +330,6 @@ Solid simulations benefit significantly from multi-GPU parallelism. See <project
 ```{toctree}
 :hidden:
 
-train.md
-eval.md
+Training <train.md>
+Evaluation <eval.md>
 ```

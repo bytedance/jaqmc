@@ -76,11 +76,9 @@ html_theme = "sphinx_book_theme"
 html_static_path = ["_static"]
 html_favicon = "_static/jaqmc-light.svg"
 html_css_files = ["custom.css"]
-if os.environ.get("READTHEDOCS"):
-    html_css_files.append("rtd-search-theme.css")
-html_js_files = []
-if os.environ.get("READTHEDOCS"):
-    html_js_files.append("readthedocs.js")
+html_search_scorer = os.path.join(
+    os.path.dirname(__file__), "_static", "search-scorer.js"
+)
 html_logo = "_static/jaqmc-light-large.svg"
 html_baseurl = "https://jaqmc.readthedocs.io/latest/"
 html_theme_options = {
@@ -91,6 +89,8 @@ html_theme_options = {
     "use_download_button": False,
     "use_edit_page_button": True,
     "use_issues_button": True,
+    "search_as_you_type": True,
+    "navbar_persistent": [],
 }
 
 # -- Options for LaTeX output -------------------------------------------------

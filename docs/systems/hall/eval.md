@@ -1,4 +1,4 @@
-# Evaluation
+# Quantum Hall Evaluation
 
 Configuration reference for `jaqmc hall evaluate`.
 This page shows the effective defaults for the evaluation workflow preset. Use
