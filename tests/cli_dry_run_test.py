@@ -293,6 +293,11 @@ train:
         "wf.flux_per_elec=2 workflow.batch_size=4 train.run.iterations=1",
     ),
     CliDryRunCase(
+        "hall_train_laughlin_module_dotlist",
+        "hall train wf.module=laughlin system.flux=10 system.nspins='[4,0]' "
+        "workflow.batch_size=4 train.run.iterations=1",
+    ),
+    CliDryRunCase(
         "molecule_evaluate_yaml",
         "molecule evaluate --yml eval.yml",
         {
