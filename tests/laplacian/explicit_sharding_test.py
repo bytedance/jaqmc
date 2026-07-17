@@ -148,9 +148,21 @@ class TestExplicitShardingMultiDevice:
                 out_sharding=P("i", None),
             )
 
+        def dot_ref(left, right):
+            """Numerical reference without explicit output sharding."""
+            return jax.lax.dot_general(
+                left,
+                right,
+                dimension_numbers=(((1,), (0,)), ((), ())),
+            )
+
         with jax.set_mesh(mesh):
             result = jax.jit(forward_laplacian(dot))(lhs, rhs)
             assert result.x.sharding.spec == P("i", None)
             assert result.dense_jacobian.sharding.spec == P(None, "i", None)
             assert result.laplacian.sharding.spec == P("i", None)
-            check_with_brute_force(dot, lhs, rhs, actual_result=result)
+            # Explicit-sharding Hessian VJP cotangents can lose the output's
+            # varying axis, so the oracle must not use explicit out_sharding.
+            check_with_brute_force(
+                dot, lhs, rhs, actual_result=result, expected_fn=dot_ref
+            )
