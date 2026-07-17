@@ -46,6 +46,9 @@ Selects and configures the neural network ansatz.
   architectures are listed below. Built-in choices are `mhpo`, `laughlin`,
   and `free`.
 
+Built-in `laughlin` and `free` are analytic benchmarks; use
+<project:eval.md> rather than training.
+
 See <project:index.md> for background on each architecture.
 
 ### MHPO options (`wf.*`)

@@ -16,6 +16,11 @@ shared by all commands. See <project:../../guide/runtime-configuration.md>.
 
 These keys control evaluation-wide settings and checkpoint loading.
 
+`workflow.source_path` selects the trained parameters and sampler state to
+evaluate. It is required for MHPO and other trainable wavefunctions. The
+analytic `laughlin` and `free` wavefunctions have no parameters, so they can
+start evaluation from fresh walkers without a source path.
+
 ```{eval-rst}
 .. config-defaults:: jaqmc.workflow.evaluation.EvaluationWorkflowConfig
    :prefix: workflow
@@ -23,13 +28,16 @@ These keys control evaluation-wide settings and checkpoint loading.
 
 ## System (`system.*`)
 
-Must match the training run. The effective defaults are identical to the
-[training system config](#hall-train-system).
+When evaluating a training checkpoint, these settings must match the training
+run. For direct `laughlin` or `free` evaluation, they define the target system.
+The effective defaults are identical to the [training system config](#hall-train-system).
 
 ## Wavefunction (`wf.*`)
 
-Must match the training run. The effective defaults and built-in module choices
-are identical to the [training wavefunction config](#hall-train-wf).
+When evaluating a training checkpoint, these settings must match the training
+run. For direct `laughlin` or `free` evaluation, select the analytic module
+with `wf.module`. The effective defaults and built-in module choices are
+identical to the [training wavefunction config](#hall-train-wf).
 
 ## Run Options (`run.*`)
 

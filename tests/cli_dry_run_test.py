@@ -353,6 +353,16 @@ estimators:
         "estimators.enabled.pair_correlation=true "
         "estimators.enabled.one_rdm=true",
     ),
+    CliDryRunCase(
+        "hall_evaluate_laughlin_no_source",
+        "hall evaluate system.flux=6 system.nspins='[3,0]' "
+        "wf.module=laughlin workflow.batch_size=4 run.iterations=1",
+    ),
+    CliDryRunCase(
+        "hall_evaluate_free_no_source",
+        "hall evaluate system.flux=6 system.nspins='[3,0]' "
+        "wf.module=free workflow.batch_size=4 run.iterations=1",
+    ),
 ]
 
 

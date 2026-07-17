@@ -129,7 +129,13 @@ Evaluation uses {class}`~jaqmc.workflow.evaluation.EvaluationWorkflow` instead o
 
 The structure mirrors the training workflow but without ``configure_optimizer`` and ``configure_loss_grads``. The conditional block at the end adds an optional density estimator when enabled via config — ``cfg.get("estimators.enabled.density", False)`` reads a boolean flag, and the ``CartesianDensity`` default defines the histogram grid.
 
-``EvaluationWorkflow`` loads ``params``, ``batched_data``, and ``sampler_state`` from the training checkpoint. Point it to the training output directory by setting ``workflow.source_path`` in your config:
+``EvaluationWorkflow`` creates fresh state before deciding how to initialize
+the run. When ``workflow.source_path`` is set, it loads ``params``,
+``batched_data``, and ``sampler_state`` from that training checkpoint. Without
+one, evaluation can proceed only when the initialized parameter PyTree is
+empty; it then uses the fresh parameters, walkers, and sampler state.
+Wavefunctions with parameter leaves therefore require ``workflow.source_path``.
+Point evaluation at a training output directory by setting it in your config:
 
 ```yaml
 workflow:
