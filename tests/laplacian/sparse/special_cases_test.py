@@ -16,11 +16,13 @@ from jaqmc.laplacian import (
     Local2Jacobian,
     OwnerRole,
     OwnerRoles,
+    forward_laplacian,
     make_laplacian_input,
 )
 from tests.laplacian.helpers import check_with_brute_force
 from tests.laplacian.sparse.helpers import (
     broadcast_local1_seed,
+    constant_owner_local1_seed,
     mismatched_local1_pair,
     repeated_owner_ids_local1_seed,
     repeated_owner_local2_seed,
@@ -117,6 +119,186 @@ class TestSparseBroadcastThenTransform:
             )
 
         check_with_brute_force(broadcast_then_dot, seed)
+
+
+class TestConstantOwnerShapeTransforms:
+    """Constant Local1 owners remain valid through shape-only transforms."""
+
+    @pytest.mark.parametrize(
+        "fn",
+        (
+            pytest.param(
+                lambda value: jnp.transpose(value, (2, 0, 1)),
+                id="transpose",
+            ),
+            pytest.param(
+                lambda value: jnp.squeeze(value, axis=1),
+                id="squeeze_singleton",
+            ),
+            pytest.param(lambda value: jnp.flip(value, axis=0), id="reverse"),
+            pytest.param(
+                operator.itemgetter((slice(None), slice(None), slice(1, None))),
+                id="static_slice",
+            ),
+            pytest.param(
+                lambda value: jnp.broadcast_to(value, (4, *value.shape)),
+                id="broadcast_in_dim",
+            ),
+            pytest.param(
+                lambda value: value * jnp.ones((4, *value.shape), dtype=value.dtype),
+                id="sparse_leading_broadcast",
+            ),
+            pytest.param(
+                lambda value: jnp.reshape(value, (1, 2, 3)),
+                id="reshape",
+            ),
+        ),
+    )
+    def test_matches_brute_force(self, fn):
+        check_with_brute_force(fn, constant_owner_local1_seed())
+
+
+class TestConstantOwnerConcatenate:
+    def test_output_axis_matches_brute_force(self):
+        check_with_brute_force(
+            lambda left, right: jnp.concatenate([left, right], axis=0),
+            constant_owner_local1_seed(0),
+            constant_owner_local1_seed(2),
+        )
+
+    def test_off_axis_matches_brute_force(self):
+        check_with_brute_force(
+            lambda left, right: jnp.concatenate([left, right], axis=2),
+            constant_owner_local1_seed(1),
+            constant_owner_local1_seed(1),
+        )
+
+
+class TestConstantOwnerReductions:
+    @pytest.mark.parametrize(
+        "fn",
+        (
+            pytest.param(lambda value: jnp.sum(value, axis=0), id="sum"),
+            pytest.param(lambda value: jnp.max(value, axis=0), id="max"),
+        ),
+    )
+    def test_matches_brute_force(self, fn):
+        check_with_brute_force(fn, constant_owner_local1_seed())
+
+
+class TestConstantOwnerGathers:
+    def test_traced_index_matches_brute_force(self):
+        seed = constant_owner_local1_seed()
+        indices = jnp.array([1, 0], dtype=jnp.int32)
+        fn = lambda value, index: value[index]
+        transformed = forward_laplacian(fn)
+
+        def execute(index):
+            out = transformed(seed, index)
+            return out.x, out.dense_jacobian, out.laplacian
+
+        actual = LapTuple(*jax.jit(execute)(indices))
+
+        check_with_brute_force(
+            operator.itemgetter(indices),
+            seed,
+            actual_result=actual,
+        )
+
+    def test_uniform_varying_owner_gather_matches_brute_force(self):
+        check_with_brute_force(
+            operator.itemgetter(jnp.array([1, 0], dtype=jnp.int32)),
+            repeated_owner_ids_local1_seed(),
+        )
+
+    def test_collapsed_owner_axis_gather_matches_brute_force(self):
+        seed = make_laplacian_input(
+            jnp.arange(4.0, dtype=jnp.float32).reshape(2, 2),
+            sparse_axis=0,
+        )
+        indices = jnp.array([1, 0], dtype=jnp.int32)
+
+        def gather_owner_axis(value, index):
+            return jax.lax.gather(
+                value,
+                index[:, None],
+                dimension_numbers=jax.lax.GatherDimensionNumbers(
+                    offset_dims=(1,),
+                    collapsed_slice_dims=(0,),
+                    start_index_map=(0,),
+                ),
+                slice_sizes=(1, value.shape[1]),
+            )
+
+        transformed = forward_laplacian(gather_owner_axis)
+
+        def execute(index):
+            out = transformed(seed, index)
+            return out.x, out.dense_jacobian, out.laplacian
+
+        actual = LapTuple(*jax.jit(execute)(indices))
+        check_with_brute_force(
+            lambda value: gather_owner_axis(value, indices),
+            seed,
+            actual_result=actual,
+        )
+
+    def test_all_invalid_fill_gather_matches_brute_force(self):
+        seed = repeated_owner_ids_local1_seed()
+
+        def fill_gather(value):
+            return jax.lax.gather(
+                value,
+                jnp.array([[5]], dtype=jnp.int32),
+                dimension_numbers=jax.lax.GatherDimensionNumbers(
+                    offset_dims=(1,),
+                    collapsed_slice_dims=(0,),
+                    start_index_map=(0,),
+                ),
+                slice_sizes=(1, value.shape[1]),
+                mode=jax.lax.GatherScatterMode.FILL_OR_DROP,
+                fill_value=-7.0,
+            )
+
+        check_with_brute_force(fill_gather, seed)
+
+
+class TestConstantOwnerInteractions:
+    @pytest.mark.parametrize(
+        ("lhs_owner", "rhs_owner"),
+        (
+            pytest.param(1, 1, id="matching"),
+            pytest.param(0, 2, id="distinct"),
+        ),
+    )
+    def test_mul_matches_brute_force(self, lhs_owner, rhs_owner):
+        check_with_brute_force(
+            operator.mul,
+            constant_owner_local1_seed(lhs_owner),
+            constant_owner_local1_seed(rhs_owner),
+        )
+
+    def test_local1_dot_matches_brute_force(self):
+        weights = jnp.arange(12.0, dtype=jnp.float32).reshape(3, 4)
+        check_with_brute_force(
+            lambda value: jax.lax.dot_general(
+                value,
+                weights,
+                dimension_numbers=(((2,), (0,)), ((), ())),
+            ),
+            constant_owner_local1_seed(),
+        )
+
+    def test_mixed_local2_dot_matches_brute_force(self):
+        weights = jnp.arange(2.0, dtype=jnp.float32).reshape(1, 2)
+        check_with_brute_force(
+            lambda value: jax.lax.dot_general(
+                value,
+                weights,
+                dimension_numbers=(((1,), (0,)), ((), ())),
+            ),
+            repeated_owner_local2_seed(),
+        )
 
 
 class TestRepeatedOwnerIdsLocal1:

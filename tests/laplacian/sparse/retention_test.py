@@ -28,6 +28,7 @@ from jaqmc.laplacian import (
 from tests.laplacian.sparse.helpers import (
     assert_retains_sparse_family,
     broadcast_local1_seed,
+    constant_owner_local1_seed,
     mismatched_local1_pair,
     repeated_owner_ids_local1_seed,
     repeated_owner_local2_seed,
@@ -476,6 +477,162 @@ class TestArithmeticRetention:
     def test_mismatched_local1_binary_operations_promote_to_local2(self, op):
         local1_lhs, local1_rhs = mismatched_local1_pair()
         out = forward_laplacian(op)(local1_lhs, local1_rhs)
+        assert_retains_sparse_family(out, Local2Jacobian)
+
+
+class TestConstantOwnerShapeRetention:
+    @pytest.mark.parametrize(
+        "fn",
+        (
+            pytest.param(
+                lambda value: jnp.transpose(value, (2, 0, 1)),
+                id="transpose",
+            ),
+            pytest.param(
+                lambda value: jnp.squeeze(value, axis=1),
+                id="squeeze_singleton",
+            ),
+            pytest.param(lambda value: jnp.flip(value, axis=0), id="reverse"),
+            pytest.param(
+                operator.itemgetter((slice(None), slice(None), slice(1, None))),
+                id="static_slice",
+            ),
+            pytest.param(
+                lambda value: jnp.broadcast_to(value, (4, *value.shape)),
+                id="broadcast_in_dim",
+            ),
+            pytest.param(
+                lambda value: value * jnp.ones((4, *value.shape), dtype=value.dtype),
+                id="sparse_leading_broadcast",
+            ),
+            pytest.param(
+                lambda value: jnp.reshape(value, (1, 2, 3)),
+                id="reshape",
+            ),
+        ),
+    )
+    def test_retains_local1_family(self, fn):
+        out = forward_laplacian(fn)(constant_owner_local1_seed())
+
+        assert_retains_sparse_family(out, Local1Jacobian)
+
+
+class TestConstantOwnerConcatenateRetention:
+    @pytest.mark.parametrize(
+        ("fn", "lhs", "rhs"),
+        (
+            pytest.param(
+                lambda left, right: jnp.concatenate([left, right], axis=0),
+                constant_owner_local1_seed(0),
+                constant_owner_local1_seed(2),
+                id="output_axis",
+            ),
+            pytest.param(
+                lambda left, right: jnp.concatenate([left, right], axis=2),
+                constant_owner_local1_seed(1),
+                constant_owner_local1_seed(1),
+                id="off_axis",
+            ),
+        ),
+    )
+    def test_retains_local1_family(self, fn, lhs, rhs):
+        out = forward_laplacian(fn)(lhs, rhs)
+
+        assert_retains_sparse_family(out, Local1Jacobian)
+
+
+class TestConstantOwnerReductionRetention:
+    @pytest.mark.parametrize(
+        "fn",
+        (
+            pytest.param(lambda value: jnp.sum(value, axis=0), id="sum"),
+            pytest.param(lambda value: jnp.max(value, axis=0), id="max"),
+        ),
+    )
+    def test_retains_local1_family(self, fn):
+        out = forward_laplacian(fn)(constant_owner_local1_seed())
+
+        assert_retains_sparse_family(out, Local1Jacobian)
+
+
+class TestConstantOwnerGatherRetention:
+    def test_concrete_constant_owner_retains_local1_family(self):
+        out = forward_laplacian(
+            operator.itemgetter(jnp.array([1, 0], dtype=jnp.int32))
+        )(constant_owner_local1_seed())
+
+        assert_retains_sparse_family(out, Local1Jacobian)
+
+    def test_uniform_varying_owner_retains_local1_family(self):
+        out = forward_laplacian(
+            operator.itemgetter(jnp.array([1, 0], dtype=jnp.int32))
+        )(repeated_owner_ids_local1_seed())
+
+        assert_retains_sparse_family(out, Local1Jacobian)
+
+    def test_all_invalid_fill_gather_retains_local1_family(self):
+        def fill_gather(value):
+            return jax.lax.gather(
+                value,
+                jnp.array([[5]], dtype=jnp.int32),
+                dimension_numbers=jax.lax.GatherDimensionNumbers(
+                    offset_dims=(1,),
+                    collapsed_slice_dims=(0,),
+                    start_index_map=(0,),
+                ),
+                slice_sizes=(1, value.shape[1]),
+                mode=jax.lax.GatherScatterMode.FILL_OR_DROP,
+                fill_value=-7.0,
+            )
+
+        out = forward_laplacian(fill_gather)(repeated_owner_ids_local1_seed())
+
+        assert_retains_sparse_family(out, Local1Jacobian)
+
+
+class TestConstantOwnerInteractionRetention:
+    @pytest.mark.parametrize(
+        ("lhs_owner", "rhs_owner", "expected_family"),
+        (
+            pytest.param(1, 1, Local1Jacobian, id="matching_mul"),
+            pytest.param(0, 2, Local2Jacobian, id="distinct_mul"),
+        ),
+    )
+    def test_mul_retains_expected_family(
+        self,
+        lhs_owner,
+        rhs_owner,
+        expected_family,
+    ):
+        out = forward_laplacian(operator.mul)(
+            constant_owner_local1_seed(lhs_owner),
+            constant_owner_local1_seed(rhs_owner),
+        )
+
+        assert_retains_sparse_family(out, expected_family)
+
+    def test_local1_dot_retains_local1_family(self):
+        weights = jnp.arange(12.0, dtype=jnp.float32).reshape(3, 4)
+        out = forward_laplacian(
+            lambda value: jax.lax.dot_general(
+                value,
+                weights,
+                dimension_numbers=(((2,), (0,)), ((), ())),
+            )
+        )(constant_owner_local1_seed())
+
+        assert_retains_sparse_family(out, Local1Jacobian)
+
+    def test_mixed_local2_dot_retains_local2_family(self):
+        weights = jnp.arange(2.0, dtype=jnp.float32).reshape(1, 2)
+        out = forward_laplacian(
+            lambda value: jax.lax.dot_general(
+                value,
+                weights,
+                dimension_numbers=(((1,), (0,)), ((), ())),
+            )
+        )(repeated_owner_local2_seed())
+
         assert_retains_sparse_family(out, Local2Jacobian)
 
 

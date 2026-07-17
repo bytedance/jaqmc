@@ -24,6 +24,15 @@ class TestOwnerRoleContract:
         assert role.axis is None
         assert tuple(role.values.tolist()) == (4,)
 
+    @pytest.mark.parametrize("value", (np.array(4, dtype=np.int32), np.int32(4)))
+    def test_scalar_value_normalizes_to_constant(self, value):
+        role = OwnerRole(2, value)
+
+        assert role == OwnerRole(None, np.array([4], dtype=np.int32))
+        assert role.axis is None
+        assert role.values.dtype == np.int32
+        assert not role.values.flags.writeable
+
     def test_reduce_output_axes_collapses_constant_owner_fiber(self):
         role = OwnerRole(0, np.array([2, 2], dtype=np.int32))
         reduced = role.reduce_output_axes((0,), output_ndim=2)
@@ -31,9 +40,23 @@ class TestOwnerRoleContract:
         assert reduced.axis is None
         assert tuple(reduced.values.tolist()) == (2,)
 
+    def test_reduce_output_axes_preserves_constant_owner(self):
+        role = OwnerRole(None, np.array([2], dtype=np.int32))
+
+        assert role.reduce_output_axes((0, 1), output_ndim=2) is role
+
     def test_reduce_output_axes_rejects_mixed_owner_fiber(self):
         role = OwnerRole(0, np.array([0, 1], dtype=np.int32))
         assert role.reduce_output_axes((0,), output_ndim=2) is None
+
+    def test_constant_owner_factorized_shape_and_selector_broadcast(self):
+        role = OwnerRole(None, np.array([1], dtype=np.int32))
+
+        assert role.factorized_shape(2) == (1, 1)
+        assert_allclose(
+            role.selector(input_n_particles=3, dtype=jnp.float32, output_ndim=2),
+            jnp.array([[[0.0, 1.0, 0.0]]], dtype=jnp.float32),
+        )
 
     def test_owner_roles_match_requires_exact_slot_layout(self):
         lhs = OwnerRoles(
@@ -77,6 +100,32 @@ class TestOwnerRoleContract:
 
 
 class TestSparseJacobianDenseContract:
+    def test_local1_to_dense_broadcasts_constant_owner(self):
+        jacobian = Local1Jacobian(
+            blocks=jnp.array(
+                [[[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]]],
+                dtype=jnp.float32,
+            ),
+            owners=OwnerRoles(OwnerRole(None, np.array([1], dtype=np.int32))),
+            input_shape=(3, 1),
+            input_owner_axis=0,
+        )
+
+        dense = jacobian.to_dense()
+
+        assert dense.shape == (3, 2, 3)
+        assert_allclose(
+            dense,
+            jnp.array(
+                [
+                    [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+                    [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
+                    [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+                ],
+                dtype=jnp.float32,
+            ),
+        )
+
     def test_local1_to_dense_maps_owner_ids_along_owner_axis(self):
         jacobian = Local1Jacobian(
             blocks=jnp.array(
