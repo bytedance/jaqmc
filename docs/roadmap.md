@@ -10,10 +10,6 @@ This page is informational: it highlights the areas JaQMC is currently evolving 
 
 We will gradually integrate features from the previous version of JaQMC into the current framework.
 
-- **Sparse forward Laplacian support**
-  Improve the current forward Laplacian handling to support baking sparsity information directly into the network definition.
-  *Ref:* [Forward Laplacian](https://www.nature.com/articles/s42256-024-00794-x).
-
 - **Diffusion Monte Carlo**
   *Ref:* [NNDMC](https://www.nature.com/articles/s41467-023-37609-3).
 

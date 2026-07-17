@@ -234,7 +234,7 @@ class SphericalKinetic(PerWalkerEstimator):
     def _evaluate_forward_laplacian(
         self, params: Params, data: Data, state: None
     ) -> tuple[dict[str, Any], None]:
-        from folx import forward_laplacian
+        from jaqmc.laplacian import forward_laplacian, make_laplacian_input
 
         Q = self.monopole_strength
         r = jnp.array(self.radius if self.radius is not None else jnp.sqrt(Q))
@@ -246,9 +246,13 @@ class SphericalKinetic(PerWalkerEstimator):
         theta = electrons[..., 0]
 
         # Forward Laplacian with spherical metric weights
-        fwd_f = forward_laplacian(lambda x: f(params, x))
         fwdlap_weights = jnp.stack([jnp.ones_like(theta), 1 / sin(theta)], axis=-1)
-        fwdlap_output = fwd_f(electrons, weights=fwdlap_weights)
+        input_laptuple = make_laplacian_input(
+            electrons,
+            weights=fwdlap_weights,
+            sparse_axis=0,
+        )
+        fwdlap_output = forward_laplacian(f)(params, input_laptuple)
         grad_logpsi = (
             fwdlap_output.dense_jacobian.reshape(electrons.shape) / fwdlap_weights
         )

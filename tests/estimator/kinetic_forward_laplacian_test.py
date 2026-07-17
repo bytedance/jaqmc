@@ -12,6 +12,9 @@ import pytest
 from jax import numpy as jnp
 
 from jaqmc.app.hydrogen_atom import hydrogen_atom_train_workflow
+from jaqmc.app.molecule.data import MoleculeData
+from jaqmc.app.molecule.wavefunction.ferminet import FermiNetWavefunction
+from jaqmc.app.molecule.wavefunction.psiformer import PsiformerWavefunction
 from jaqmc.data import Data
 from jaqmc.estimator.kinetic import EuclideanKinetic, LaplacianMode
 from jaqmc.utils.config import ConfigManager
@@ -22,6 +25,17 @@ class SimpleData(Data):
     """Simple data class for testing."""
 
     positions: jnp.ndarray
+
+
+def two_electron_molecule_data() -> MoleculeData:
+    return MoleculeData(
+        electrons=jnp.array(
+            [[0.7, -0.2, 0.3], [-0.4, 0.5, -0.6]],
+            dtype=jnp.float32,
+        ),
+        atoms=jnp.array([[0.0, 0.0, 0.0]], dtype=jnp.float32),
+        charges=jnp.array([2.0], dtype=jnp.float32),
+    )
 
 
 @pytest.mark.parametrize(
@@ -38,7 +52,6 @@ class SimpleData(Data):
 )
 def test_forward_laplacian_vs_scan_equivalence(n_particles, n_dims, coeff):
     """Test forward_laplacian matches standard across configurations."""
-    pytest.importorskip("folx")
     pytest.importorskip("jax", minversion="0.7.1")
 
     def log_psi(params, data):
@@ -73,7 +86,6 @@ def test_forward_laplacian_vs_scan_equivalence(n_particles, n_dims, coeff):
 
 def test_forward_laplacian_kinetic_with_complex_wavefunction():
     """Test forward_laplacian kinetic with a complex-valued wavefunction."""
-    pytest.importorskip("folx")
     pytest.importorskip("jax", minversion="0.7.1")
 
     # Complex wavefunction: psi = exp(i*k*x) * exp(-x^2/2)
@@ -124,7 +136,6 @@ def test_forward_laplacian_kinetic_with_complex_wavefunction():
 
 def test_forward_laplacian_kinetic_edge_cases():
     """Test edge cases like zero positions and extreme values."""
-    pytest.importorskip("folx")
     pytest.importorskip("jax", minversion="0.7.1")
 
     def log_psi(params, data):
@@ -202,9 +213,221 @@ def test_forward_laplacian_kinetic_edge_cases():
     )
 
 
+def test_euclidean_kinetic_sparse_1d_matches_dense_forward_jacobian():
+    """Sparse 1D kinetic seeding matches dense Forward Laplacian seeding."""
+    pytest.importorskip("jax", minversion="0.7.1")
+
+    def log_psi(params, data):
+        del params
+        x = data["positions"]
+        return -0.3 * jnp.sum(x**2) + 0.1 * jnp.sum(x)
+
+    key = jax.random.key(909)
+    data = SimpleData(positions=jax.random.normal(key, (5,)))
+    params: dict[str, jnp.ndarray] = {}
+
+    sparse_est = EuclideanKinetic(
+        mode=LaplacianMode.forward_laplacian,
+        f_log_psi=log_psi,
+        data_field="positions",
+        sparse=True,
+    )
+    dense_jac_est = EuclideanKinetic(
+        mode=LaplacianMode.forward_laplacian,
+        f_log_psi=log_psi,
+        data_field="positions",
+        sparse=False,
+    )
+
+    ke_sparse, _ = sparse_est.evaluate_single_walker(params, data, {}, None, key)
+    ke_dense_jac, _ = dense_jac_est.evaluate_single_walker(params, data, {}, None, key)
+
+    assert jnp.allclose(
+        ke_sparse["energy:kinetic"],
+        ke_dense_jac["energy:kinetic"],
+        rtol=1e-5,
+        atol=1e-6,
+    )
+
+
+@pytest.mark.parametrize("orbitals_spin_split", [False, True])
+def test_forward_laplacian_ferminet_wavefunction_matches_scan(orbitals_spin_split):
+    """Compare sparse Forward Laplacian kinetic against scan on real FermiNet."""
+    pytest.importorskip("jax", minversion="0.7.1")
+
+    key = jax.random.key(123)
+    data = two_electron_molecule_data()
+    wf = FermiNetWavefunction(
+        nspins=(1, 1),
+        ndets=2,
+        hidden_dims_single=[8, 8],
+        hidden_dims_double=[4, 4],
+        orbitals_spin_split=orbitals_spin_split,
+    )
+    params = wf.init_params(data, key)
+
+    def logpsi(params, data):
+        return wf.evaluate(params, data)["logpsi"]
+
+    estimator_scan = EuclideanKinetic(
+        mode=LaplacianMode.scan,
+        f_log_psi=logpsi,
+        data_field="electrons",
+    )
+    estimator_fwd_lap = EuclideanKinetic(
+        mode=LaplacianMode.forward_laplacian,
+        f_log_psi=logpsi,
+        data_field="electrons",
+    )
+    stats_scan, _ = estimator_scan.evaluate_single_walker(params, data, {}, None, key)
+    stats_fwd_lap, _ = estimator_fwd_lap.evaluate_single_walker(
+        params, data, {}, None, key
+    )
+
+    ke_scan = stats_scan["energy:kinetic"]
+    ke_fwd_lap = stats_fwd_lap["energy:kinetic"]
+    assert jnp.isfinite(ke_fwd_lap)
+    assert np.isclose(ke_fwd_lap, ke_scan, rtol=2e-5, atol=2e-5), (
+        f"orbitals_spin_split={orbitals_spin_split}: "
+        f"scan={ke_scan}, forward_laplacian={ke_fwd_lap}"
+    )
+
+
+@pytest.mark.parametrize("orbitals_spin_split", [False, True])
+def test_euclidean_kinetic_sparse_ferminet_matches_dense_forward_jacobian(
+    orbitals_spin_split,
+):
+    """Sparse-seeded FermiNet matches dense-Jacobian Forward Laplacian."""
+    pytest.importorskip("jax", minversion="0.7.1")
+
+    key = jax.random.key(501)
+    data = two_electron_molecule_data()
+    wf = FermiNetWavefunction(
+        nspins=(1, 1),
+        ndets=2,
+        hidden_dims_single=[8, 8],
+        hidden_dims_double=[4, 4],
+        orbitals_spin_split=orbitals_spin_split,
+    )
+    params = wf.init_params(data, key)
+
+    def logpsi(params, data):
+        return wf.evaluate(params, data)["logpsi"]
+
+    sparse_est = EuclideanKinetic(
+        mode=LaplacianMode.forward_laplacian,
+        f_log_psi=logpsi,
+        data_field="electrons",
+        sparse=True,
+    )
+    dense_jac_est = EuclideanKinetic(
+        mode=LaplacianMode.forward_laplacian,
+        f_log_psi=logpsi,
+        data_field="electrons",
+        sparse=False,
+    )
+    ke_sparse, _ = sparse_est.evaluate_single_walker(params, data, {}, None, key)
+    ke_dense_jac, _ = dense_jac_est.evaluate_single_walker(params, data, {}, None, key)
+    assert jnp.allclose(
+        ke_sparse["energy:kinetic"],
+        ke_dense_jac["energy:kinetic"],
+        rtol=2e-5,
+        atol=2e-5,
+    )
+
+
+@pytest.mark.parametrize("orbitals_spin_split", [False, True])
+def test_forward_laplacian_psiformer_wavefunction_matches_scan(orbitals_spin_split):
+    """Compare sparse Forward Laplacian kinetic against scan on real Psiformer."""
+    pytest.importorskip("jax", minversion="0.7.1")
+
+    key = jax.random.key(321)
+    data = two_electron_molecule_data()
+    wf = PsiformerWavefunction(
+        nspins=(1, 1),
+        ndets=2,
+        num_layers=1,
+        num_heads=2,
+        heads_dim=4,
+        mlp_hidden_dims=[8],
+        orbitals_spin_split=orbitals_spin_split,
+    )
+    params = wf.init_params(data, key)
+
+    def logpsi(params, data):
+        return wf.evaluate(params, data)["logpsi"]
+
+    estimator_scan = EuclideanKinetic(
+        mode=LaplacianMode.scan,
+        f_log_psi=logpsi,
+        data_field="electrons",
+    )
+    estimator_fwd_lap = EuclideanKinetic(
+        mode=LaplacianMode.forward_laplacian,
+        f_log_psi=logpsi,
+        data_field="electrons",
+    )
+    stats_scan, _ = estimator_scan.evaluate_single_walker(params, data, {}, None, key)
+    stats_fwd_lap, _ = estimator_fwd_lap.evaluate_single_walker(
+        params, data, {}, None, key
+    )
+
+    ke_scan = stats_scan["energy:kinetic"]
+    ke_fwd_lap = stats_fwd_lap["energy:kinetic"]
+    assert jnp.isfinite(ke_fwd_lap)
+    assert np.isclose(ke_fwd_lap, ke_scan, rtol=2e-5, atol=2e-5), (
+        f"orbitals_spin_split={orbitals_spin_split}: "
+        f"scan={ke_scan}, forward_laplacian={ke_fwd_lap}"
+    )
+
+
+@pytest.mark.parametrize("orbitals_spin_split", [False, True])
+def test_euclidean_kinetic_sparse_psiformer_matches_dense_forward_jacobian(
+    orbitals_spin_split,
+):
+    """Sparse-seeded Psiformer matches dense-Jacobian Forward Laplacian."""
+    pytest.importorskip("jax", minversion="0.7.1")
+
+    key = jax.random.key(501)
+    data = two_electron_molecule_data()
+    wf = PsiformerWavefunction(
+        nspins=(1, 1),
+        ndets=2,
+        num_layers=1,
+        num_heads=2,
+        heads_dim=4,
+        mlp_hidden_dims=[8],
+        orbitals_spin_split=orbitals_spin_split,
+    )
+    params = wf.init_params(data, key)
+
+    def logpsi(params, data):
+        return wf.evaluate(params, data)["logpsi"]
+
+    sparse_est = EuclideanKinetic(
+        mode=LaplacianMode.forward_laplacian,
+        f_log_psi=logpsi,
+        data_field="electrons",
+        sparse=True,
+    )
+    dense_jac_est = EuclideanKinetic(
+        mode=LaplacianMode.forward_laplacian,
+        f_log_psi=logpsi,
+        data_field="electrons",
+        sparse=False,
+    )
+    ke_sparse, _ = sparse_est.evaluate_single_walker(params, data, {}, None, key)
+    ke_dense_jac, _ = dense_jac_est.evaluate_single_walker(params, data, {}, None, key)
+    assert jnp.allclose(
+        ke_sparse["energy:kinetic"],
+        ke_dense_jac["energy:kinetic"],
+        rtol=2e-5,
+        atol=2e-5,
+    )
+
+
 def test_forward_laplacian_vs_scan_molecule_workflow(tmp_path):
     """Compare default kinetic mode against scan in actual molecule workflow."""
-    pytest.importorskip("folx")
     pytest.importorskip("jax", minversion="0.7.1")
 
     base_config = {

@@ -10,6 +10,7 @@ stages.md
 configuration.md
 wavefunctions.md
 estimators.md
+laplacian.md
 optimizers.md
 samplers.md
 writers.md

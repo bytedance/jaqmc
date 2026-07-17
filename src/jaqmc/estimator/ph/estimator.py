@@ -58,8 +58,8 @@ class PHEnergy(PerWalkerEstimator):
         atom_symbols: Element symbols in geometry order.
         ph: Element symbols configured for PH treatment.
         kinetic_backend: PH derivative implementation. ``forward_laplacian``
-            (default) uses a single ``folx.forward_laplacian`` pass over a
-            Cholesky-shifted coordinate map; ``standard`` uses direct
+            (default) uses a single ``jaqmc.laplacian.forward_laplacian``
+            pass over a Cholesky-shifted coordinate map; ``standard`` uses direct
             gradient/Hessian transforms with explicit einsum contractions
             and is kept as the math reference exercised by the parity
             test. Validated at ``init()`` time.
@@ -200,7 +200,7 @@ class PHEnergy(PerWalkerEstimator):
         # Dispatch to the selected backend. Both backends compute the same
         # Bennett et al. (2022) PH derivative term
         #     E_PH,i = -Tr(M_i H_i) - g_i^T M_i g_i + b_i^T g_i;
-        # `_forward_laplacian` uses a Cholesky-shifted forward-Laplacian
+        # `_forward_laplacian` uses a Cholesky-shifted Forward Laplacian
         # pass (Fu et al. 2025), `_standard` differentiates the operator
         # definition directly via jax.grad/jax.hessian/jax.jacfwd.
         backend = (

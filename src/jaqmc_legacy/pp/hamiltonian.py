@@ -235,7 +235,7 @@ def local_energy(f,
 
   if len(ph_atoms) > 0:
     if not forward_laplacian:
-        # (TODO) support non-Forward-Laplacian mode.
+        # (TODO) support non-Forward Laplacian mode.
         raise NotImplementedError('Only supporting Forward Laplacian when considering PH')
     ph_atom_pos, raw_ph_data = ph_info
     ke = get_forward_laplacian_for_kinetic_ph(log_abs_f, raw_ph_data, ph_atom_pos,

@@ -70,5 +70,5 @@ tabulated channels.
   of Neural Network-based Quantum Monte Carlo,"
   [arXiv:2505.19909](https://arxiv.org/abs/2505.19909) (2025) —
   adds the sulfur PH parameterization and describes the
-  NNQMC + PH + forward-Laplacian integration built on top of these
+  NNQMC + PH + Forward Laplacian integration built on top of these
   tables.

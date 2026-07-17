@@ -3,8 +3,6 @@
 
 """Tests for the quantum Hall workflow components."""
 
-import importlib.util
-
 import jax
 import numpy as np
 import pytest
@@ -19,6 +17,7 @@ from jaqmc.app.hall.wavefunction.jastrow import SphericalJastrow
 from jaqmc.app.hall.wavefunction.mhpo import MHPO
 from jaqmc.estimator.kinetic import LaplacianMode, SphericalKinetic
 from jaqmc.geometry.sphere import sphere_proposal
+from jaqmc.laplacian import forward_laplacian, make_laplacian_input
 from jaqmc.utils.wiring import wire
 
 
@@ -81,10 +80,7 @@ class TestSphereProposal:
 
 
 def _supports_forward_laplacian() -> bool:
-    return (
-        jax.__version_info__ >= (0, 7, 1)
-        and importlib.util.find_spec("folx") is not None
-    )
+    return jax.__version_info__ >= (0, 7, 1)
 
 
 LAPLACIAN_MODES = [LaplacianMode.scan]
@@ -401,3 +397,33 @@ class TestMHPO:
         wf, params, data, _ = self._make_mhpo(flux_per_elec=2)
         out = wf.evaluate(params, data)
         assert jnp.isfinite(out["logpsi"])
+
+    @pytest.mark.skipif(
+        not _supports_forward_laplacian(),
+        reason="forward_laplacian requires newer JAX",
+    )
+    def test_sparse_forward_laplacian_mhpo_avoids_gather_and_reduce_max_handlers(
+        self, monkeypatch
+    ):
+        wf, params, data, _ = self._make_mhpo()
+
+        def logpsi_fn(electrons):
+            return wf.logpsi(params, HallData(electrons=electrons))
+
+        fl = forward_laplacian(logpsi_fn)
+        dense = fl(data.electrons)
+        sparse = fl(make_laplacian_input(data.electrons, sparse_axis=0))
+
+        np.testing.assert_allclose(sparse.x, dense.x, rtol=1e-5, atol=1e-5)
+        np.testing.assert_allclose(
+            sparse.dense_jacobian,
+            dense.dense_jacobian,
+            rtol=1e-4,
+            atol=1e-4,
+        )
+        np.testing.assert_allclose(
+            sparse.laplacian,
+            dense.laplacian,
+            rtol=1e-4,
+            atol=1e-4,
+        )

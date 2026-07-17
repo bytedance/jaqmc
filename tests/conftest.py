@@ -12,7 +12,24 @@ import pytest
 
 multiprocessing.set_start_method("spawn", force=True)
 
-PROXY_VARS = ["http_proxy", "https_proxy", "no_proxy"]
+PROXY_VARS = [
+    "ALL_PROXY",
+    "GIT_HTTP_PROXY",
+    "GIT_HTTPS_PROXY",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "SOCKS5_PROXY",
+    "SOCKS_PROXY",
+    "all_proxy",
+    "git_http_proxy",
+    "git_https_proxy",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "socks5_proxy",
+    "socks_proxy",
+]
 
 
 def pytest_addoption(parser):
@@ -29,6 +46,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "x64_modes: run the test with JAX x64 disabled and enabled (scoped)",
+    )
+    config.addinivalue_line(
+        "markers", "requires_x64: mark a test to run with JAX x64 enabled"
     )
     if not config.getoption("keep_proxy_vars") and any(
         os.environ.get(var) for var in PROXY_VARS
@@ -96,6 +116,25 @@ def x64_mode(request):
         with enable_x64(False):
             assert not jax.config.read("jax_enable_x64")
             yield False
+
+
+@pytest.fixture(autouse=True)
+def enable_x64_for_marked_tests(request):
+    """Enable x64 only for tests that explicitly opt in."""
+    if request.node.get_closest_marker("requires_x64") is None:
+        yield
+        return
+
+    if jax.__version_info__ >= (0, 8, 0):
+        try:
+            from jax import enable_x64
+        except ImportError:
+            from jax.experimental import enable_x64  # type: ignore[no-redef]
+    else:
+        pytest.skip("requires JAX >= 0.8.0 for enable_x64")
+
+    with enable_x64(True):
+        yield
 
 
 @pytest.fixture(autouse=True)

@@ -22,8 +22,8 @@ class LaplacianMode(StrEnum):
             compilation. Use when ``scan`` causes out-of-memory during
             compilation.
         forward_laplacian: Forward-mode Laplacian via
-            `folx <https://github.com/microsoft/folx>`_. Can be fastest
-            for large systems. Requires JAX >= 0.7.1.
+            :mod:`jaqmc.laplacian`. Can be fastest for large systems.
+            Requires JAX >= 0.7.1.
     """
 
     scan = "scan"

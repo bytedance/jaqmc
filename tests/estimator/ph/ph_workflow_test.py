@@ -18,6 +18,16 @@ from jaqmc.utils.config import ConfigManager
 class _DummyWavefunction:
     full_det = True
 
+    def init_params(self, data, rngs):
+        del data, rngs
+        return {}
+
+    def evaluate(self, params, data):
+        return {
+            "logpsi": self.logpsi(params, data),
+            "sign_logpsi": jnp.array(1.0),
+        }
+
     def logpsi(self, params, data):
         del params
         return -jnp.sum(data.electrons**2)

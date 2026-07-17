@@ -11,7 +11,7 @@ The PH paper formulas are taken as given and audited by code review of
 - ``test_ph_forward_laplacian_total_energy_matches_standard_backend``:
   cross-check between two genuinely independent autodiff strategies for
   the PH derivative term (``jax.grad``/``jax.hessian`` + einsum vs. a
-  Cholesky-shifted ``folx.forward_laplacian`` pass).
+  Cholesky-shifted ``jaqmc.laplacian.forward_laplacian`` pass).
 
 - ``test_ph_derivative_matches_operator_definition_for_one_electron_constant_l2``:
   independent anchor for the production decomposition of the PH
@@ -161,12 +161,11 @@ def test_ph_forward_laplacian_total_energy_matches_standard_backend(
     The ``standard`` backend computes the PH derivative with
     ``jax.grad``/``jax.hessian`` and explicit einsum contractions. The
     ``forward_laplacian`` backend folds the per-electron Cholesky factor
-    of ``M`` into a single ``folx.forward_laplacian`` pass. The two paths
+    of ``M`` into a single ``jaqmc.laplacian.forward_laplacian`` pass. The two paths
     share the mass-matrix formula but use independent autodiff strategies,
     so disagreement here points at one of the two derivative
     decompositions (not at the shared formula).
     """
-    pytest.importorskip("folx")
     scale = 0.3
     logpsi = _gaussian_logpsi(scale)
 
@@ -308,9 +307,6 @@ def test_ph_derivative_propagates_nan_on_non_positive_definite_mass_matrix(
     paths to the same NaN behavior prevents one backend from silently
     flooring negative eigenvalues in the future while the other diverges.
     """
-    if kinetic_backend == "forward_laplacian":
-        pytest.importorskip("folx")
-
     electron = jnp.array([0.6, 0.0, -0.4])
     ph_atom = jnp.array([0.0, 0.0, 0.0])
     data = _make_simple_ph_data(electron, ph_atom)

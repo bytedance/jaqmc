@@ -1,0 +1,14 @@
+This product is licensed under the Apache License 2.0.
+
+This product includes software developed by ByteDance Ltd. and/or its affiliates.
+
+Portions of this software are derived from the following projects:
+
+- folx (https://github.com/microsoft/folx)
+  Copyright (c) 2023 Microsoft Corporation
+  Licensed under the MIT License
+- kfac-jax (https://github.com/google-deepmind/kfac-jax)
+  Copyright 2020 DeepMind Technologies Limited. All Rights Reserved.
+  Licensed under the Apache License 2.0
+
+Additional modifications by ByteDance Ltd. and/or its affiliates. (2025-2026).
