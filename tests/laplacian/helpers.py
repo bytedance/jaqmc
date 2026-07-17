@@ -125,6 +125,22 @@ def brute_force_oracle(
     return LapTuple(expected_x, expected_jacobian, expected_laplacian)
 
 
+def check_sparse_jacobian(
+    fn: Callable,
+    *args,
+    expected_jacobian: type,
+    actual_result: LapTuple | None = None,
+    rtol=1e-5,
+    atol=1e-10,
+) -> LapTuple:
+    """Run ``forward_laplacian``, assert sparse Jacobian type, and oracle-check."""
+    if actual_result is None:
+        actual_result = forward_laplacian(fn)(*args)
+    assert isinstance(actual_result.jacobian, expected_jacobian)
+    check_with_brute_force(fn, *args, actual_result=actual_result, rtol=rtol, atol=atol)
+    return actual_result
+
+
 def check_with_brute_force(
     fn: Callable,
     *args,

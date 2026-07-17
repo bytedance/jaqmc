@@ -12,6 +12,7 @@
 
 """Forward Laplacian rules for arithmetic primitives."""
 
+from dataclasses import dataclass
 from functools import partial
 
 import jax
@@ -31,6 +32,8 @@ from ..jvp import dense_jvp
 from ..sparse import (
     Local1Jacobian,
     Local2Jacobian,
+    OwnerRole,
+    OwnerRoles,
     SparseJacobian,
 )
 from ..types import LaplacianHandler, LapTuple
@@ -53,6 +56,64 @@ from .sparse_ops import (
     scale_sparse_jacobian,
     sparse_trace_jac_jacT,
 )
+
+
+@dataclass(frozen=True)
+class _Local2BinaryMerge:
+    """Map two Local2 operands into their merged binary-operation support.
+
+    Identical owner roles share one output slot. The merge is representable only
+    when both operands require at most two distinct owner roles.
+    """
+
+    owners: OwnerRoles
+    lhs_output_slots: tuple[int, int]
+    rhs_output_slots: tuple[int, int]
+
+    @classmethod
+    def from_operands(
+        cls,
+        lhs: Local2Jacobian,
+        rhs: Local2Jacobian,
+    ) -> "_Local2BinaryMerge | None":
+        """Return the Local2 merge, or ``None`` when it needs three roles."""
+        distinct_owners: list[OwnerRole] = []
+
+        def output_slot(owner: OwnerRole) -> int:
+            for index, existing in enumerate(distinct_owners):
+                if existing == owner:
+                    return index
+            distinct_owners.append(owner)
+            return len(distinct_owners) - 1
+
+        lhs_output_slots = tuple(output_slot(owner) for owner in lhs.owners)
+        rhs_output_slots = tuple(output_slot(owner) for owner in rhs.owners)
+        if len(distinct_owners) > 2:
+            return None
+        if len(distinct_owners) == 1:
+            distinct_owners.append(distinct_owners[0])
+        return cls(
+            owners=OwnerRoles(*distinct_owners),
+            lhs_output_slots=(lhs_output_slots[0], lhs_output_slots[1]),
+            rhs_output_slots=(rhs_output_slots[0], rhs_output_slots[1]),
+        )
+
+    def merge_blocks(
+        self,
+        lhs_blocks: jnp.ndarray,
+        rhs_blocks: jnp.ndarray,
+    ) -> jnp.ndarray:
+        """Accumulate operand support blocks into the merged output slots.
+
+        Returns:
+            The merged Local2 support blocks.
+        """
+        blocks = jnp.zeros_like(lhs_blocks)
+        for input_slot, output_slot in enumerate(self.lhs_output_slots):
+            blocks = blocks.at[output_slot].add(lhs_blocks[input_slot])
+        for input_slot, output_slot in enumerate(self.rhs_output_slots):
+            blocks = blocks.at[output_slot].add(rhs_blocks[input_slot])
+        return blocks
 
 
 def _add_sub_local1(
@@ -110,15 +171,19 @@ def _add_sub_local2(
     )
     lhs_jac = broadcast_sparse_jacobian(lhs_jac, out_shape)
     rhs_jac = broadcast_sparse_jacobian(rhs_jac, out_shape)
-    if lhs_jac.owners != rhs_jac.owners:
-        # Local2 + Local2 stays sparse only when both support slots line up
-        # role-by-role; otherwise the result would need a richer owner model.
+    merge = _Local2BinaryMerge.from_operands(lhs_jac, rhs_jac)
+    if merge is None:
+        # The merged support requires more than the two distinct owner roles
+        # representable by Local2.
         return None
     rhs_blocks = -rhs_jac.blocks if subtract_rhs else rhs_jac.blocks
     rhs_lapl = -rhs.laplacian if subtract_rhs else rhs.laplacian
     return LapTuple(
         jax.lax.sub(lhs.x, rhs.x) if subtract_rhs else jax.lax.add(lhs.x, rhs.x),
-        lhs_jac.with_blocks(lhs_jac.blocks + rhs_blocks, owners=lhs_jac.owners),
+        lhs_jac.with_blocks(
+            merge.merge_blocks(lhs_jac.blocks, rhs_blocks),
+            owners=merge.owners,
+        ),
         lhs.laplacian + rhs_lapl,
     )
 
@@ -266,6 +331,30 @@ def _mul_local1_local1(
     )
 
 
+def _local2_product_cross_trace(
+    lhs: Local2Jacobian,
+    rhs: Local2Jacobian,
+) -> jnp.ndarray:
+    """Return ``tr(J_lhs J_rhs^T)`` for one Local2 product rule."""
+    cross_trace = jnp.zeros(
+        lhs.output_shape,
+        dtype=jnp.result_type(lhs.dtype, rhs.dtype),
+    )
+    for lhs_slot, lhs_owner in enumerate(lhs.owners):
+        for rhs_slot, rhs_owner in enumerate(rhs.owners):
+            contribution = jnp.sum(
+                lhs.blocks[lhs_slot] * rhs.blocks[rhs_slot],
+                axis=0,
+            )
+            same_owner = owner_ids_equal_mask(
+                lhs_owner,
+                rhs_owner,
+                lhs.output_shape,
+            )
+            cross_trace += jnp.where(same_owner, contribution, 0)
+    return cross_trace
+
+
 def _mul_local2_local2(
     lhs: LapTuple[Local2Jacobian], rhs: LapTuple[Local2Jacobian]
 ) -> LapTuple[Local2Jacobian] | None:
@@ -276,31 +365,18 @@ def _mul_local2_local2(
     )
     lhs = broadcast_sparse_laptuple(lhs, out_shape)
     rhs = broadcast_sparse_laptuple(rhs, out_shape)
-    if lhs.jacobian.owners != rhs.jacobian.owners:
+    merge = _Local2BinaryMerge.from_operands(lhs.jacobian, rhs.jacobian)
+    if merge is None:
         return None
     y = lhs.x * rhs.x
     lhs_scaled = scale_sparse_jacobian(lhs.jacobian, rhs.x)
     rhs_scaled = scale_sparse_jacobian(rhs.jacobian, lhs.x)
-    same_owner = owner_ids_equal_mask(
-        lhs.jacobian.owners[0],
-        lhs.jacobian.owners[1],
-        y.shape,
-    )
-    # tr(J_lhs J_rhs^T) splits into same-slot terms plus cross-slot terms.
-    # The cross-slot terms are valid only where both support slots refer to the
-    # same owner pair, so they are masked by the owner-equality test.
-    diag = jnp.sum(lhs.jacobian.blocks[0] * rhs.jacobian.blocks[0], axis=0) + jnp.sum(
-        lhs.jacobian.blocks[1] * rhs.jacobian.blocks[1], axis=0
-    )
-    offdiag = jnp.sum(
-        lhs.jacobian.blocks[0] * rhs.jacobian.blocks[1], axis=0
-    ) + jnp.sum(lhs.jacobian.blocks[1] * rhs.jacobian.blocks[0], axis=0)
-    cross_trace = diag + jnp.where(same_owner, offdiag, 0)
+    cross_trace = _local2_product_cross_trace(lhs.jacobian, rhs.jacobian)
     return LapTuple(
         y,
         lhs_scaled.with_blocks(
-            lhs_scaled.blocks + rhs_scaled.blocks,
-            owners=lhs_scaled.owners,
+            merge.merge_blocks(lhs_scaled.blocks, rhs_scaled.blocks),
+            owners=merge.owners,
         ),
         rhs.x * lhs.laplacian + lhs.x * rhs.laplacian + 2 * cross_trace,
     )

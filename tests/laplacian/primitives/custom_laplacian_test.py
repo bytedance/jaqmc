@@ -149,6 +149,25 @@ class TestCustomLaplacianPrimitive:
         assert rule_calls == 1
         check_with_brute_force(fn, x, actual_result=result)
 
+    def test_rule_fallback_preserves_sparse_input_correctness(self):
+        """Auto fallback replays the ordinary sparse-aware interpreter path."""
+
+        @custom_laplacian
+        def my_exp(x):
+            return jnp.exp(x)
+
+        @my_exp.def_laplacian_rule
+        def _(x):
+            raise AutoLaplacianFallback("test sparse delegation")
+
+        seed = make_laplacian_input(
+            jnp.arange(6.0, dtype=jnp.float32).reshape(2, 3) / 10.0,
+            sparse_axis=0,
+        )
+        fn = lambda x: jnp.sum(my_exp(x) * x)
+
+        check_with_brute_force(fn, seed)
+
     def test_pytree_output_splits_leaves_and_propagates_nonlinear_leaf(self):
         """Tuple outputs with differently shaped leaves and a custom nonlinear rule."""
 
@@ -193,6 +212,32 @@ class TestCustomLaplacianPrimitive:
 
         x = jnp.array([1.0, 2.0, 3.0, 4.0])
         fn = lambda x: jnp.sum(dict_fn({"a": x[:2], "b": x[2:]}))
+        check_with_brute_force(fn, x)
+
+    def test_jvp_of_custom_laplacian_uses_primal_derivative(self):
+        """JAX JVP through a custom primitive remains observable to the transform."""
+
+        @custom_laplacian
+        def my_square(x):
+            return x**2
+
+        @my_square.def_laplacian_rule
+        def _(x):
+            return LapTuple(
+                x.x**2,
+                2 * x.x * x.dense_jacobian,
+                2 * x.x * x.laplacian + 2 * jnp.sum(x.dense_jacobian**2, axis=0),
+            )
+
+        def fn(x):
+            primal, tangent = jax.jvp(
+                my_square,
+                (x,),
+                (jnp.ones_like(x),),
+            )
+            return jnp.sum(primal + tangent)
+
+        x = jnp.array([0.2, -0.3], dtype=jnp.float32)
         check_with_brute_force(fn, x)
 
 
@@ -249,6 +294,16 @@ class TestCustomLaplacianPrimitiveReplay:
 
         fl = forward_laplacian(lambda x: jnp.sum(vmapped(x)))
         result = fl(x)
+
+        assert_allclose(result.laplacian, -123.0 * x.size)
+
+    def test_nested_vmap_before_forward_laplacian_uses_custom_rule(self):
+        """Nested vmaps replay the custom rule around every mapped axis."""
+        my_square = self._attach_constant_laplacian_rule(self._make_square(), -123.0)
+        vmapped = jax.vmap(jax.vmap(my_square))
+        x = jnp.arange(8.0, dtype=jnp.float32).reshape(2, 2, 2)
+
+        result = forward_laplacian(lambda value: jnp.sum(vmapped(value)))(x)
 
         assert_allclose(result.laplacian, -123.0 * x.size)
 

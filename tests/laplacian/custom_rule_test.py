@@ -116,3 +116,10 @@ class TestCustomLaplacianPublicTransforms:
         primals_out, tangents_out = jax.jvp(my_square, (x,), (t,))
         assert_allclose(primals_out, x**2)
         assert_allclose(tangents_out, 2 * x)
+
+    def test_custom_laplacian_jits_like_plain_function(self):
+        """Outside forward_laplacian, JIT lowers the primal custom call."""
+        my_square = self._make_square()
+        x = jnp.array([1.0, 2.0, 3.0])
+
+        assert_allclose(jax.jit(my_square)(x), x**2)

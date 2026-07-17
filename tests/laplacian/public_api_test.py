@@ -99,6 +99,22 @@ class TestLapTuple:
         assert reconstructed.jacobian == 1
         assert reconstructed.laplacian == 0
 
+    def test_dense_jacobian_materializes_compact_scalar_output(self):
+        """Compact scalar-output derivatives broadcast over the primal shape."""
+        x = jnp.arange(6.0, dtype=jnp.float32).reshape(2, 3)
+        arr = LapTuple(
+            x=x,
+            jacobian=jnp.arange(x.size, dtype=x.dtype),
+            laplacian=jnp.zeros_like(x),
+        )
+
+        expected = jnp.broadcast_to(
+            jnp.arange(x.size, dtype=x.dtype).reshape(x.size, 1, 1),
+            (x.size, *x.shape),
+        )
+
+        assert_allclose(arr.dense_jacobian, expected)
+
 
 class TestMakeLaplacianInputDense:
     def test_identity(self):
@@ -191,6 +207,15 @@ class TestMakeLaplacianInputSparse:
 
         assert sparse.jacobian.input_owner_axis == 1
         assert_allclose(sparse.dense_jacobian, dense.dense_jacobian)
+
+    def test_negative_owner_axis_matches_positive_axis(self):
+        x = jnp.arange(24.0, dtype=jnp.float32).reshape(3, 2, 4)
+
+        negative_axis = make_laplacian_input(x, sparse_axis=-2)
+        positive_axis = make_laplacian_input(x, sparse_axis=1)
+
+        assert negative_axis.jacobian.input_owner_axis == 1
+        assert_allclose(negative_axis.dense_jacobian, positive_axis.dense_jacobian)
 
 
 class TestInputSeeding:

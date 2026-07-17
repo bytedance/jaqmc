@@ -61,6 +61,50 @@ def to_complex(packed: jnp.ndarray) -> jnp.ndarray:
     return packed[..., 0] + 1j * packed[..., 1]
 
 
+def make_local1_input(
+    x: jnp.ndarray,
+    *,
+    blocks: jnp.ndarray,
+    owners: OwnerRoles,
+    input_shape: tuple[int, ...],
+    input_owner_axis: int = 0,
+    laplacian: jnp.ndarray | None = None,
+) -> LapTuple:
+    """Build an explicit Local1 Forward Laplacian test input."""
+    return LapTuple(
+        x,
+        Local1Jacobian(
+            blocks=blocks,
+            owners=owners,
+            input_shape=input_shape,
+            input_owner_axis=input_owner_axis,
+        ),
+        jnp.zeros_like(x) if laplacian is None else laplacian,
+    )
+
+
+def make_local2_input(
+    x: jnp.ndarray,
+    *,
+    blocks: jnp.ndarray,
+    owners: OwnerRoles,
+    input_shape: tuple[int, ...],
+    input_owner_axis: int = 0,
+    laplacian: jnp.ndarray | None = None,
+) -> LapTuple:
+    """Build an explicit Local2 Forward Laplacian test input."""
+    return LapTuple(
+        x,
+        Local2Jacobian(
+            blocks=blocks,
+            owners=owners,
+            input_shape=input_shape,
+            input_owner_axis=input_owner_axis,
+        ),
+        jnp.zeros_like(x) if laplacian is None else laplacian,
+    )
+
+
 def tracked_case_input(
     x: jnp.ndarray,
     case: InputCase,
@@ -122,3 +166,71 @@ def tracked_case_input(
             return LapTuple(x, local2_jacobian, laplacian)
         case _:
             raise AssertionError(f"unknown input case {case!r}")
+
+
+# Configurable sparse Jacobian fixtures shared by tests/laplacian/sparse. Keep
+# operation-specific pathological cases beside their consuming test.
+
+
+def sparse_local1_input(
+    owner: OwnerRole,
+    *,
+    output_shape: tuple[int, ...] = (2, 1, 3),
+    input_shape: tuple[int, ...] = (3, 1),
+    key: int = 120,
+    laplacian: jnp.ndarray | None = None,
+    broadcast_blocks: bool = False,
+) -> LapTuple:
+    """Build a deterministic Local1 sparse Jacobian test input.
+
+    Defaults model the common constant-owner case. Tests with a varying owner
+    role, broadcast blocks, or a different rank should specify the relevant
+    shape explicitly.
+    """
+    x = random_array("real", output_shape, key=key).astype(jnp.float32)
+    n_support = prod(input_shape[1:]) if len(input_shape) > 1 else 1
+    block_shape = (1, n_support, *x.shape)
+    if broadcast_blocks:
+        core_shape = (1, n_support, *((1,) * x.ndim))
+        core = random_array("real", core_shape, key=key + 1).astype(jnp.float32)
+        blocks = jnp.broadcast_to(core, block_shape)
+    else:
+        blocks = random_array("real", block_shape, key=key + 1).astype(jnp.float32)
+    return make_local1_input(
+        x,
+        blocks=blocks,
+        owners=OwnerRoles(owner),
+        input_shape=input_shape,
+        laplacian=laplacian,
+    )
+
+
+def sparse_local2_input(
+    owners: OwnerRoles | None = None,
+    *,
+    output_shape: tuple[int, ...] = (4, 4, 3),
+    input_shape: tuple[int, ...] = (4, 3),
+    key: int = 200,
+    laplacian: jnp.ndarray | None = None,
+) -> LapTuple:
+    """Build a deterministic Local2 sparse Jacobian test input."""
+    if output_shape[0] != output_shape[1]:
+        raise ValueError("Local2 sparse inputs require equal first two dimensions.")
+    if owners is None:
+        n = output_shape[0]
+        owners = OwnerRoles(
+            OwnerRole(0, np.arange(n, dtype=np.int32)),
+            OwnerRole(1, np.arange(n, dtype=np.int32)),
+        )
+    x = random_array("real", output_shape, key=key).astype(jnp.float32)
+    n_support = prod(input_shape[1:]) if len(input_shape) > 1 else 1
+    blocks = random_array("real", (2, n_support, *x.shape), key=key + 1).astype(
+        jnp.float32
+    )
+    return make_local2_input(
+        x,
+        blocks=blocks,
+        owners=owners,
+        input_shape=input_shape,
+        laplacian=laplacian,
+    )

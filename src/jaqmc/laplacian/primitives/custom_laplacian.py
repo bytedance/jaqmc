@@ -201,7 +201,9 @@ def handle_custom_laplacian(args, kwargs):
     vmap_history = kwargs["vmap_history"]
 
     if all(not isinstance(x, LapTuple) for x in args):
-        return jaxpr_as_fun(primal_jaxpr)(*args)
+        raise RuntimeError(
+            "custom_laplacian handler received no derivative-tracked arguments"
+        )
 
     rule = _CUSTOM_LAPLACIAN_REGISTRY[custom_id]["rule"]
     if rule is None:

@@ -194,7 +194,9 @@ def _eval_scan(
 
     def as_laptuple(value):
         if isinstance(value, LapTuple):
-            return value
+            raise RuntimeError(
+                "scan carry promotion received an already-tracked LapTuple"
+            )
         assert jacobian_size is not None
         value = jnp.asarray(value)
         return LapTuple(

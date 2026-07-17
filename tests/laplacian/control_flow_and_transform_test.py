@@ -44,6 +44,61 @@ class TestCustomJVP:
         x = jnp.array([0.5, -0.3, 1.2, 0.8, -1.0, 0.1, 0.9, -0.7, 1.5, -0.2])
         check_with_brute_force(fn, x, rtol=1e-4)
 
+    def test_real_to_complex_with_wide_tracked_basis(self):
+        """R->C custom JVP uses the generic Hessian path for K > D."""
+
+        @jax.custom_jvp
+        def real_to_complex(value):
+            return value + 1j * value**2
+
+        @real_to_complex.defjvp
+        def real_to_complex_jvp(primals, tangents):
+            (value,), (tangent,) = primals, tangents
+            return real_to_complex(value), (1 + 2j * value) * tangent
+
+        x = jnp.array([0.2, -0.3], dtype=jnp.float32)
+        jacobian = jnp.array([[1.0, 0.0], [0.0, 1.0], [0.5, -0.25]], dtype=jnp.float32)
+        seed = LapTuple(x, jacobian, jnp.zeros_like(x))
+        fn = lambda value: jnp.sum(real_to_complex(value))
+
+        actual = forward_laplacian(fn)(seed)
+        expected_jacobian = jacobian @ (1 + 2j * x)
+        expected_laplacian = 2j * jnp.sum(jacobian**2)
+
+        assert_allclose(actual.x, fn(x))
+        assert_allclose(actual.dense_jacobian, expected_jacobian)
+        assert_allclose(actual.laplacian, expected_laplacian)
+
+    def test_complex_to_real_with_wide_tracked_basis(self):
+        """C->R generic fallback uses HVP contractions for K > D."""
+        x = jnp.array(
+            [[1.0 + 0.1j, 0.2 - 0.3j], [0.2 + 0.3j, 2.0 - 0.1j]],
+            dtype=jnp.complex64,
+        )
+        jacobian = (
+            jnp.arange(20, dtype=jnp.float32).reshape(5, 2, 2) / 10
+            + 1j * jnp.arange(20, 40, dtype=jnp.float32).reshape(5, 2, 2) / 10
+        )
+        seed = LapTuple(x, jacobian, jnp.zeros_like(x))
+        fn = lambda value: jnp.sum(jnp.linalg.svd(value, compute_uv=False))
+
+        actual = forward_laplacian(fn)(seed)
+        expected_jacobian = jax.vmap(lambda tangent: jax.jvp(fn, (x,), (tangent,))[1])(
+            jacobian
+        )
+
+        def second_directional(tangent):
+            def first_directional(value):
+                return jax.jvp(fn, (value,), (tangent,))[1]
+
+            return jax.jvp(first_directional, (x,), (tangent,))[1]
+
+        expected_laplacian = jnp.sum(jax.vmap(second_directional)(jacobian), axis=0)
+
+        assert_allclose(actual.x, fn(x))
+        assert_allclose(actual.dense_jacobian, expected_jacobian)
+        assert_allclose(actual.laplacian, expected_laplacian)
+
 
 class TestScan:
     def test_scan_linear(self):
@@ -279,6 +334,13 @@ class TestOuterTransforms:
         assert_allclose(result.x, fn(x))
         assert_allclose(result.dense_jacobian, jnp.cos(x))
         assert_allclose(result.laplacian, -jnp.sum(jnp.sin(x)))
+
+    def test_inner_jit_matches_brute_force(self):
+        """A JIT subcomputation re-enters the Laplacian interpreter correctly."""
+        compiled = jax.jit(lambda value: jnp.sum(jnp.sin(value)))
+        x = jnp.array([0.2, -0.3], dtype=jnp.float32)
+
+        check_with_brute_force(compiled, x)
 
     def test_vmap_forward_laplacian_result(self):
         fn = lambda x: jnp.sum(jnp.sin(x))

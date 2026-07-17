@@ -159,12 +159,9 @@ def handle_gather(args, kwargs):
     slice_sizes = tuple(kwargs["slice_sizes"])
     dimension_numbers = kwargs["dimension_numbers"]
     if kwargs["mode"] == jax.lax.GatherScatterMode.ONE_HOT:
-        return fallback_dense(
-            dense_handler,
-            args,
-            kwargs,
-            kind="not_implemented",
-            reason="gather sparse ONE_HOT mode unsupported",
+        raise NotImplementedError(
+            "forward_laplacian does not support gather mode ONE_HOT because "
+            "JAX does not provide a JVP rule for it."
         )
 
     try:
