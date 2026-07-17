@@ -85,13 +85,15 @@ class SolidFeatures(nn.Module):
     Attributes:
         simulation_lattice: Lattice vectors of the simulation cell (nelectrons).
         primitive_lattice: Lattice vectors of the primitive cell (natoms).
-        distance_type: Type of periodic distance to use ('nu' or 'tri').
+        distance_type: Periodic distance representation. ``tri`` (default) uses
+            trigonometric features with 6D displacement vectors; ``nu`` uses
+            polynomial features with 3D displacement vectors.
         sym_type: Symmetry type for auxiliary lattice vectors.
     """
 
     simulation_lattice: jnp.ndarray
     primitive_lattice: jnp.ndarray
-    distance_type: DistanceType = DistanceType.nu
+    distance_type: DistanceType = DistanceType.tri
     sym_type: SymmetryType = SymmetryType.minimal
 
     def setup(self):

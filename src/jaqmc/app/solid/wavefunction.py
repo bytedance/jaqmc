@@ -31,7 +31,9 @@ class SolidWavefunction(Wavefunction[SolidData, ComplexLogDetOutput]):
         klist: K-point list for Bloch phases.
         hidden_dims_single: Hidden dimensions for single-electron streams.
         hidden_dims_double: Hidden dimensions for pairwise streams.
-        distance_type: Method to compute distances (e.g., 'nu' for nearest image).
+        distance_type: Periodic distance representation for pair features.
+            ``tri`` (default) uses trigonometric features with 6D displacement
+            vectors; ``nu`` uses polynomial features with 3D displacement vectors.
         envelope_type: Type of envelope function to use.
         sym_type: Symmetry type for features.
         orbitals_spin_split: If True, use separate orbital layer and envelope
@@ -47,7 +49,7 @@ class SolidWavefunction(Wavefunction[SolidData, ComplexLogDetOutput]):
     hidden_dims_single: list[int] = field(default_factory=lambda: [256] * 4)
     hidden_dims_double: list[int] = field(default_factory=lambda: [32] * 4)
     ndets: int = 16
-    distance_type: DistanceType = DistanceType.nu
+    distance_type: DistanceType = DistanceType.tri
     envelope_type: EnvelopeType = EnvelopeType.abs_isotropic
     sym_type: SymmetryType = SymmetryType.minimal
     orbitals_spin_split: bool = True
