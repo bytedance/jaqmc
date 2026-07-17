@@ -129,6 +129,30 @@ train:
         },
     ),
     CliDryRunCase(
+        "molecule_alkane_yaml",
+        "molecule train --yml ethane_alkane.yml",
+        {
+            "ethane_alkane.yml": """
+system:
+  module: alkane
+  repeat_num: 1
+workflow:
+  batch_size: 4
+wf:
+  hidden_dims_single: [4, 4]
+  hidden_dims_double: [2, 2]
+pretrain:
+  reference:
+    basis: sto-3g
+  run:
+    iterations: 1
+train:
+  run:
+    iterations: 1
+""",
+        },
+    ),
+    CliDryRunCase(
         "molecule_ecp_atom_yaml",
         "molecule train --yml fe_ecp.yml",
         {
