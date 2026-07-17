@@ -173,6 +173,21 @@ class TestConstantOwnerConcatenate:
             constant_owner_local1_seed(1),
         )
 
+    def test_equal_constants_compose_with_matching_owner(self):
+        check_with_brute_force(
+            lambda left, right, other: jnp.concatenate([left, right], axis=2) * other,
+            constant_owner_local1_seed(1),
+            constant_owner_local1_seed(1),
+            constant_owner_local1_seed(1, n_features=6),
+        )
+
+    def test_distinct_constants_off_axis_match_brute_force(self):
+        check_with_brute_force(
+            lambda left, right: jnp.concatenate([left, right], axis=2),
+            constant_owner_local1_seed(0),
+            constant_owner_local1_seed(2),
+        )
+
 
 class TestConstantOwnerReductions:
     @pytest.mark.parametrize(

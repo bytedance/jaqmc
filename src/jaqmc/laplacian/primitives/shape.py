@@ -431,6 +431,10 @@ def _concatenate_owner_role(
     # Concatenation stays representable either when all inputs vary along the
     # concatenated axis, or when they are all constant/off-axis with identical
     # metadata that remains valid for the merged output.
+    if all(owner.axis is None for owner in owners) and all(
+        owner == owners[0] for owner in owners[1:]
+    ):
+        return owners[0]
     if all(owner.axis in (None, axis) for owner in owners):
         return OwnerRole(
             axis,

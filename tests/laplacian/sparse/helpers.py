@@ -59,18 +59,24 @@ def repeated_owner_ids_local1_seed() -> LapTuple:
     )
 
 
-def constant_owner_local1_seed(owner_id: int = 1) -> LapTuple:
+def constant_owner_local1_seed(
+    owner_id: int = 1,
+    *,
+    n_features: int = 3,
+) -> LapTuple:
     """Return Local1 state whose full output shares one tracked owner.
 
     The singleton middle output axis permits a valid squeeze while the rank-3
     layout also exercises owner-axis-independent transpose, slice, broadcast,
     and reshape paths.
     """
-    x = jnp.arange(1.0, 7.0, dtype=jnp.float32).reshape(2, 1, 3)
+    x = jnp.arange(1.0, 2 * n_features + 1, dtype=jnp.float32).reshape(2, 1, n_features)
     return LapTuple(
         x,
         Local1Jacobian(
-            blocks=jnp.arange(1.0, 7.0, dtype=jnp.float32).reshape(1, 1, *x.shape),
+            blocks=jnp.arange(1.0, 2 * n_features + 1, dtype=jnp.float32).reshape(
+                1, 1, *x.shape
+            ),
             owners=OwnerRoles(OwnerRole(None, np.array([owner_id], dtype=np.int32))),
             input_shape=(3, 1),
             input_owner_axis=0,

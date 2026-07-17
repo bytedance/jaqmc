@@ -533,10 +533,27 @@ class TestConstantOwnerConcatenateRetention:
                 constant_owner_local1_seed(1),
                 id="off_axis",
             ),
+            pytest.param(
+                lambda left, right: jnp.concatenate([left, right], axis=2),
+                constant_owner_local1_seed(0),
+                constant_owner_local1_seed(2),
+                id="distinct_off_axis",
+            ),
         ),
     )
     def test_retains_local1_family(self, fn, lhs, rhs):
         out = forward_laplacian(fn)(lhs, rhs)
+
+        assert_retains_sparse_family(out, Local1Jacobian)
+
+    def test_equal_constants_compose_with_matching_local1(self):
+        out = forward_laplacian(
+            lambda left, right, other: jnp.concatenate([left, right], axis=2) * other
+        )(
+            constant_owner_local1_seed(1),
+            constant_owner_local1_seed(1),
+            constant_owner_local1_seed(1, n_features=6),
+        )
 
         assert_retains_sparse_family(out, Local1Jacobian)
 
