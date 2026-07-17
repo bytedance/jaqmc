@@ -4,11 +4,18 @@
 """Dense fallback kind and visibility policy for Forward Laplacian."""
 
 import logging
+import operator
 
 import jax
 import jax.numpy as jnp
+import numpy as np
+import pytest
 
 from jaqmc.laplacian import (
+    LapTuple,
+    Local2Jacobian,
+    OwnerRole,
+    OwnerRoles,
     forward_laplacian,
     make_laplacian_input,
 )
@@ -105,3 +112,123 @@ def test_mismatched_local1_maximum_logs_not_implemented(caplog):
     assert record.levelno == logging.WARNING
     assert "dense-fallback[max]" in message
     assert "not_implemented" in message
+
+
+@pytest.mark.parametrize(
+    ("fn", "seed_factory", "indices", "expected_shape"),
+    (
+        pytest.param(
+            operator.itemgetter(
+                (
+                    jnp.array([[0, 1], [1, 0]], dtype=jnp.int32),
+                    jnp.zeros((2, 2), dtype=jnp.int32),
+                )
+            ),
+            lambda: make_laplacian_input(
+                jnp.arange(9.0, dtype=jnp.float32).reshape(3, 3),
+                sparse_axis=0,
+            ),
+            None,
+            (9, 2, 2),
+            id="checkerboard_owner",
+        ),
+        pytest.param(
+            lambda value: jax.lax.gather(
+                value,
+                jnp.array([[0], [1]], dtype=jnp.int32),
+                dimension_numbers=jax.lax.GatherDimensionNumbers(
+                    offset_dims=(1, 2),
+                    collapsed_slice_dims=(),
+                    start_index_map=(0,),
+                ),
+                slice_sizes=(2, value.shape[1]),
+            ),
+            lambda: make_laplacian_input(
+                jnp.arange(12.0, dtype=jnp.float32).reshape(4, 3),
+                sparse_axis=0,
+            ),
+            None,
+            (12, 2, 2, 3),
+            id="moving_owner_window",
+        ),
+        pytest.param(
+            operator.itemgetter(
+                (
+                    jnp.array([[0, 1], [1, 0]], dtype=jnp.int32),
+                    jnp.array([[0, 0], [1, 1]], dtype=jnp.int32),
+                )
+            ),
+            lambda: LapTuple(
+                jnp.arange(9.0, dtype=jnp.float32).reshape(3, 3),
+                Local2Jacobian(
+                    blocks=jnp.ones((2, 1, 3, 3), dtype=jnp.float32),
+                    owners=OwnerRoles(
+                        OwnerRole(0, np.arange(3, dtype=np.int32)),
+                        OwnerRole(1, np.arange(3, dtype=np.int32)),
+                    ),
+                    input_shape=(3, 1),
+                    input_owner_axis=0,
+                ),
+                jnp.zeros((3, 3), dtype=jnp.float32),
+            ),
+            None,
+            (3, 2, 2),
+            id="one_local2_role",
+        ),
+        pytest.param(
+            lambda value, index: value[index],
+            lambda: make_laplacian_input(
+                jnp.arange(9.0, dtype=jnp.float32).reshape(3, 3),
+                sparse_axis=0,
+            ),
+            jnp.array([2, 0], dtype=jnp.int32),
+            (9, 2, 3),
+            id="owner_selecting",
+        ),
+        pytest.param(
+            lambda value, start_indices: jax.lax.gather(
+                value,
+                start_indices[:, None],
+                dimension_numbers=jax.lax.GatherDimensionNumbers(
+                    offset_dims=(1,),
+                    collapsed_slice_dims=(1,),
+                    start_index_map=(1,),
+                ),
+                slice_sizes=(0, 1),
+            ),
+            lambda: forward_laplacian(operator.itemgetter(slice(0)))(
+                make_laplacian_input(
+                    jnp.arange(6.0, dtype=jnp.float32).reshape(3, 2),
+                    sparse_axis=0,
+                )
+            ),
+            jnp.array([0], dtype=jnp.int32),
+            (6, 1, 0),
+            id="empty_owner_role",
+        ),
+    ),
+)
+def test_unrepresentable_gather_falls_back(
+    caplog,
+    fn,
+    seed_factory,
+    indices,
+    expected_shape,
+):
+    seed = seed_factory()
+    caplog.set_level(logging.DEBUG, logger=LOGGER_NAME)
+    transformed = forward_laplacian(fn)
+    if indices is None:
+        out = transformed(seed)
+    else:
+        out = jax.jit(lambda index: transformed(seed, index))(indices)
+
+    assert isinstance(out.jacobian, jnp.ndarray)
+    assert out.dense_jacobian.shape == expected_shape
+    [record] = [
+        record
+        for record in caplog.records
+        if "dense-fallback[gather]" in record.getMessage()
+    ]
+    assert record.levelno == logging.DEBUG
+    assert "unrepresentable" in record.getMessage()

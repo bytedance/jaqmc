@@ -136,6 +136,35 @@ class TestShapeAndIndexingRetention:
                 jnp.arange(48.0, dtype=jnp.float32).reshape(4, 4, 3),
                 id="scalar_multi_index_gather",
             ),
+            pytest.param(
+                operator.itemgetter(jnp.array([3, 1])),
+                jnp.arange(12.0, dtype=jnp.float32).reshape(4, 3),
+                id="row_gather",
+            ),
+            pytest.param(
+                lambda value: jnp.take(value, jnp.array([1, 0]), axis=2),
+                jnp.arange(24.0, dtype=jnp.float32).reshape(4, 3, 2),
+                id="feature_gather",
+            ),
+            pytest.param(
+                lambda value: jax.lax.gather(
+                    value,
+                    jnp.array(
+                        [[[0], [2], [1]], [[3], [1], [0]]],
+                        dtype=jnp.int32,
+                    ),
+                    dimension_numbers=jax.lax.GatherDimensionNumbers(
+                        offset_dims=(),
+                        collapsed_slice_dims=(1,),
+                        start_index_map=(1,),
+                        operand_batching_dims=(0,),
+                        start_indices_batching_dims=(0,),
+                    ),
+                    slice_sizes=(1, 1),
+                ),
+                jnp.arange(8.0, dtype=jnp.float32).reshape(2, 4),
+                id="batched_non_owner_gather",
+            ),
         ),
     )
     def test_local1_operations_retain_family(self, fn, x):
@@ -182,6 +211,19 @@ class TestShapeAndIndexingRetention:
                     (jnp.array([3, 1]), jnp.array([2, 0]), jnp.array([1, 2]))
                 ),
                 id="scalar_multi_index_gather",
+            ),
+            pytest.param(
+                lambda value: jax.lax.gather(
+                    value,
+                    jnp.array([[3, 2], [1, 0]], dtype=jnp.int32),
+                    dimension_numbers=jax.lax.GatherDimensionNumbers(
+                        offset_dims=(0,),
+                        collapsed_slice_dims=(0, 2),
+                        start_index_map=(0, 2),
+                    ),
+                    slice_sizes=(1, value.shape[1], 1),
+                ),
+                id="interleaved_gather_offsets",
             ),
         ),
     )

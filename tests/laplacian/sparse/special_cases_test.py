@@ -164,6 +164,60 @@ class TestOwnerRemappingGathers:
             seed,
         )
 
+    def test_higher_rank_indices_factorize_each_local2_role(self):
+        x = jnp.arange(18.0, dtype=jnp.float32).reshape(3, 3, 2)
+        seed = LapTuple(
+            x,
+            Local2Jacobian(
+                blocks=jnp.arange(108.0, dtype=jnp.float32).reshape(2, 3, 3, 3, 2),
+                owners=OwnerRoles(
+                    OwnerRole(0, np.arange(3, dtype=np.int32)),
+                    OwnerRole(1, np.arange(3, dtype=np.int32)),
+                ),
+                input_shape=(3, 3),
+                input_owner_axis=0,
+            ),
+            jnp.zeros_like(x),
+        )
+        start_indices = jnp.array(
+            [
+                [[[0, 0, 0], [1, 0, 0]], [[0, 0, 0], [1, 0, 0]]],
+                [[[0, 1, 0], [1, 1, 0]], [[0, 1, 0], [1, 1, 0]]],
+            ],
+            dtype=jnp.int32,
+        )
+
+        check_with_brute_force(
+            lambda value: jax.lax.gather(
+                value,
+                start_indices,
+                dimension_numbers=jax.lax.GatherDimensionNumbers(
+                    offset_dims=(),
+                    collapsed_slice_dims=(0, 1, 2),
+                    start_index_map=(0, 1, 2),
+                ),
+                slice_sizes=(1, 1, 1),
+            ),
+            seed,
+        )
+
+    def test_constant_owner_gather_matches_brute_force(self):
+        x = jnp.arange(12.0, dtype=jnp.float32).reshape(3, 4)
+        seed = LapTuple(
+            x,
+            Local1Jacobian(
+                blocks=jnp.arange(24.0, dtype=jnp.float32).reshape(1, 2, 3, 4),
+                owners=OwnerRoles(OwnerRole(None, np.array([1], dtype=np.int32))),
+                input_shape=(3, 2),
+                input_owner_axis=0,
+            ),
+            jnp.zeros_like(x),
+        )
+        check_with_brute_force(
+            operator.itemgetter(jnp.array([2, 0, 2], dtype=jnp.int32)),
+            seed,
+        )
+
 
 class TestMismatchedLocal1BinaryCorrectness:
     """Mismatched Local1 owner roles match the dense oracle for arithmetic."""

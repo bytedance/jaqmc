@@ -25,45 +25,86 @@ from ..types import LaplacianHandler, LapTuple
 from .core import fallback_dense, wrap_linear
 
 
-def _supports_sparse_scalar_gather_layout(
-    operand_ndim: int,
-    start_indices,
-    *,
-    dimension_numbers,
-    slice_sizes: tuple[int, ...],
-) -> bool:
-    if (
-        dimension_numbers.offset_dims
-        or dimension_numbers.operand_batching_dims
-        or dimension_numbers.start_indices_batching_dims
-    ):
-        return False
-    if len(slice_sizes) != operand_ndim or tuple(slice_sizes) != (1,) * operand_ndim:
-        return False
-    if tuple(dimension_numbers.collapsed_slice_dims) != tuple(range(operand_ndim)):
-        return False
-    start_index_map = tuple(dimension_numbers.start_index_map)
-    if tuple(sorted(start_index_map)) != tuple(range(operand_ndim)):
-        return False
-    indices = np.asarray(start_indices)
-    return indices.ndim == 2 and indices.shape[1] == len(start_index_map)
+def _factorize_gathered_owner_labels(labels: np.ndarray) -> OwnerRole | None:
+    """Factor gathered owner labels into JaQMC's one-axis owner model.
+
+    ``-1`` labels identify invalid fill/drop windows.  Their derivative payload
+    is zero, so they impose no owner constraint.  Each valid output position
+    must agree with either one constant owner id or an owner id selected by one
+    output axis.
+
+    Returns:
+        A factorized owner role, or ``None`` when more than one output axis is
+        required to express the gathered labels.
+    """
+    if labels.ndim > 0 and any(size == 0 for size in labels.shape):
+        return None
+
+    valid = labels >= 0
+    if not np.any(valid):
+        return OwnerRole(None, np.array([0], dtype=np.int32))
+
+    fallback_owner = int(labels[valid][0])
+    if np.all(labels[valid] == fallback_owner):
+        return OwnerRole(None, np.array([fallback_owner], dtype=np.int32))
+
+    for axis, axis_size in enumerate(labels.shape):
+        rows = np.moveaxis(labels, axis, 0).reshape(axis_size, -1)
+        values = np.max(rows, axis=1, where=rows >= 0, initial=-1)
+        values = np.where(values < 0, fallback_owner, values)
+        if np.all((rows < 0) | (rows == values[:, None])):
+            return OwnerRole(axis, values)
+    return None
 
 
 def _remap_gather_owner_role(
     owner: OwnerRole,
     *,
-    output_axis: int,
-    start_indices,
-    start_index_map: tuple[int, ...],
+    operand_shape: tuple[int, ...],
+    concrete_indices: np.ndarray | None,
+    dimension_numbers,
+    slice_sizes: tuple[int, ...],
+    label_gather_kwargs,
 ) -> OwnerRole | None:
-    if owner.axis is None:
-        return owner
-    try:
-        gather_pos = start_index_map.index(owner.axis)
-    except ValueError:
+    """Transform one owner role through a gather.
+
+    Returns:
+        The remapped owner role, or ``None`` when the gather is not representable.
+    """
+    if concrete_indices is not None:
+        if owner.axis is None:
+            return owner
+        labels = jnp.asarray(owner.values).reshape(
+            owner.factorized_shape(len(operand_shape))
+        )
+        gathered = jax.lax.gather_p.bind(
+            jnp.broadcast_to(labels, operand_shape),
+            concrete_indices,
+            **label_gather_kwargs,
+        )
+        return _factorize_gathered_owner_labels(np.asarray(gathered))
+
+    if owner.values.size == 0:
         return None
-    indices = np.asarray(start_indices)[:, gather_pos]
-    return OwnerRole(output_axis, owner.values[indices])
+    if owner.axis is None or np.all(owner.values == owner.values[0]):
+        return OwnerRole(None, owner.values[:1])
+
+    owner_axis = owner.axis
+    if owner_axis in dimension_numbers.start_index_map:
+        return None
+    if owner_axis in dimension_numbers.operand_batching_dims:
+        return None
+    if owner_axis in dimension_numbers.collapsed_slice_dims:
+        return OwnerRole(None, owner.values[:1])
+
+    retained_dims = tuple(
+        axis
+        for axis in range(len(operand_shape))
+        if axis not in dimension_numbers.collapsed_slice_dims
+        and axis not in dimension_numbers.operand_batching_dims
+    )
+    output_axis = dimension_numbers.offset_dims[retained_dims.index(owner_axis)]
+    return OwnerRole(output_axis, owner.values[: slice_sizes[owner_axis]])
 
 
 def _gather_sparse_blocks(x: LapTuple, start_indices, kwargs) -> jnp.ndarray:
@@ -71,12 +112,14 @@ def _gather_sparse_blocks(x: LapTuple, start_indices, kwargs) -> jnp.ndarray:
     dimension_numbers = kwargs["dimension_numbers"]
     support_shape = x.jacobian.blocks.shape[:2]
     block_dimension_numbers = jax.lax.GatherDimensionNumbers(
-        offset_dims=(0, 1),
+        offset_dims=(0, 1, *(axis + 2 for axis in dimension_numbers.offset_dims)),
         collapsed_slice_dims=tuple(
             axis + 2 for axis in dimension_numbers.collapsed_slice_dims
         ),
         start_index_map=tuple(axis + 2 for axis in dimension_numbers.start_index_map),
-        operand_batching_dims=dimension_numbers.operand_batching_dims,
+        operand_batching_dims=tuple(
+            axis + 2 for axis in dimension_numbers.operand_batching_dims
+        ),
         start_indices_batching_dims=dimension_numbers.start_indices_batching_dims,
     )
     return jax.lax.gather_p.bind(
@@ -110,42 +153,33 @@ def handle_gather(args, kwargs):
             kind="unrepresentable",
             reason="gather tracked start_indices unsupported",
         )
-    try:
-        start_indices = np.asarray(
-            jax.core.concrete_or_error(lambda value: value, start_indices)
-        )
-    except ConcretizationTypeError:
-        return fallback_dense(
-            dense_handler,
-            args,
-            kwargs,
-            kind="unrepresentable",
-            reason="gather sparse start_indices must be concrete",
-        )
     if not is_sparse_laptuple(x):
         return dense_handler(args, kwargs)
 
     slice_sizes = tuple(kwargs["slice_sizes"])
     dimension_numbers = kwargs["dimension_numbers"]
-    if not _supports_sparse_scalar_gather_layout(
-        x.x.ndim,
-        start_indices,
-        dimension_numbers=dimension_numbers,
-        slice_sizes=slice_sizes,
-    ):
+    if kwargs["mode"] == jax.lax.GatherScatterMode.ONE_HOT:
         return fallback_dense(
             dense_handler,
             args,
             kwargs,
             kind="not_implemented",
-            reason="gather sparse scalar layout unsupported",
+            reason="gather sparse ONE_HOT mode unsupported",
         )
+
+    try:
+        concrete_indices = jax.core.concrete_or_error(np.asarray, start_indices)
+    except ConcretizationTypeError:
+        concrete_indices = None
+    label_gather_kwargs = {**kwargs, "fill_value": -1}
     owners = x.jacobian.owners.map(
         lambda owner: _remap_gather_owner_role(
             owner,
-            output_axis=0,
-            start_indices=start_indices,
-            start_index_map=tuple(dimension_numbers.start_index_map),
+            operand_shape=x.x.shape,
+            concrete_indices=concrete_indices,
+            dimension_numbers=dimension_numbers,
+            slice_sizes=slice_sizes,
+            label_gather_kwargs=label_gather_kwargs,
         )
     )
     if owners is None:
@@ -153,12 +187,17 @@ def handle_gather(args, kwargs):
             dense_handler,
             args,
             kwargs,
-            kind="not_implemented",
+            kind="unrepresentable",
             reason="gather sparse owner remap unsupported",
         )
+    derivative_kwargs = {**kwargs, "fill_value": 0}
     y = jax.lax.gather_p.bind(x.x, start_indices, **kwargs)
-    lapl = jax.lax.gather_p.bind(x.laplacian, start_indices, **kwargs)
-    blocks = _gather_sparse_blocks(x, start_indices, kwargs)
+    lapl = jax.lax.gather_p.bind(
+        x.laplacian,
+        start_indices,
+        **derivative_kwargs,
+    )
+    blocks = _gather_sparse_blocks(x, start_indices, derivative_kwargs)
     return LapTuple(
         y,
         x.jacobian.with_blocks(

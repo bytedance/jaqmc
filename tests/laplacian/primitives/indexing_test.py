@@ -170,3 +170,105 @@ def test_pairwise_upper_triangle_gather(case):
         return pair[jnp.triu_indices(value.shape[0], k=1)]
 
     check_with_brute_force(upper_triangle_pair_distances, tracked_case_input(x, case))
+
+
+@pytest.mark.parametrize(
+    "op",
+    (
+        pytest.param(
+            lambda v: jax.lax.gather(
+                v,
+                jnp.array([[2, 3], [0, 1]], dtype=jnp.int32),
+                dimension_numbers=jax.lax.GatherDimensionNumbers(
+                    offset_dims=(1,),
+                    collapsed_slice_dims=(0, 2),
+                    start_index_map=(0, 2),
+                ),
+                slice_sizes=(1, v.shape[1], 1),
+            ),
+            id="offset_collapsed",
+        ),
+        pytest.param(
+            lambda v: jax.lax.gather(
+                v,
+                jnp.array([[2, 3], [0, 1]], dtype=jnp.int32),
+                dimension_numbers=jax.lax.GatherDimensionNumbers(
+                    offset_dims=(0,),
+                    collapsed_slice_dims=(0, 2),
+                    start_index_map=(0, 2),
+                ),
+                slice_sizes=(1, v.shape[1], 1),
+            ),
+            id="interleaved_offsets",
+        ),
+        pytest.param(
+            lambda v: jax.lax.gather(
+                v,
+                jnp.array([[1, 1, 0]], dtype=jnp.int32),
+                dimension_numbers=jax.lax.GatherDimensionNumbers(
+                    offset_dims=(0, 1),
+                    collapsed_slice_dims=(2,),
+                    start_index_map=(0, 1, 2),
+                ),
+                slice_sizes=(2, 2, 1),
+            ),
+            id="partial_windows",
+        ),
+        pytest.param(
+            lambda v: jax.lax.gather(
+                v,
+                jnp.array([[-3], [2]], dtype=jnp.int32),
+                dimension_numbers=jax.lax.GatherDimensionNumbers(
+                    offset_dims=(1, 2),
+                    collapsed_slice_dims=(0,),
+                    start_index_map=(0,),
+                ),
+                slice_sizes=(1, v.shape[1], v.shape[2]),
+                mode="clip",
+            ),
+            id="clip",
+        ),
+        pytest.param(
+            lambda v: jax.lax.gather(
+                v,
+                jnp.array([[0], [4]], dtype=jnp.int32),
+                dimension_numbers=jax.lax.GatherDimensionNumbers(
+                    offset_dims=(1, 2),
+                    collapsed_slice_dims=(0,),
+                    start_index_map=(0,),
+                ),
+                slice_sizes=(1, v.shape[1], v.shape[2]),
+                mode="fill",
+                fill_value=13.0,
+            ),
+            id="fill",
+        ),
+    ),
+)
+@parametrize_over_tracked_cases("case")
+def test_general_gather_layouts_match_brute_force(case, op):
+    x = jnp.arange(36.0, dtype=jnp.float32).reshape(3, 3, 4)
+    check_with_brute_force(op, tracked_case_input(x, case))
+
+
+@parametrize_over_tracked_cases("case")
+def test_gather_batching_dims_matches_brute_force(case):
+    x = jnp.arange(16.0, dtype=jnp.float32).reshape(4, 4)
+    check_with_brute_force(
+        lambda v: jax.lax.gather(
+            v,
+            jnp.broadcast_to(
+                jnp.array([[0], [2], [1]], dtype=jnp.int32),
+                (4, 3, 1),
+            ),
+            dimension_numbers=jax.lax.GatherDimensionNumbers(
+                offset_dims=(),
+                collapsed_slice_dims=(1,),
+                start_index_map=(1,),
+                operand_batching_dims=(0,),
+                start_indices_batching_dims=(0,),
+            ),
+            slice_sizes=(1, 1),
+        ),
+        tracked_case_input(x, case, input_shape=(4, 3)),
+    )
