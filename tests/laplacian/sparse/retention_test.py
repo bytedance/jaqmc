@@ -479,6 +479,26 @@ class TestArithmeticRetention:
         assert_retains_sparse_family(out, Local2Jacobian)
 
 
+class TestComplexRetention:
+    def test_matching_local1_complex_retains_family(self):
+        seed = make_laplacian_input(
+            jnp.arange(12.0, dtype=jnp.float32).reshape(4, 3),
+            sparse_axis=0,
+        )
+        out = forward_laplacian(jax.lax.complex)(seed, seed)
+        assert_retains_sparse_family(out, Local1Jacobian)
+
+    def test_matching_local2_complex_retains_family(self):
+        seed = _make_local2_pair_seed()
+        out = forward_laplacian(jax.lax.complex)(seed, seed)
+        assert_retains_sparse_family(out, Local2Jacobian)
+
+    def test_mismatched_local1_complex_promotes_to_local2(self):
+        local1_real, local1_imag = mismatched_local1_pair()
+        out = forward_laplacian(jax.lax.complex)(local1_real, local1_imag)
+        assert_retains_sparse_family(out, Local2Jacobian)
+
+
 class TestReductionRetention:
     def test_reduce_sum_non_owner_axis_retains_local1_family(self):
         seed = make_laplacian_input(

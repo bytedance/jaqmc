@@ -3,6 +3,7 @@
 
 """Complex component primitive semantics."""
 
+import jax
 import jax.numpy as jnp
 import pytest
 
@@ -15,7 +16,12 @@ from tests.laplacian.input_fixtures import (
     tracked_case_input,
 )
 
-from .helpers import check_unary, parametrize_over_tracked_cases
+from .helpers import (
+    check_binary,
+    check_unary,
+    parametrize_over_binary_cases,
+    parametrize_over_tracked_cases,
+)
 
 
 @pytest.mark.parametrize(
@@ -33,6 +39,11 @@ def test_complex_componentwise_vector_output(case, op):
         case,
         shape=VECTOR_SHAPE,
     )
+
+
+@parametrize_over_binary_cases(("real_case", "imag_case"))
+def test_complex_linear_binary_primitive(real_case, imag_case):
+    check_binary(jax.lax.complex, real_case, imag_case)
 
 
 @parametrize_over_tracked_cases("case")

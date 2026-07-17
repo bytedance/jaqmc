@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import jaqmc.laplacian.hessian as laplacian_hessian
 from jaqmc.laplacian import (
     LapTuple,
     Local2Jacobian,
@@ -23,6 +24,34 @@ from jaqmc.laplacian.primitives.core import log_dense_fallback
 from tests.laplacian.sparse.helpers import mismatched_local1_pair
 
 LOGGER_NAME = "jaqmc.laplacian.primitives.core"
+
+
+def test_linear_complex_avoids_generic_hessian(monkeypatch):
+    """The registered linear complex rule must not use generic fallback."""
+    x = jnp.array([1.0, 2.0], dtype=jnp.float32)
+    seed = LapTuple(x, jnp.ones((3, *x.shape)), jnp.zeros_like(x))
+
+    def fail_if_hessian_is_materialized(*args, **kwargs):
+        raise AssertionError("linear complex primitive materialized a Hessian")
+
+    monkeypatch.setattr(
+        laplacian_hessian,
+        "JHJ_via_hessian",
+        fail_if_hessian_is_materialized,
+    )
+    result = forward_laplacian(
+        lambda real: jax.lax.complex(real, jnp.zeros_like(real))
+    )(seed)
+
+    np.testing.assert_allclose(result.x, jax.lax.complex(x, jnp.zeros_like(x)))
+    np.testing.assert_allclose(
+        result.dense_jacobian,
+        seed.dense_jacobian.astype(jnp.complex64),
+    )
+    np.testing.assert_allclose(
+        result.laplacian,
+        jnp.zeros_like(x, dtype=jnp.complex64),
+    )
 
 
 def test_not_implemented_fallback_logs_warning(caplog):
