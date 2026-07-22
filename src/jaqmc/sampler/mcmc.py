@@ -161,6 +161,9 @@ class MCMCSampler(SamplerLike[MCMCState]):
             ValueError: If ``batch_log_prob(data)`` does not return shape
                 ``(batch_size,)``.
         """
+        if self.steps == 0:
+            return data, {"pmove": jnp.array(0.0)}, state
+
         logprob = batch_log_prob(data).real
         if logprob.ndim != 1:
             raise ValueError(

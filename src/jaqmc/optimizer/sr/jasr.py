@@ -757,7 +757,7 @@ class Precision(Enum):
     F64 = 100
 
 
-PrecisionLike = int | str | None | Precision
+PrecisionLike = int | str | Precision | None
 
 
 def get_precision(label: PrecisionLike, under_x64: bool) -> Precision:
@@ -1039,7 +1039,6 @@ def adaptive_grad(f, argnums=0, has_aux=False):
 
 
 def wrap_if_mapped(p_func):
-
     def p_func_if_mapped(obj, axis_name, **kwargs):
         try:
             _ = lax.axis_index(axis_name)

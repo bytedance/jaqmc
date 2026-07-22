@@ -138,7 +138,7 @@ If you enabled `march_beta`, also cite:
 ````
 
 ````{dropdown} Pseudo Hamiltonian
-The PH theory and reference data come from Bennett et al. (2022) and Ichibha et al. (2023); the NNQMC + forward-Laplacian integration follows Fu et al. (2025).
+The PH theory and reference data come from Bennett et al. (2022) and Ichibha et al. (2023); the NNQMC + Forward Laplacian integration follows Fu et al. (2025).
 ```bibtex
 @article{bennett2022high,
   title={High accuracy transition metal effective cores for the many-body diffusion Monte Carlo method},

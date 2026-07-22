@@ -662,16 +662,6 @@ wheels = [
 ]
 
 [[package]]
-name = "folx"
-version = "0.2.19"
-source = { git = "https://github.com/microsoft/folx?rev=47a0e8d97a311686115aae353a85a45ae6432274#47a0e8d97a311686115aae353a85a45ae6432274" }
-dependencies = [
-    { name = "jax" },
-    { name = "jaxtyping" },
-    { name = "numpy" },
-]
-
-[[package]]
 name = "fonttools"
 version = "4.62.1"
 source = { registry = "https://pypi.org/simple" }
@@ -950,7 +940,6 @@ source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "flax" },
-    { name = "folx" },
     { name = "fsspec" },
     { name = "h5py" },
     { name = "jax" },
@@ -1030,7 +1019,6 @@ types = [
 requires-dist = [
     { name = "click", specifier = ">=8.3.1" },
     { name = "flax", specifier = ">=0.10.4" },
-    { name = "folx", git = "https://github.com/microsoft/folx?rev=47a0e8d97a311686115aae353a85a45ae6432274" },
     { name = "fsspec", specifier = ">=2026.2.0" },
     { name = "h5py", specifier = ">=3.15.1" },
     { name = "jax", specifier = ">=0.4.36,<=0.9.1" },

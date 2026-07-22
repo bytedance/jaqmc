@@ -41,8 +41,9 @@ class EuclideanKinetic(PerWalkerEstimator):
         mode: Laplacian computation strategy. ``forward_laplacian`` is the default
             for JAX 0.7.1 and later, ``scan`` for earlier versions. See
             :class:`LaplacianMode` for details.
-        sparsity_threshold: Sparsity threshold when using ``forward_laplacian`` mode.
-            Always verify numerical correctness before adopting it in production runs.
+        sparse: Whether to seed the Forward Laplacian path with a sparse
+            particle-coordinate input so the interpreter can preserve locality
+            internally where possible before returning a dense public Jacobian.
         f_log_psi: Log-psi evaluate function (runtime dep).
         data_field: Name of the data field containing positions (runtime dep).
     """
@@ -52,20 +53,19 @@ class EuclideanKinetic(PerWalkerEstimator):
         if jax.__version_info__ < (0, 7, 1)
         else LaplacianMode.forward_laplacian
     )
-    sparsity_threshold: int = 0
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
     data_field: str = runtime_dep(default="electrons")
+    sparse: bool = True
 
     def __post_init__(self):
-        if self.mode == LaplacianMode.forward_laplacian:
-            if jax.__version_info__ < (0, 7, 1):
-                raise RuntimeError(
-                    "JAX version too old to run folx. "
-                    "Please upgrade to JAX 0.7.1 or later."
-                )
-        elif self.sparsity_threshold > 0:
-            raise ValueError(
-                "Sparsity threshold is only supported in forward_laplacian mode."
+        if self.mode == LaplacianMode.forward_laplacian and jax.__version_info__ < (
+            0,
+            7,
+            1,
+        ):
+            raise RuntimeError(
+                "JAX version too old to run jaqmc.laplacian. "
+                "Please upgrade to JAX 0.7.1 or later."
             )
 
     def evaluate_single_walker(
@@ -114,24 +114,22 @@ class EuclideanKinetic(PerWalkerEstimator):
     def _evaluate_forward_laplacian(
         self, params: Params, data: Data, state: None
     ) -> tuple[dict[str, Any], None]:
-        from folx import forward_laplacian
+        from jaqmc.laplacian import forward_laplacian, make_laplacian_input
 
         if jax.__version_info__ < (0, 7, 1):
-            raise RuntimeError("JAX version too old to run folx.")
+            raise RuntimeError("JAX version too old to run jaqmc.laplacian.")
 
-        flatten_positions, positions_shape = _flatten_positions(data, self.data_field)
-
-        def log_psi_closure(x):
-            return self.f_log_psi(
-                params, data.merge({self.data_field: jnp.reshape(x, positions_shape)})
-            )
-
-        log_psi_folx = forward_laplacian(
-            log_psi_closure, sparsity_threshold=self.sparsity_threshold
+        positions = make_laplacian_input(
+            data[self.data_field],
+            sparse_axis=0 if self.sparse else None,
         )
-        fwd_result = log_psi_folx(flatten_positions)
+        fwd_result = forward_laplacian(self.f_log_psi)(
+            params,
+            data.merge({self.data_field: positions}),
+        )
         laplacian = fwd_result.laplacian
         primal = fwd_result.dense_jacobian
+        grad_sq = jnp.sum(primal**2)
 
-        result = _apply_kinetic_formula(laplacian, jnp.sum(primal**2))
+        result = _apply_kinetic_formula(laplacian, grad_sq)
         return {"energy:kinetic": result}, state

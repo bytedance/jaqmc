@@ -68,7 +68,7 @@ def compute_derivative_energy(
 
     This is the educational reference path. The production ``forward_laplacian``
     backend (:mod:`jaqmc.estimator.ph._forward_laplacian`) evaluates the
-    same quantity through a Cholesky-shifted forward-Laplacian pass.
+    same quantity through a Cholesky-shifted Forward Laplacian pass.
 
     Args:
         f_log_psi: Log-wavefunction evaluate function.

@@ -15,7 +15,7 @@ rotation, and no localization approximation, and PH is significantly cheaper
 to evaluate than the corresponding ECP while delivering the same level of
 many-body accuracy on the supported elements.
 
-The implementation here is based on [Bennett et al., *J. Chem. Theory Comput.* **18**, 828–839 (2022)](https://doi.org/10.1021/acs.jctc.1c00992) and the locality-error-free follow-up [Ichibha et al., *J. Chem. Phys.* **159**, 164114 (2023)](https://doi.org/10.1063/5.0175381). The integration with neural-network QMC, including the forward-Laplacian evaluation strategy used by default, follows [Fu et al., arXiv:2505.19909 (2025)](https://arxiv.org/abs/2505.19909).
+The implementation here is based on [Bennett et al., *J. Chem. Theory Comput.* **18**, 828–839 (2022)](https://doi.org/10.1021/acs.jctc.1c00992) and the locality-error-free follow-up [Ichibha et al., *J. Chem. Phys.* **159**, 164114 (2023)](https://doi.org/10.1063/5.0175381). The integration with neural-network QMC, including the Forward Laplacian evaluation strategy used by default, follows [Fu et al., arXiv:2505.19909 (2025)](https://arxiv.org/abs/2505.19909).
 
 ## Supported elements
 
@@ -41,8 +41,8 @@ may coexist in the same molecule. Solid workflows accept the same unified
 
 On PH runs the kinetic energy is computed by the PH estimator rather than by a standalone {class}`~jaqmc.estimator.kinetic.EuclideanKinetic`. The evaluation strategy is selected via `estimators.energy.ph.kinetic_backend`:
 
-- `forward_laplacian` (default) — Forward-mode Laplacian evaluation via [folx](https://github.com/microsoft/folx), following [Fu et al. (2025)](https://arxiv.org/abs/2505.19909). This is the fast path and is recommended for production runs.
-- `standard` — Reverse-mode evaluation via `jax.grad` / `jax.hessian`, following [Bennett et al. (2022)](https://doi.org/10.1021/acs.jctc.1c00992). Slower than `forward_laplacian` but useful as a cross-check and in environments where the forward-Laplacian path is unavailable.
+- `forward_laplacian` (default) — Forward Laplacian evaluation through JaQMC's internal `jaqmc.laplacian.forward_laplacian` implementation, following [Fu et al. (2025)](https://arxiv.org/abs/2505.19909). This is the fast path and is recommended for production runs.
+- `standard` — Reverse-mode evaluation via `jax.grad` / `jax.hessian`, following [Bennett et al. (2022)](https://doi.org/10.1021/acs.jctc.1c00992). Slower than `forward_laplacian` but useful as a cross-check and in environments where the Forward Laplacian path is unavailable.
 
 :::{note}
 On PH runs the kinetic backend is controlled exclusively by `estimators.energy.ph.kinetic_backend`. Setting any `estimators.energy.kinetic.*` key on a PH system is an error and will fail the unused-config check at startup. A startup log line reports the active PH backend.
@@ -134,9 +134,9 @@ recovers the paper-form local channel without any masking between the two estima
 Both backends compute the same operator decomposition shown in [Local energy formulas](#ph-formulas); they differ only in *how* the derivatives of $\log\psi$ are obtained. The user-facing knob is documented in [Kinetic backend](#kinetic-backend) above.
 
 (ph-backend-fl)=
-### Forward-Laplacian backend
+### Forward Laplacian backend
 
-The production path, following the NNQMC + PH + Forward-Laplacian construction of [Fu et al. (2025)](https://arxiv.org/abs/2505.19909). It assembles the PH derivative term in a single forward-Laplacian pass by folding the per-electron Cholesky factor of $M$ into the shifted-coordinate map.
+The production path, following the NNQMC + PH + Forward Laplacian construction of [Fu et al. (2025)](https://arxiv.org/abs/2505.19909). It assembles the PH derivative term in a single Forward Laplacian pass by folding the per-electron Cholesky factor of $M$ into the shifted-coordinate map.
 
 Cholesky-decompose $M_i = L_i L_i^\top$ per electron and define
 
@@ -154,7 +154,7 @@ $$
   = \mathrm{Tr}(L_i^\top H_i L_i) = \mathrm{Tr}(M_i H_i),
 $$
 
-so a single [folx](https://github.com/microsoft/folx) `forward_laplacian` evaluation of $g$ yields both $-\mathrm{Tr}(M_i H_i)$ and $-g_i^\top M_i g_i$ summed over electrons. The remaining $b_i^\top g_i$ term is added using the closed-form $b_i$ from [First-order vector b](#ph-first-order-vector) and a separate `jax.grad` call for $\nabla_{\mathbf{x}} \log\psi$.
+so a single `jaqmc.laplacian.forward_laplacian` evaluation of $g$ yields both $-\mathrm{Tr}(M_i H_i)$ and $-g_i^\top M_i g_i$ summed over electrons. The remaining $b_i^\top g_i$ term is added using the closed-form $b_i$ from [First-order vector b](#ph-first-order-vector) and a separate `jax.grad` call for $\nabla_{\mathbf{x}} \log\psi$.
 
 If $M_i$ is not positive definite at the evaluation point, `jnp.linalg.cholesky` returns NaN and `energy:kinetic` becomes NaN — the expected loud failure mode for this backend.
 
@@ -166,12 +166,12 @@ The paper-faithful reverse-mode reference path, following [Bennett et al. (2022)
 - $g_i$ via `jax.grad` of $\log\psi$.
 - $H_i$ via `jax.hessian` of $\log\psi$ (the per-electron diagonal $3\times 3$ block; cross-electron blocks do not enter the PH derivative term).
 - $M_i$ assembled in the closed form of [Mass matrix M](#ph-mass-matrix).
-- $b_i$ obtained as $-\nabla \cdot (M - I/2)$ via `jax.jacfwd`, which is algebraically the same as the analytic identity used by the forward-Laplacian backend but reaches it through a different code path.
+- $b_i$ obtained as $-\nabla \cdot (M - I/2)$ via `jax.jacfwd`, which is algebraically the same as the analytic identity used by the Forward Laplacian backend but reaches it through a different code path.
 - The three contractions are then performed by explicit `jnp.einsum` calls.
 
-Non-PD assembly is caught with an explicit eigenvalue guard on $M_i$ that returns a NaN-filled matrix, matching the loud-failure behavior of the forward-Laplacian backend by a different mechanism.
+Non-PD assembly is caught with an explicit eigenvalue guard on $M_i$ that returns a NaN-filled matrix, matching the loud-failure behavior of the Forward Laplacian backend by a different mechanism.
 
-This backend is slower than the forward-Laplacian path but easier to read and serves as the math anchor exercised by the parity test; performance work and pathological-input hardening live in the forward-Laplacian backend.
+This backend is slower than the Forward Laplacian path but easier to read and serves as the math anchor exercised by the parity test; performance work and pathological-input hardening live in the Forward Laplacian backend.
 
 ## See also
 

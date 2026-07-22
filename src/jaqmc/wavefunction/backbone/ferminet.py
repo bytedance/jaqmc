@@ -80,7 +80,7 @@ class FermiLayers(nn.Module):
             axis as ``h_one``.
         """
         g_one = [
-            jnp.mean(h_one_alpha, axis=0) * jnp.ones_like(h_one)
+            jnp.broadcast_to(jnp.mean(h_one_alpha, axis=0)[None, :], h_one.shape)
             for h_one_alpha in split_nonempty_channels(h_one, self.nspins)
         ]
         g_two = [

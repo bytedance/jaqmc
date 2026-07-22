@@ -9,6 +9,8 @@ Write custom workflows, wavefunctions, and configurable components. If you are c
 - Add a new wavefunction architecture → <project:wavefunctions.md>
 - Add a new estimator, sampler, optimizer, or writer → <project:custom-components/index.md>
 - Understand programmatic configuration and module loading → <project:configuration.md>
+- Use {mod}`jaqmc.laplacian` directly in an estimator → <project:forward-laplacian/index.md>
+- Add custom Forward Laplacian rules, extend the transform itself, or debug primitive dispatch / sparse fallback → <project:forward-laplacian/index.md>
 - Contribute changes back to the project → <project:contributing.md>
 
 If you are starting from scratch, the usual reading order is
@@ -51,5 +53,6 @@ writing-workflows.md
 wavefunctions.md
 custom-components/index.md
 configuration.md
+forward-laplacian/index.md
 contributing.md
 ```
