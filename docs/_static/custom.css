@@ -166,3 +166,14 @@ div.math mjx-container {
         padding-left: 0.75rem;
     }
 }
+
+/* Search interface */
+#pst-search-dialog #search-results {
+    max-height: 70vh;
+}
+#pst-search-dialog #search-results > h2 {
+    margin-top: 1rem;
+}
+#pst-search-dialog .bd-search:has(+ #search-results[class=""]) {
+    border-radius: 0.25rem 0.25rem 0 0;
+}

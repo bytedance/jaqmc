@@ -1,4 +1,4 @@
-# Training
+# Molecule Training
 
 Configuration reference for `jaqmc molecule train`.
 This page shows the effective defaults for the train workflow preset. Use
@@ -42,6 +42,7 @@ Defines the molecular system to simulate. The implementation is selected by
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.molecule.config.base.MoleculeConfig
    :prefix: system
+   :scope: Molecule
 ```
 
 ### Single atoms (`system.module=atom`)
@@ -49,6 +50,7 @@ Defines the molecular system to simulate. The implementation is selected by
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.molecule.config.atom.atom_config
    :prefix: system
+   :scope: atom
 ```
 
 ### Diatomic molecules (`system.module=diatomic`)
@@ -56,6 +58,7 @@ Defines the molecular system to simulate. The implementation is selected by
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.molecule.config.diatomic.diatomic_config
    :prefix: system
+   :scope: diatomic
 ```
 
 (molecule-train-wf)=
@@ -72,6 +75,7 @@ Selects and configures the neural-network ansatz.
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.molecule.wavefunction.ferminet.FermiNetWavefunction
    :prefix: wf
+   :scope: FermiNet
 ```
 
 ### Psiformer options (`wf.*`)
@@ -79,6 +83,7 @@ Selects and configures the neural-network ansatz.
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.molecule.wavefunction.psiformer.PsiformerWavefunction
    :prefix: wf
+   :scope: Psiformer
 ```
 
 ---
@@ -108,6 +113,7 @@ updates wavefunction parameters.
 ```{eval-rst}
 .. config-defaults:: jaqmc.optimizer.kfac.kfac.KFACOptimizer
    :prefix: train.optim
+   :scope: KFAC
 ```
 
 #### SR options
@@ -115,6 +121,7 @@ updates wavefunction parameters.
 ```{eval-rst}
 .. config-defaults:: jaqmc.optimizer.sr.SROptimizer
    :prefix: train.optim
+   :scope: SR
 ```
 
 #### Adam options
@@ -122,6 +129,7 @@ updates wavefunction parameters.
 ```{eval-rst}
 .. config-defaults:: jaqmc.optimizer.optax.adam
    :prefix: train.optim
+   :scope: Adam
 ```
 
 #### LAMB options
@@ -129,6 +137,7 @@ updates wavefunction parameters.
 ```{eval-rst}
 .. config-defaults:: jaqmc.optimizer.optax.lamb
    :prefix: train.optim
+   :scope: LAMB
 ```
 
 (train-sampler)=
@@ -139,6 +148,7 @@ updates wavefunction parameters.
 ```{eval-rst}
 .. config-defaults:: jaqmc.sampler.mcmc.MCMCSampler
    :prefix: train.sampler
+   :scope: MCMC
 ```
 
 (train-writers)=
@@ -212,6 +222,7 @@ target orbitals for pretraining. Most runs can keep the default settings.
 ```{eval-rst}
 .. config-defaults:: jaqmc.optimizer.optax.adam
    :prefix: pretrain.optim
+   :scope: Adam
 ```
 
 ### Sampler (`pretrain.sampler.*`)
@@ -221,6 +232,7 @@ target orbitals for pretraining. Most runs can keep the default settings.
 ```{eval-rst}
 .. config-defaults:: jaqmc.sampler.mcmc.MCMCSampler
    :prefix: pretrain.sampler
+   :scope: MCMC
 ```
 
 ### Writers (`pretrain.writers.*`)

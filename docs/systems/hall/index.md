@@ -174,6 +174,6 @@ whether angular-momentum penalties were used.
 :hidden:
 
 energy-corrections.md
-train.md
-eval.md
+Training <train.md>
+Evaluation <eval.md>
 ```

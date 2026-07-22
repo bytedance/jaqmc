@@ -1,4 +1,4 @@
-# Evaluation
+# Solid Evaluation
 
 Configuration reference for `jaqmc solid evaluate`.
 This page shows the effective defaults for the evaluation workflow preset. Use

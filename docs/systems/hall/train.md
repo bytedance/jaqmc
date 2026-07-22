@@ -1,4 +1,4 @@
-# Training
+# Quantum Hall Training
 
 Configuration reference for `jaqmc hall train`.
 This page shows the effective defaults for the train workflow preset. Use
@@ -53,6 +53,7 @@ See <project:index.md> for background on each architecture.
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.hall.wavefunction.mhpo.MHPO
    :prefix: wf
+   :scope: MHPO
 ```
 
 ### Laughlin options (`wf.*`)
@@ -60,6 +61,7 @@ See <project:index.md> for background on each architecture.
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.hall.wavefunction.laughlin.Laughlin
    :prefix: wf
+   :scope: Laughlin
 ```
 
 ### Free options (`wf.*`)
@@ -67,6 +69,7 @@ See <project:index.md> for background on each architecture.
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.hall.wavefunction.free.Free
    :prefix: wf
+   :scope: Free
 ```
 
 (hall-train-stage)=
@@ -93,6 +96,7 @@ The VMC optimization loop. Samples electron configurations on the Haldane sphere
 ```{eval-rst}
 .. config-defaults:: jaqmc.optimizer.kfac.kfac.KFACOptimizer
    :prefix: train.optim
+   :scope: KFAC
 ```
 
 #### SR options
@@ -100,6 +104,7 @@ The VMC optimization loop. Samples electron configurations on the Haldane sphere
 ```{eval-rst}
 .. config-defaults:: jaqmc.optimizer.sr.SROptimizer
    :prefix: train.optim
+   :scope: SR
 ```
 
 #### Adam options
@@ -107,6 +112,7 @@ The VMC optimization loop. Samples electron configurations on the Haldane sphere
 ```{eval-rst}
 .. config-defaults:: jaqmc.optimizer.optax.adam
    :prefix: train.optim
+   :scope: Adam
 ```
 
 #### LAMB options
@@ -114,6 +120,7 @@ The VMC optimization loop. Samples electron configurations on the Haldane sphere
 ```{eval-rst}
 .. config-defaults:: jaqmc.optimizer.optax.lamb
    :prefix: train.optim
+   :scope: LAMB
 ```
 
 (hall-train-sampler)=
@@ -124,6 +131,7 @@ The VMC optimization loop. Samples electron configurations on the Haldane sphere
 ```{eval-rst}
 .. config-defaults:: jaqmc.sampler.mcmc.MCMCSampler
    :prefix: train.sampler
+   :scope: MCMC
 ```
 
 (hall-train-writers)=
