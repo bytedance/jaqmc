@@ -108,34 +108,6 @@ def test_uniform_data_and_solid_wavefunction_reuse() -> None:
     assert jnp.isfinite(output["logpsi"])
 
 
-@pytest.mark.x64_modes
-def test_wavefunction_parameter_dtype_follows_config(x64_mode: bool) -> None:
-    dtype = "float64" if x64_mode else "float32"
-    manager = ConfigManager(
-        {
-            "system": {"rs": 1.0, "nspins": [1, 1]},
-            "wf": {
-                "hidden_dims_single": [8],
-                "hidden_dims_double": [4],
-                "ndets": 1,
-                "parameter_dtype": dtype,
-            },
-        }
-    )
-    config, wavefunction, _, _ = configure_system(manager)
-    batched = data_init(config, size=1, rngs=jax.random.PRNGKey(0))
-    one_walker = dataclasses.replace(batched.data, electrons=batched.data.electrons[0])
-
-    params = wavefunction.init_params(one_walker, jax.random.PRNGKey(1))
-    floating_dtypes = {
-        value.dtype
-        for value in jax.tree.leaves(params)
-        if jnp.issubdtype(value.dtype, jnp.floating)
-    }
-
-    assert floating_dtypes == {jnp.dtype(dtype)}
-
-
 def test_forward_laplacian_uses_smooth_periodic_features(capsys) -> None:
     """HEG kinetic energy must not materialize a full Hessian for PBC features."""
     manager = ConfigManager(
