@@ -39,7 +39,7 @@ class HallTrainWorkflow(VMCWorkflow):
         console_fields = (
             "pmove:.2f,"
             "energy=total_energy_real:.4f,"
-            "variance=total_energy_var:.4f,"
+            "variance=total_energy_real_var:.4f,"
             "Lz=angular_momentum_z:+.4f,"
             "L_square=angular_momentum_square:.4f"
         )

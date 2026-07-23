@@ -12,6 +12,8 @@ from jaqmc.array_types import Params
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import ComplexWFOutput, Wavefunction
 
+__all__ = ["Free"]
+
 
 def make_monopole_harm(q: float, ell: float, m: float):
     r"""Create a monopole harmonic function :math:`Y_{q,\ell,m}`.
