@@ -10,7 +10,7 @@ strength :math:`Q`.
 """
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Literal
 
 import jax
 from jax import numpy as jnp
@@ -23,8 +23,6 @@ from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.func_transform import with_imag, with_real
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
-
-from ._common import LaplacianMode
 
 
 def _angular_momentum_operator(f, Q: float):
@@ -127,16 +125,15 @@ class SphericalKinetic(PerWalkerEstimator):
     Also computes angular momentum observables.
 
     Args:
-        mode: Laplacian computation mode. ``scan`` and ``fori_loop`` use a
-            Hessian-based approach; ``forward_laplacian`` uses the forward
-            Laplacian.
+        mode: Laplacian computation mode. ``hessian`` use a Hessian-based approach;
+            ``forward_laplacian`` uses the Forward Laplacian.
         monopole_strength: Half the magnetic flux (:math:`Q = \text{flux}/2`).
         radius: Sphere radius. Defaults to :math:`\sqrt{Q}`.
         f_log_psi: Complex log-psi function (runtime dep).
         data_field: Name of the data field (runtime dep, default ``"electrons"``).
     """
 
-    mode: LaplacianMode = LaplacianMode.scan
+    mode: Literal["hessian", "forward_laplacian"] = "hessian"
     monopole_strength: float = 1.0
     radius: float | None = None
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
@@ -151,9 +148,11 @@ class SphericalKinetic(PerWalkerEstimator):
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], None]:
         del prev_walker_stats, rngs
-        if self.mode == LaplacianMode.forward_laplacian:
+        if self.mode == "forward_laplacian":
             return self._evaluate_forward_laplacian(params, data, state)
-        return self._evaluate_hessian(params, data, state)
+        if self.mode == "hessian":
+            return self._evaluate_hessian(params, data, state)
+        raise ValueError(f"Unsupported Laplacian mode {self.mode}.")
 
     def _evaluate_hessian(
         self, params: Params, data: Data, state: None
