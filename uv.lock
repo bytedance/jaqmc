@@ -976,6 +976,7 @@ analysis = [
 ]
 dev = [
     { name = "mypy" },
+    { name = "pyblock" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-mock" },
@@ -1006,6 +1007,7 @@ lint = [
     { name = "ruff" },
 ]
 test = [
+    { name = "pyblock" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-mock" },
@@ -1046,6 +1048,7 @@ analysis = [
 ]
 dev = [
     { name = "mypy", specifier = ">=1.19.0" },
+    { name = "pyblock", specifier = ">=0.6" },
     { name = "pytest", specifier = ">=9.0.1" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "pytest-mock", specifier = ">=3.15.1" },
@@ -1076,6 +1079,7 @@ lint = [
     { name = "ruff", specifier = ">=0.14.7" },
 ]
 test = [
+    { name = "pyblock", specifier = ">=0.6" },
     { name = "pytest", specifier = ">=9.0.1" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "pytest-mock", specifier = ">=3.15.1" },

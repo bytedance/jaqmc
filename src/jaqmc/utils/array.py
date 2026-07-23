@@ -42,7 +42,15 @@ def split_nonempty_channels(x: jnp.ndarray, sizes: Sequence[int]) -> list[jnp.nd
         )
     if sum(size > 0 for size in sizes) <= 1:
         return [x]
-    return jnp.split(x, array_partitions([size for size in sizes if size > 0]))
+
+    channels = []
+    start = 0
+    for size in sizes:
+        stop = start + size
+        if size > 0:
+            channels.append(x[start:stop])
+        start = stop
+    return channels
 
 
 def match_first_axis_of(x: jnp.ndarray, target: jnp.ndarray):

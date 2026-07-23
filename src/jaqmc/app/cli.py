@@ -103,6 +103,30 @@ def solid_evaluate(cfg: ConfigManager, dry_run: bool):
     SolidEvalWorkflow(cfg)(dry_run)
 
 
+# --- electron_gas ---
+
+
+@cli.group(name="electron-gas", help="Three-dimensional electron gas workflows.")
+def electron_gas():
+    pass
+
+
+@electron_gas.add_command
+@make_cli(name="train", help="Pretrain + train a homogeneous electron gas model.")
+def electron_gas_train(cfg: ConfigManager, dry_run: bool):
+    from .electron_gas import ElectronGasTrainWorkflow
+
+    ElectronGasTrainWorkflow(cfg)(dry_run)
+
+
+@electron_gas.add_command
+@make_cli(name="evaluate", help="Evaluate a trained electron gas model.")
+def electron_gas_evaluate(cfg: ConfigManager, dry_run: bool):
+    from .electron_gas import ElectronGasEvalWorkflow
+
+    ElectronGasEvalWorkflow(cfg)(dry_run)
+
+
 # --- hall ---
 
 

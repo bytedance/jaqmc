@@ -1,0 +1,43 @@
+jax:
+  enable_x64: true
+  default_matmul_precision: highest
+
+system:
+  # Must match the corresponding training run.
+  rs: 1.0
+  nspins: [27, 27]
+  twist: [0.0, 0.0, 0.0]
+
+workflow:
+  seed: 43
+  batch_size: 4096
+  # Override both paths with persistent, density-specific paths.
+  source_path: ./runs/fig2h_n54_rs1_train
+  save_path: ./runs/fig2h_n54_rs1_eval
+
+wf:
+  hidden_dims_single: [256, 256, 256]
+  hidden_dims_double: [32, 32, 32]
+  ndets: 1
+  distance_type: tri
+  full_det: true
+  parameter_dtype: float64
+
+sampler:
+  steps: 20
+  initial_width: 0.02
+  pmove_range: [0.5, 0.6]
+
+estimators:
+  energy:
+    kinetic:
+      mode: forward_laplacian
+      # Memory scheduling only: the global statistical batch remains 4096.
+      vmap_chunk_size: 128
+
+run:
+  iterations: 50000
+  burn_in: 1000
+  digest_step_interval: 1000
+  save_time_interval: 600
+  save_step_interval: 1000

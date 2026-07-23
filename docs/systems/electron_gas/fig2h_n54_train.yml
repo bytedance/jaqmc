@@ -1,0 +1,51 @@
+jax:
+  enable_x64: true
+  default_matmul_precision: highest
+
+system:
+  # Override this with one of: 0.5, 1, 2, 5, 10, 20.
+  rs: 1.0
+  nspins: [27, 27]
+  twist: [0.0, 0.0, 0.0]
+
+workflow:
+  seed: 42
+  batch_size: 4096
+  # Override this with a persistent, density-specific path on the GPU host.
+  save_path: ./runs/fig2h_n54_rs1_train
+
+wf:
+  hidden_dims_single: [256, 256, 256]
+  hidden_dims_double: [32, 32, 32]
+  ndets: 1
+  # Keep the JaQMC ansatz choices explicit rather than relying on defaults.
+  distance_type: tri
+  full_det: true
+  parameter_dtype: float64
+
+sampler:
+  steps: 20
+  initial_width: 0.02
+  pmove_range: [0.5, 0.6]
+
+estimators:
+  energy:
+    kinetic:
+      mode: forward_laplacian
+      # Memory scheduling only: the global statistical batch remains 4096.
+      vmap_chunk_size: 128
+
+pretrain:
+  run:
+    iterations: 1000
+
+train:
+  optim:
+    learning_rate:
+      rate: 0.03
+    damping: 0.001
+    norm_constraint: 0.001
+  run:
+    iterations: 300000
+    save_time_interval: 600
+    save_step_interval: 1000

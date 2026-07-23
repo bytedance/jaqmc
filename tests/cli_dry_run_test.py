@@ -273,6 +273,49 @@ train:
         },
     ),
     CliDryRunCase(
+        "electron_gas_train_yaml",
+        "electron-gas train --yml electron_gas.yml",
+        {
+            "electron_gas.yml": """
+system:
+  rs: 1.0
+  nspins: [1, 1]
+workflow:
+  batch_size: 4
+wf:
+  hidden_dims_single: [4]
+  hidden_dims_double: [2]
+  ndets: 1
+pretrain:
+  run:
+    iterations: 1
+train:
+  run:
+    iterations: 1
+""",
+        },
+    ),
+    CliDryRunCase(
+        "electron_gas_evaluate_yaml",
+        "electron-gas evaluate --yml electron_gas_eval.yml",
+        {
+            "electron_gas_eval.yml": """
+system:
+  rs: 1.0
+  nspins: [1, 1]
+workflow:
+  batch_size: 4
+  source_path: source
+wf:
+  hidden_dims_single: [4]
+  hidden_dims_double: [2]
+  ndets: 1
+run:
+  iterations: 1
+""",
+        },
+    ),
+    CliDryRunCase(
         "hall_train_yaml",
         "hall train --yml hall.yml",
         {

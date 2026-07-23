@@ -150,3 +150,15 @@ def test_madelung_caf2():
     etot = get_ewald_energy(lattice, atom_coords, atom_charges, S, electron_coords)
 
     assert abs(etot + caf2_answer) < 1e-4
+
+
+def test_simple_cubic_charge_with_uniform_background():
+    """Check the simple-cubic Madelung self-energy used by jellium."""
+    lattice = jnp.eye(3)
+    electron = jnp.array([[0.137, 0.271, 0.419]])
+
+    energy = EwaldSum(lattice).energy(electron, jnp.array([-1.0]))
+
+    # A point charge plus its uniform neutralizing background has energy
+    # -2.837297479 / (2 L) in a simple-cubic cell of side L.
+    np.testing.assert_allclose(energy, -2.837297479 / 2, atol=1e-5)

@@ -1,10 +1,10 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-"""Shared pretrain loss estimator for atomic systems (molecule, solid)."""
+"""Shared orbital-reference pretraining utilities."""
 
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, Protocol
 
 import jax
 import serde
@@ -19,7 +19,13 @@ from jaqmc.utils.config import configurable_dataclass
 from jaqmc.wavefunction import NumericWavefunctionEvaluate
 from jaqmc.wavefunction.base import WavefunctionEvaluate
 
-from .scf import MolecularSCF, PeriodicSCF
+
+class OrbitalReference(Protocol):
+    """Reference wavefunction that can evaluate spin-separated orbitals."""
+
+    def eval_orbitals(
+        self, pos: jnp.ndarray, nspins: tuple[int, int]
+    ) -> tuple[jnp.ndarray, jnp.ndarray]: ...
 
 
 @configurable_dataclass
@@ -91,18 +97,18 @@ def make_pretrain_log_amplitude[DataT: Data](
 
 def make_pretrain_loss(
     orbitals_fn: NumericWavefunctionEvaluate,
-    scf: MolecularSCF | PeriodicSCF,
+    scf: OrbitalReference,
     nspins: tuple[int, int],
     full_det: bool = False,
 ) -> Estimator:
-    """Returns a pretrain loss estimator matching NN orbitals to HF orbitals.
+    """Return a loss estimator matching neural and reference orbitals.
 
-    Used by both molecule and solid workflows to pretrain the wavefunction
-    against Hartree-Fock orbitals from an SCF calculation.
+    The reference may come from an SCF calculation or an analytic model such as
+    free-electron plane waves.
 
     Args:
         orbitals_fn: Function to evaluate NN orbitals.
-        scf: SCF instance (MolecularSCF or PeriodicSCF).
+        scf: Spin-separated orbital reference.
         nspins: Electron spin counts as (n_alpha, n_beta).
         full_det: Whether to use full determinant.
     """
