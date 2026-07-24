@@ -50,10 +50,12 @@ equivalent.
 
 The Hamiltonian contains the ordinary Euclidean kinetic energy and the
 electron-electron Ewald interaction with a uniform neutralizing positive
-background. There are no nuclei, electron-nucleus features, atomic envelopes,
-or PySCF calculation. Each determinant channel uses one full
-$N\times N$ electron-by-orbital matrix. Spin-block determinants are not
-implemented, and `wf.full_det=false` is rejected.
+background. The shared kinetic estimator defaults to the sparse Forward
+Laplacian implementation on supported JAX versions. There are no nuclei,
+electron-nucleus features, atomic envelopes, or PySCF calculation. Each
+determinant channel uses one full $N\times N$ electron-by-orbital matrix.
+Spin-block determinants are not implemented, and `wf.full_det=false` is
+rejected.
 
 Pretraining instead uses analytic plane-wave Slater determinants. Within each
 spin channel, reciprocal lattice vectors are filled in increasing
@@ -92,24 +94,6 @@ JAX_PLATFORMS=cpu jaqmc electron-gas train \
   train.run.iterations=1 \
   train.run.burn_in=1
 ```
-
-## Kinetic energy
-
-The standard kinetic-energy implementation is selected through
-`estimators.energy.kinetic.mode`. The forward-Laplacian implementation can be
-enabled explicitly:
-
-```bash
-jaqmc electron-gas train \
-  system.rs=1.0 \
-  system.nelectrons=14 \
-  system.s_z=0 \
-  estimators.energy.kinetic.mode=forward_laplacian \
-  workflow.save_path=./runs/heg_forward_laplacian
-```
-
-`estimators.energy.kinetic.vmap_chunk_size` changes only the memory scheduling;
-it does not change the statistical batch size.
 
 ## Evaluation
 

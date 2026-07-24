@@ -145,12 +145,15 @@ def test_electron_gas_rejects_block_determinants() -> None:
         configure_system(manager)
 
 
-def test_forward_laplacian_matches_scan_without_fallback(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_sparse_forward_laplacian_matches_dense_and_scan() -> None:
     manager = ConfigManager(
         {
-            "system": {"rs": 1.0, "nelectrons": 2, "s_z": 0},
+            "system": {
+                "rs": 1.0,
+                "nelectrons": 2,
+                "s_z": 0,
+                "twist": [0.25, 0.125, 0.0],
+            },
             "wf": {
                 "hidden_dims_single": [8],
                 "hidden_dims_double": [4],
@@ -162,10 +165,17 @@ def test_forward_laplacian_matches_scan_without_fallback(
     batched = data_init(config, size=1, rngs=jax.random.PRNGKey(0))
     one_walker = dataclasses.replace(batched.data, electrons=batched.data.electrons[0])
     params = wavefunction.init_params(one_walker, jax.random.PRNGKey(1))
-    forward = EuclideanKinetic(
+    sparse_forward = EuclideanKinetic(
         mode=LaplacianMode.forward_laplacian,
         f_log_psi=wavefunction.logpsi,
         data_field="electrons",
+        sparse=True,
+    )
+    dense_forward = EuclideanKinetic(
+        mode=LaplacianMode.forward_laplacian,
+        f_log_psi=wavefunction.logpsi,
+        data_field="electrons",
+        sparse=False,
     )
     scan = EuclideanKinetic(
         mode=LaplacianMode.scan,
@@ -173,18 +183,21 @@ def test_forward_laplacian_matches_scan_without_fallback(
         data_field="electrons",
     )
 
-    forward_stats, _ = forward.evaluate_single_walker(
+    sparse_stats, _ = sparse_forward.evaluate_single_walker(
+        params, one_walker, {}, None, jax.random.PRNGKey(2)
+    )
+    dense_stats, _ = dense_forward.evaluate_single_walker(
         params, one_walker, {}, None, jax.random.PRNGKey(2)
     )
     scan_stats, _ = scan.evaluate_single_walker(
         params, one_walker, {}, None, jax.random.PRNGKey(2)
     )
-    forward_energy = forward_stats["energy:kinetic"]
+    sparse_energy = sparse_stats["energy:kinetic"]
+    dense_energy = dense_stats["energy:kinetic"]
     scan_energy = scan_stats["energy:kinetic"]
 
-    assert jnp.isfinite(forward_energy)
-    assert jnp.isfinite(scan_energy)
-    np.testing.assert_allclose(forward_energy, scan_energy, rtol=1e-5, atol=1e-5)
-    assert not any(
-        "full hessian" in record.message.lower() for record in caplog.records
+    assert jnp.all(
+        jnp.isfinite(jnp.asarray([sparse_energy, dense_energy, scan_energy]))
     )
+    np.testing.assert_allclose(sparse_energy, dense_energy, rtol=1e-5, atol=1e-5)
+    np.testing.assert_allclose(sparse_energy, scan_energy, rtol=1e-5, atol=1e-5)

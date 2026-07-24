@@ -66,14 +66,14 @@ class ElectronGasTrainWorkflow(VMCWorkflow):
 
         loss_estimator = make_pretrain_loss(
             orbitals_fn=wf.orbitals,
-            scf=reference,
+            orbital_ref=reference,
             nspins=system.nspins,
             full_det=wf.full_det,
         )
         f_log_amplitude = make_pretrain_log_amplitude(
             wf.logpsi,
             lambda data: reference.eval_slater(data.electrons, system.nspins).real,
-            scf_fraction=1.0,
+            ref_fraction=1.0,
         )
 
         pretrain = VMCWorkStage.builder(cfg.scoped("pretrain"), wf, name="pretrain")

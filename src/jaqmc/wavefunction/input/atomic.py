@@ -117,17 +117,13 @@ class SolidFeatures(nn.Module):
         """
         distance_func = get_distance_function(self.distance_type)
 
-        if self.distance_type == DistanceType.tri:
-            # Wrapping adds a remainder operation that makes folx fall back to
-            # a full Hessian; trigonometric features are already periodic.
-            prim_electrons = sim_electrons = electrons
-        else:
-            prim_electrons = pbc.wrap_positions(electrons, self.primitive_lattice)
-            sim_electrons = pbc.wrap_positions(electrons, self.simulation_lattice)
-
+        # Wrap electrons to primitive cell for e-n features
+        prim_electrons = pbc.wrap_positions(electrons, self.primitive_lattice)
         ae_displacements = prim_electrons[:, None, :] - atoms
         r_ae, ae_vec = distance_func(ae_displacements, self.prim_av, self.prim_bv)
 
+        # Wrap electrons to simulation cell for e-e features
+        sim_electrons = pbc.wrap_positions(electrons, self.simulation_lattice)
         ee_displacements = sim_electrons[:, None, :] - sim_electrons[None, :, :]
 
         n = electrons.shape[0]
