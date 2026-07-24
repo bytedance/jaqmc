@@ -8,7 +8,6 @@ import dataclasses
 import jax
 import numpy as np
 import pytest
-import serde
 from jax import numpy as jnp
 
 from jaqmc.app.electron_gas.config import ElectronGasConfig
@@ -36,9 +35,8 @@ def test_config_defines_wigner_seitz_volume() -> None:
     with pytest.raises(ValueError, match="Impossible"):
         ElectronGasConfig(rs=1.0, nelectrons=2, s_z=0.5)
 
-    manager = ConfigManager({"system": {"rs": 1.0, "nelectrons": 14.5, "s_z": 0}})
-    with pytest.raises(serde.SerdeError, match="positive integer"):
-        manager.get_module("system", "jaqmc.app.electron_gas.config")
+    with pytest.raises(ValueError, match="positive integer"):
+        ElectronGasConfig(rs=1.0, nelectrons=14.5, s_z=0)  # type: ignore[arg-type]
 
 
 def test_fourteen_electron_gamma_point_is_closed_shell() -> None:

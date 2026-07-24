@@ -3,8 +3,6 @@
 
 """Analytic free-electron orbitals used to bootstrap HEG training."""
 
-import itertools
-
 import numpy as np
 from jax import numpy as jnp
 
@@ -35,31 +33,24 @@ def _occupied_kpoints(
         return jnp.empty((0, 3), dtype=jnp.asarray(lattice).dtype)
 
     canonical = (np.asarray(twist, dtype=float) + 0.5) % 1.0 - 0.5
-    radius = 1
-    while True:
-        integer_points = np.asarray(
-            list(itertools.product(range(-radius, radius + 1), repeat=3)),
-            dtype=float,
+    # This cube contains the lowest ``count`` momenta for any canonical twist,
+    # while keeping the number of candidates linear in ``count``.
+    radius = int(np.ceil(np.cbrt(count)))
+    grid = range(-radius, radius + 1)
+    integer_points = np.stack(
+        np.meshgrid(grid, grid, grid, indexing="ij"), axis=-1
+    ).reshape(-1, 3)
+    fractional_k = integer_points + canonical
+    squared_norm = np.einsum("ij,ij->i", fractional_k, fractional_k)
+    order = np.lexsort(
+        (
+            integer_points[:, 2],
+            integer_points[:, 1],
+            integer_points[:, 0],
+            squared_norm,
         )
-        fractional_k = integer_points + canonical
-        squared_norm = np.einsum("ij,ij->i", fractional_k, fractional_k)
-        order = np.lexsort(
-            (
-                integer_points[:, 2],
-                integer_points[:, 1],
-                integer_points[:, 0],
-                squared_norm,
-            )
-        )
-        selected = order[:count]
-
-        # With canonical twist, every point outside this cube has at least one
-        # component of magnitude radius + 0.5. Grow the cube until no omitted
-        # point can have lower kinetic energy than the selected set.
-        outside_lower_bound = (radius + 0.5) ** 2
-        if squared_norm[selected[-1]] < outside_lower_bound:
-            break
-        radius += 1
+    )
+    selected = order[:count]
 
     reciprocal = np.asarray(get_reciprocal_vectors(jnp.asarray(lattice)))
     return jnp.asarray(fractional_k[selected] @ reciprocal)

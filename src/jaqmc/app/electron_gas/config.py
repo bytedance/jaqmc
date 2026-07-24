@@ -6,17 +6,10 @@
 import math
 
 import numpy as np
-import serde
 
 from jaqmc.utils.config import configurable_dataclass
 
 __all__ = ["ElectronGasConfig"]
-
-
-def _positive_nelectrons(value: object) -> int:
-    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-        raise ValueError(f"nelectrons must be a positive integer. Got {value!r}.")
-    return value
 
 
 @configurable_dataclass
@@ -39,14 +32,21 @@ class ElectronGasConfig:
     """
 
     rs: float
-    nelectrons: int = serde.field(deserializer=_positive_nelectrons)
+    nelectrons: int
     s_z: float
     twist: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.rs) or self.rs <= 0:
             raise ValueError(f"rs must be finite and positive. Got {self.rs!r}.")
-        _positive_nelectrons(self.nelectrons)
+        if (
+            not isinstance(self.nelectrons, int)
+            or isinstance(self.nelectrons, bool)
+            or self.nelectrons <= 0
+        ):
+            raise ValueError(
+                f"nelectrons must be a positive integer. Got {self.nelectrons!r}."
+            )
         if not math.isfinite(self.s_z) or not math.isclose(
             2 * self.s_z, round(2 * self.s_z)
         ):

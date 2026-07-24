@@ -62,9 +62,29 @@ checkpoint and evaluation mechanics.
 
 ## How it works
 
-The Hamiltonian combines Euclidean kinetic energy with the electron-electron
-Ewald interaction and a uniform neutralizing background. The shared kinetic
-estimator defaults to the sparse Forward Laplacian implementation.
+In atomic units, JaQMC uses the finite-cell jellium Hamiltonian
+
+$$
+\begin{aligned}
+\hat H ={}&
+-\frac{1}{2}\sum_{i=1}^{N}\nabla_i^2
++\frac{1}{2}\sum_{i,j=1}^{N}\sum_{\mathbf R}^{\prime}
+\frac{\operatorname{erfc}\!\left(\alpha
+\lvert\mathbf r_i-\mathbf r_j+\mathbf R\rvert\right)}
+{\lvert\mathbf r_i-\mathbf r_j+\mathbf R\rvert} \\
+&+\frac{2\pi}{\Omega}\sum_{\mathbf G\ne 0}
+\frac{e^{-G^2/(4\alpha^2)}}{G^2}
+\left|\sum_{i=1}^{N}e^{i\mathbf G\cdot\mathbf r_i}\right|^2
+-\frac{\alpha N}{\sqrt{\pi}}
+-\frac{\pi N^2}{2\alpha^2\Omega}.
+\end{aligned}
+$$
+
+Here $\mathbf R$ and $\mathbf G$ are direct- and reciprocal-lattice vectors,
+respectively, and the prime omits $i=j,\mathbf R=0$. The final term is the
+uniform neutralizing-background correction; the Ewald parameter $\alpha$
+cancels when the sums are converged. The shared kinetic estimator defaults to
+the sparse Forward Laplacian implementation.
 
 The wavefunction uses JaQMC's periodic solid ansatz without envelope decay.
 Each determinant is a full $N\times N$ electron-by-orbital matrix;
@@ -78,15 +98,17 @@ one occupation when the highest occupied shell is degenerate.
 ## Limitations
 
 The current implementation supports three-dimensional simple-cubic finite
-cells with two spin channels. Individual twists are supported, but twist
-averaging, finite-size corrections, and thermodynamic-limit extrapolation must
-be performed separately.
+cells with two spin channels. Support for two-dimensional electron gases and
+non-cubic simulation cells is planned future work. Individual twists are
+supported, but twist averaging, finite-size corrections, and
+thermodynamic-limit extrapolation must be performed separately.
 
 ## Configuration reference
 
 The `system.*` options below are specific to the electron gas. The `wf.*`
-options are shared with JaQMC's periodic solid wavefunction; the electron-gas
-workflow disables envelope decay and requires `wf.full_det=true`.
+options are shared with JaQMC's [periodic solid wavefunction](../solid/index.md);
+the electron-gas workflow disables envelope decay and requires
+`wf.full_det=true`.
 
 ```{eval-rst}
 .. config-context::
