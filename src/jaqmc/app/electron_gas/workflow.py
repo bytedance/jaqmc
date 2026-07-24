@@ -118,7 +118,6 @@ def configure_system(
         System config, neural ansatz, analytic reference, and PBC proposal.
 
     Raises:
-        TypeError: If the selected wavefunction is not solid-compatible.
         ValueError: If a nuclear envelope or block determinant is requested.
     """
     system: ElectronGasConfig = cfg.get_module(
@@ -128,11 +127,6 @@ def configure_system(
     reference = FreeElectronReference(system.nspins, system.lattice, system.twist)
 
     wf = cfg.get_module("wf", "jaqmc.app.electron_gas.wavefunction")
-    if not isinstance(wf, SolidWavefunction):
-        raise TypeError(
-            "Electron-gas wavefunction must implement SolidWavefunction. "
-            f"Got {type(wf).__name__}."
-        )
     if wf.envelope_type != EnvelopeType.null:
         raise ValueError("Electron-gas wavefunctions require envelope_type='null'.")
     if not wf.full_det:
