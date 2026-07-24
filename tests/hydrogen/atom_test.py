@@ -91,6 +91,21 @@ def test_evaluation_writes_per_step_stats_and_digest(tmp_path):
     assert digest["energy:kinetic"].ndim == 0
 
 
+def test_evaluation_requires_source_path_for_trainable_wavefunction(tmp_path):
+    eval_dir = tmp_path / "eval-run"
+    eval_cfg = ConfigManager(
+        {
+            "workflow": {"save_path": str(eval_dir), "batch_size": 128},
+            "run": {"iterations": 1},
+        }
+    )
+
+    with pytest.raises(ValueError, match=r"workflow\.source_path is required"):
+        hydrogen_atom_eval_workflow(eval_cfg)()
+
+    assert not (eval_dir / "evaluation_digest.npz").exists()
+
+
 def test_evaluation_fails_when_source_path_is_missing(tmp_path):
     eval_dir = tmp_path / "eval-run"
     eval_cfg = ConfigManager(

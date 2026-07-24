@@ -126,6 +126,19 @@ jaqmc hall evaluate workflow.save_path=./runs/hall-eval \
   workflow.source_path=./runs/hall-train
 ```
 
+The built-in `laughlin` and `free` wavefunctions are fixed analytic ansätze with
+no learnable parameters. Evaluate them directly with `jaqmc hall evaluate` — no
+training checkpoint is required:
+
+```bash
+jaqmc hall evaluate workflow.save_path=./runs/laughlin-n3 \
+  system.flux=6 system.nspins='[3,0]' \
+  wf.module=laughlin run.iterations=100000
+```
+
+See <project:eval.md> for all evaluation options. `jaqmc hall train` does not
+support `laughlin` or `free`.
+
 ### Additional Evaluation Estimators
 
 The hall app includes estimators for observables beyond energy. They are disabled by default and can be enabled via config flags:

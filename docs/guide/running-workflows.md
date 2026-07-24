@@ -108,8 +108,8 @@ jaqmc <app> train ... \
   train.run.iterations=<larger_value>
 ```
 
-Run evaluation in a separate directory by pointing `workflow.source_path` at the training
-run you want to evaluate:
+For a trained wavefunction, run evaluation in a separate directory by pointing
+`workflow.source_path` at the training run you want to evaluate:
 
 ```bash
 jaqmc <app> evaluate ... \
@@ -128,7 +128,9 @@ These three path settings do different jobs:
 - `workflow.restore_path`: where the current command looks for its own checkpoints; if
   unset, it defaults to `workflow.save_path`
 - `workflow.source_path`: training run or checkpoint used by `evaluate` to load trained
-  parameters, walker data, and sampler state
+  parameters, walkers, and sampler state. It is required when the wavefunction has
+  trainable parameters. Analytic wavefunctions with no parameters can instead start
+  evaluation from freshly initialized walkers; system pages document those workflows.
 ```
 
 When you rerun a command with the same `workflow.save_path`, JaQMC resumes from the
@@ -160,8 +162,9 @@ What *is* shared across apps is the command contract:
 - **`jaqmc <app> train`** runs that app's training workflow and writes its outputs under
   `workflow.save_path`.
 - **`jaqmc <app> evaluate`** runs an app's evaluation workflow when the app exposes
-  one, loading trained state from `workflow.source_path` and writing evaluation
-  outputs under its own `workflow.save_path`. The production system apps
+  one and writes evaluation outputs under its own `workflow.save_path`. It loads trained
+  state from `workflow.source_path` when the wavefunction has trainable parameters;
+  parameter-free analytic wavefunctions start from fresh state. The production system apps
   (`molecule`, `solid`, and `hall`) expose evaluation commands; the
   `hydrogen-atom` tutorial command is train-only on the CLI.
 - Training-stage keys are workflow-specific, so their structure lives in the app's config
@@ -220,9 +223,10 @@ A few details are worth keeping straight:
 - `*_stats.csv` is writer-dependent, so it may or may not be present.
 - `evaluation_digest.npz` is the compact summary produced at the end of evaluation.
 
-Evaluation loads from `workflow.source_path`. If that path is a directory, JaQMC restores
-the latest `train_ckpt_*.npz` it finds there. If it is a specific checkpoint file, JaQMC
-uses that file directly.
+When `workflow.source_path` is set, evaluation loads trained parameters,
+walkers, and sampler state from that path. If the path is a directory, JaQMC
+restores the latest `train_ckpt_*.npz` it finds there. If it is a specific
+checkpoint file, JaQMC uses that file directly.
 
 Checkpoint saves follow one rule: the last iteration is always saved, and intermediate
 checkpoints are written only when both `save_time_interval` and `save_step_interval` are

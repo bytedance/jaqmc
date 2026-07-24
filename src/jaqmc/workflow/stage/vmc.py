@@ -193,6 +193,10 @@ class VMCWorkStage(SamplingWorkStage):
 
         Returns:
             Sharded VMC state.
+
+        Raises:
+            ValueError: If training is attempted for a wavefunction with no
+                trainable parameters.
         """
         base_rngs, opt_rngs = jax.random.split(rngs)
         base = super().create_state(
@@ -201,6 +205,12 @@ class VMCWorkStage(SamplingWorkStage):
             batched_data=batched_data,
             sampler_state=sampler_state,
         )
+
+        if not jax.tree.leaves(base.params):
+            raise ValueError(
+                "This wavefunction has no trainable parameters. Use "
+                "jaqmc <app> evaluate instead of train."
+            )
 
         local_data = jax.tree.map(parallel_jax.addressable_data, batched_data)
         # KFAC requires device-local parameters to construct graphs
