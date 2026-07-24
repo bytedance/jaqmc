@@ -29,7 +29,7 @@ The VMC training loop is built from four independent components. Each one handle
 
 The wavefunction is a neural network that takes electron positions and outputs a log-amplitude. It encodes everything the model "knows" about the quantum state — the optimizer adjusts its parameters to lower the energy.
 
-JaQMC ships with several architectures, including [FermiNet](https://link.aps.org/doi/10.1103/PhysRevResearch.2.033429) (the default) and [Psiformer](https://openreview.net/forum?id=xveTeHVlF7j) (attention-based), all of which satisfy the antisymmetry requirement of fermionic wavefunctions by construction. See <project:../guide/wavefunction.md> for architecture details and presets.
+JaQMC ships with several architectures, including [FermiNet](https://link.aps.org/doi/10.1103/PhysRevResearch.2.033429) (the default), LapNet, and [Psiformer](https://openreview.net/forum?id=xveTeHVlF7j). All of them satisfy the antisymmetry requirement of fermionic wavefunctions by construction. See <project:../guide/wavefunction.md> for system availability, architecture details, and presets.
 
 ### Sampler
 

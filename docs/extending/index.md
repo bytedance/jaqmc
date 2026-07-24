@@ -22,7 +22,7 @@ If you are starting from scratch, the usual reading order is
 | What | Purpose | Example |
 |------|---------|---------|
 | Workflow | Assembles components for a particular system type | Molecule, solid, quantum Hall |
-| Wavefunction | Maps electron positions to log\|psi\| | FermiNet, PsiFormer, Laughlin |
+| Wavefunction | Maps electron positions to log\|psi\| | FermiNet, LapNet, Psiformer, Laughlin |
 | Estimator | Computes a physical observable | Spin, electron density, Ewald energy |
 | Sampler | Proposes and accepts/rejects electron moves | Metropolis-Hastings |
 | Optimizer | Transforms gradients into parameter updates | KFAC, Optax wrappers |

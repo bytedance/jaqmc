@@ -14,6 +14,7 @@ import pytest
 
 from jaqmc.app.molecule.data import MoleculeData
 from jaqmc.app.molecule.wavefunction.ferminet import FermiNetWavefunction
+from jaqmc.app.molecule.wavefunction.lapnet import LapNetWavefunction
 from jaqmc.app.molecule.wavefunction.psiformer import PsiformerWavefunction
 from jaqmc.estimator.base import FunctionEstimator
 from jaqmc.utils.atomic import Atom, make_pretrain_loss
@@ -41,22 +42,30 @@ def make_wavefunction(wf_type: str, nspins: tuple[int, int], ndets: int):
     """Create a wavefunction instance for testing.
 
     Returns:
-        A wavefunction instance (FermiNet or Psiformer).
+        A wavefunction instance.
 
     Raises:
-        ValueError: If wf_type is not "ferminet" or "psiformer".
+        ValueError: If wf_type is unknown.
     """
     if wf_type == "ferminet":
         return FermiNetWavefunction(nspins=nspins, ndets=ndets)
     elif wf_type == "psiformer":
         return PsiformerWavefunction(nspins=nspins, ndets=ndets)
+    elif wf_type == "lapnet":
+        return LapNetWavefunction(
+            nspins=nspins,
+            ndets=ndets,
+            num_layers=1,
+            num_heads=2,
+            heads_dim=8,
+        )
     raise ValueError(f"Unknown wavefunction type: {wf_type}")
 
 
 class TestPretrainOrbitalShape:
     """Tests for orbital shape compatibility with pretraining."""
 
-    @pytest.mark.parametrize("wf_type", ["ferminet", "psiformer"])
+    @pytest.mark.parametrize("wf_type", ["ferminet", "psiformer", "lapnet"])
     @pytest.mark.parametrize("nspins,ndets", [((2, 1), 4), ((1, 1), 8), ((3, 2), 4)])
     def test_orbital_shape(self, wf_type, nspins, ndets):
         """Test wavefunctions produce orbitals of shape (ndets, N, N)."""
@@ -68,7 +77,7 @@ class TestPretrainOrbitalShape:
         orbitals = wf.orbitals(params, data)
         assert orbitals.shape == (ndets, n_electrons, n_electrons)
 
-    @pytest.mark.parametrize("wf_type", ["ferminet", "psiformer"])
+    @pytest.mark.parametrize("wf_type", ["ferminet", "psiformer", "lapnet"])
     @pytest.mark.parametrize("nspins", [(2, 1), (1, 1), (3, 2)])
     def test_pretrain_loss_computes(self, wf_type, nspins):
         """Test pretrain loss can be computed."""

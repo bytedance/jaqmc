@@ -1,11 +1,11 @@
 # Wavefunction Architectures
 
-JaQMC represents the many-electron wavefunction with a neural network ansatz. Several architectures are available, each with presets that trade expressiveness for compute cost. All wavefunction settings live under the `wf.*` config scope.
+JaQMC represents the many-electron wavefunction with a neural network ansatz. Several architectures are available, each with configuration choices that trade expressiveness for compute cost. All wavefunction settings live under the `wf.*` config scope.
 
-Start with **FermiNet** (the default) — it works well for most systems. For molecules with more than ~30 electrons, **Psiformer** can be more expressive but is more expensive per step.
+Start with **FermiNet**. It is the default for molecules and the only built-in option that also supports solids. For molecule runs, JaQMC also provides **LapNet** and **Psiformer**.
 
 ```{tip}
-To switch architectures, set `wf.module` — for example, `wf.module=psiformer` on the CLI. See [Swappable Modules](#swappable-modules) for how module paths work. To verify convergence, increase `ndets` or the hidden dimensions and check whether the final energy improves — if it doesn't, the smaller preset is sufficient.
+To switch architectures, set `wf.module` — for example, `wf.module=lapnet` on the CLI. See [Swappable Modules](#swappable-modules) for how module paths work. When comparing model sizes, keep the architecture fixed, increase `ndets` or its width settings, and use the final energy to decide whether the larger model actually helps.
 ```
 
 ## FermiNet
@@ -33,6 +33,38 @@ Large FermiNet:
 wf:
   hidden_dims_single: [512, 512, 512, 512]
   hidden_dims_double: [32, 32, 32, 32]
+  ndets: 32
+```
+
+## LapNet
+
+**Systems**: molecules
+
+LapNet is a lower-cost alternative to Psiformer with similar accuracy on the reported benchmarks. It uses the same molecule input features and Slater-determinant output path as the other built-in molecular ansatzes, so switching from FermiNet is mostly a matter of changing `wf.module`.
+
+- **Paper**: [A computational framework for neural network-based variational Monte Carlo with Forward Laplacian](https://doi.org/10.1038/s42256-024-00794-x)
+
+### Presets
+
+Small LapNet:
+
+```yaml
+wf:
+  module: lapnet
+  num_layers: 4
+  num_heads: 4
+  heads_dim: 64
+  ndets: 16
+```
+
+Large LapNet:
+
+```yaml
+wf:
+  module: lapnet
+  num_layers: 4
+  num_heads: 8
+  heads_dim: 64
   ndets: 32
 ```
 
@@ -74,8 +106,8 @@ wf:
 
 For the complete list of configurable fields, see the reference pages:
 
-- [Molecule wavefunction options](#molecule-train-wf) — FermiNet and Psiformer fields
-- [Solid wavefunction options](#solid-train-wf) — FermiNet with PBC extensions
+- [Molecule wavefunction options](#molecule-train-wf) — FermiNet, LapNet, and Psiformer fields under the `wf.*` section
+- [Solid wavefunction options](#solid-train-wf) — FermiNet with PBC extensions under the `wf.*` section
 - [API reference](../api-reference/wavefunctions.md) — Base classes, protocols, and output types
 
 If you are implementing a new architecture rather than selecting built-ins, continue with

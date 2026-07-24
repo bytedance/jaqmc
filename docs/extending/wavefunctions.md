@@ -86,7 +86,7 @@ KFAC graph registration matches the `float32` case.
 
 ### Structured Return Types
 
-Production wavefunctions (FermiNet, Psiformer) return more than a scalar — they also provide the sign of the wavefunction, which is needed for energy calculations involving pseudopotentials. They return {class}`~jaqmc.wavefunction.output.logdet.RealLogDetOutput`:
+Production wavefunctions (FermiNet, LapNet, Psiformer) return more than a scalar — they also provide the sign of the wavefunction, which is needed for energy calculations involving pseudopotentials. They return {class}`~jaqmc.wavefunction.output.logdet.RealLogDetOutput`:
 
 ```python
 from jaqmc.wavefunction.output.logdet import RealLogDetOutput
@@ -108,10 +108,10 @@ If your `__call__` returns `RealLogDetOutput`, the [extraction methods](#extract
 
 The `jaqmc.wavefunction` package provides Flax modules for the common stages of a molecular wavefunction. You can compose them to build new architectures while only implementing the novel part — typically the backbone.
 
-The built-in wavefunctions (FermiNet, Psiformer) follow this pattern:
+The built-in determinant-style molecular wavefunctions (FermiNet, LapNet, Psiformer) follow this pattern:
 
 1. **Input features** — construct atom-electron and electron-electron feature vectors from raw positions.
-2. **Backbone** — transform those features through interaction layers (message-passing in FermiNet, self-attention in Psiformer) to produce per-electron representations.
+2. **Backbone** — transform those features through interaction layers (message-passing in FermiNet, two-stream cross-attention in LapNet, self-attention in Psiformer) to produce per-electron representations.
 3. **Orbital projection** — project the per-electron representations into orbital matrices, one per determinant.
 4. **Envelope** — multiply each orbital by a distance-dependent envelope that enforces the correct asymptotic decay.
 5. **Log-determinant** — compute the log-sum of Slater determinants to produce the final log|ψ| and sign.
@@ -242,5 +242,6 @@ jaqmc molecule train wf.module=my_package.my_wf:MyWavefunction wf.ndets=16 wf.hi
 - {ghsrc}`src/jaqmc/app/molecule/wavefunction/ferminet.py` — Complete FermiNet implementation (best template to copy).
 - {ghsrc}`src/jaqmc/wavefunction/base.py` — `Wavefunction` base class and protocol definitions.
 - {ghsrc}`src/jaqmc/app/molecule/wavefunction/base.py` — molecule wavefunction protocol definition.
+- {ghsrc}`src/jaqmc/app/molecule/wavefunction/lapnet.py` — LapNet implementation.
 - {ghsrc}`src/jaqmc/app/molecule/wavefunction/psiformer.py` — Psiformer implementation.
 - {ghsrc}`src/jaqmc/app/molecule/workflow.py` — How the workflow resolves and wires the wavefunction.

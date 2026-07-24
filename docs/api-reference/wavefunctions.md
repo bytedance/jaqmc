@@ -2,7 +2,7 @@
 
 A wavefunction maps electron configurations to log-amplitudes (and optionally signs or phases). All JaQMC wavefunctions are [Flax Linen modules](inv:flax:py:class#flax.linen.Module) that subclass {class}`~jaqmc.wavefunction.Wavefunction`.
 
-For architecture-specific options (FermiNet, Psiformer, etc.), see the configuration reference pages ([Molecules](../systems/molecule/train.md), [Solids](../systems/solid/train.md), [Quantum Hall](../systems/hall/train.md)).
+For architecture-specific options (FermiNet, LapNet, Psiformer, and system-specific wavefunctions), see the configuration reference pages ([Molecules](../systems/molecule/train.md), [Solids](../systems/solid/train.md), [Quantum Hall](../systems/hall/train.md)).
 
 ## Base class and protocols
 
@@ -30,7 +30,7 @@ For architecture-specific options (FermiNet, Psiformer, etc.), see the configura
 .. autoclass:: jaqmc.wavefunction.base.LogPsiWFOutput
 ```
 
-### Log-determinant output (used by FermiNet / Psiformer)
+### Log-determinant output (used by FermiNet / LapNet / Psiformer)
 
 ```{eval-rst}
 .. autoclass:: jaqmc.wavefunction.output.logdet.RealLogDetOutput
@@ -51,6 +51,10 @@ For architecture-specific options (FermiNet, Psiformer, etc.), see the configura
 
 ```{eval-rst}
 .. autoclass:: jaqmc.wavefunction.backbone.ferminet.FermiLayers
+   :members:
+.. autoclass:: jaqmc.wavefunction.backbone.lapnet.LapNetBackbone
+   :members:
+.. autoclass:: jaqmc.wavefunction.backbone.lapnet.LapNetLayer
    :members:
 .. autoclass:: jaqmc.wavefunction.backbone.psiformer.PsiformerBackbone
    :members:
@@ -79,6 +83,7 @@ For architecture-specific options (FermiNet, Psiformer, etc.), see the configura
 .. autoclass:: jaqmc.wavefunction.jastrow.SimpleEEJastrow
    :members:
 
+.. autoclass:: jaqmc.app.molecule.wavefunction.lapnet.JastrowType
 .. autoclass:: jaqmc.app.molecule.wavefunction.psiformer.JastrowType
 ```
 

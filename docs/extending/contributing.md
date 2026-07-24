@@ -175,7 +175,7 @@ When testing custom wavefunctions, ensure these properties are verified:
 - **Antisymmetry:** Swapping two same-spin electrons flips the sign of the wavefunction but preserves `logpsi`.
 - **Protocol compliance:** `isinstance(wf, MoleculeWavefunction)` (or the relevant protocol) passes.
 
-For a minimal workflow smoke test, build a `ConfigManager` with only 2 pretrain/train iterations and verify the output stats are finite. See `tests/molecule_wavefunction_test.py` for the full pattern.
+For a minimal workflow smoke test, build a `ConfigManager` with only 2 pretrain/train iterations and verify the output stats are finite. See `tests/wavefunction/molecule_wavefunction_test.py` for the full pattern.
 
 ### Conventions
 
@@ -183,7 +183,7 @@ For a minimal workflow smoke test, build a `ConfigManager` with only 2 pretrain/
 - **Tolerances:** Use `pytest.approx(..., rel=2e-5)` for exact agreement. For stochastic results with sampling noise, use wider tolerances (`atol=0.1` or more).
 - **Temp files:** Use pytest's built-in `tmp_path` fixture for any test that writes files (checkpoints, stats). This ensures cleanup.
 - **Class grouping:** Group tests by concern (`TestEdgeCases`, `TestGradientFlow`) rather than by implementation.
-- **Parametrize over implementations:** Use `@pytest.mark.parametrize` to run the same test across multiple implementations (e.g. FermiNet and Psiformer).
+- **Parametrize over implementations:** Use `@pytest.mark.parametrize` to run the same test across multiple implementations (e.g. FermiNet, LapNet, and Psiformer).
 - **License header:** All test files need the Apache-2.0 header. Copy it from any existing test file.
 
 ## Previewing Documentation

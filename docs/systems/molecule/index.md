@@ -317,6 +317,9 @@ The molecule workflow uses FermiNet and KFAC by default. To switch
 architectures or optimizers:
 
 ```bash
+# Use LapNet instead of FermiNet
+jaqmc molecule train wf.module=lapnet
+
 # Use Psiformer instead of FermiNet
 jaqmc molecule train wf.module=psiformer
 
@@ -337,7 +340,7 @@ questions:
 - **Estimator physics**: <project:../../guide/estimators/index.md>
   explains the energy terms and optional observables used in molecule runs.
 - **Wavefunction choices**: <project:../../guide/wavefunction.md>
-  compares FermiNet, Psiformer, and their main tuning knobs.
+  compares FermiNet, LapNet, Psiformer, and their main tuning knobs.
 - **Optimizer choices**: <project:../../guide/optimizers/index.md> explains when
   to keep KFAC and when to switch to alternatives such as Adam.
 - **Troubleshooting**: <project:../../guide/troubleshooting.md> covers

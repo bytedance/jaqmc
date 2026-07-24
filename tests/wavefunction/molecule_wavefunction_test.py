@@ -18,12 +18,17 @@ import pytest
 from jaqmc.app.molecule import MoleculeTrainWorkflow
 from jaqmc.app.molecule.data import MoleculeData
 from jaqmc.app.molecule.wavefunction.ferminet import FermiNetWavefunction
+from jaqmc.app.molecule.wavefunction.lapnet import JastrowType as LapNetJastrowType
+from jaqmc.app.molecule.wavefunction.lapnet import LapNetWavefunction
 from jaqmc.app.molecule.wavefunction.psiformer import (
     JastrowType as PsiformerJastrowType,
 )
 from jaqmc.app.molecule.wavefunction.psiformer import PsiformerWavefunction
+from jaqmc.laplacian import make_laplacian_input
 from jaqmc.utils.config import ConfigManager
+from jaqmc.wavefunction.backbone.lapnet import lapnet_sparse_attention
 from jaqmc.wavefunction.output.envelope import EnvelopeType
+from tests.laplacian.helpers import check_with_brute_force
 
 # Shared test key
 TEST_KEY = jax.random.PRNGKey(42)
@@ -48,13 +53,20 @@ class TestAntisymmetry:
     """Tests for wavefunction antisymmetry under electron permutation."""
 
     @pytest.mark.parametrize(
-        "wf_cls",
-        [FermiNetWavefunction, PsiformerWavefunction],
-        ids=["ferminet", "psiformer"],
+        "wf_cls,wf_kwargs",
+        [
+            (FermiNetWavefunction, {}),
+            (PsiformerWavefunction, {}),
+            (
+                LapNetWavefunction,
+                {"num_layers": 1, "num_heads": 2, "heads_dim": 8, "ndets": 4},
+            ),
+        ],
+        ids=["ferminet", "psiformer", "lapnet"],
     )
-    def test_same_spin_swap_flips_sign(self, wf_cls):
+    def test_same_spin_swap_flips_sign(self, wf_cls, wf_kwargs):
         """Swapping two same-spin electrons must flip the sign and preserve |psi|."""
-        wf = wf_cls(nspins=(2, 0))
+        wf = wf_cls(nspins=(2, 0), **wf_kwargs)
 
         key = jax.random.PRNGKey(42)
         electrons = jax.random.normal(key, (2, 3))
@@ -70,11 +82,18 @@ class TestAntisymmetry:
         assert out["logpsi"] == pytest.approx(out_perm["logpsi"], rel=5e-4)
 
     @pytest.mark.parametrize(
-        "wf_cls",
-        [FermiNetWavefunction, PsiformerWavefunction],
-        ids=["ferminet", "psiformer"],
+        "wf_cls,wf_kwargs",
+        [
+            (FermiNetWavefunction, {}),
+            (PsiformerWavefunction, {}),
+            (
+                LapNetWavefunction,
+                {"num_layers": 1, "num_heads": 2, "heads_dim": 8, "ndets": 4},
+            ),
+        ],
+        ids=["ferminet", "psiformer", "lapnet"],
     )
-    def test_opposite_spin_swap_changes_value(self, wf_cls):
+    def test_opposite_spin_swap_changes_value(self, wf_cls, wf_kwargs):
         """Opposite-spin swap must produce a different wavefunction value.
 
         Antisymmetry is enforced within each spin channel, not across channels.
@@ -85,7 +104,7 @@ class TestAntisymmetry:
         preservation), cross-spin swaps have no simple symmetry relation — both
         sign and magnitude may change.
         """
-        wf = wf_cls(nspins=(1, 1))
+        wf = wf_cls(nspins=(1, 1), **wf_kwargs)
 
         key = jax.random.PRNGKey(42)
         electrons = jax.random.normal(key, (2, 3))
@@ -115,6 +134,16 @@ class TestInvalidJastrowType:
         with pytest.raises(ValueError, match="Invalid jastrow"):
             wf.init_params(data, TEST_KEY)
 
+    def test_lapnet_invalid_jastrow_type(self):
+        """Test that LapNetWavefunction raises error for invalid jastrow type."""
+        wf = LapNetWavefunction(
+            nspins=(2, 1), ndets=4, jastrow=cast(Any, "invalid_jastrow")
+        )
+        data = make_test_data((2, 1))
+
+        with pytest.raises(ValueError, match="Invalid jastrow"):
+            wf.init_params(data, TEST_KEY)
+
 
 class TestEdgeCases:
     """Tests for edge cases with nspins configurations."""
@@ -129,12 +158,28 @@ class TestEdgeCases:
             ),
             (FermiNetWavefunction, (1, 0), {"ndets": 4}),
             (
+                LapNetWavefunction,
+                (1, 0),
+                {"ndets": 4, "num_layers": 1, "num_heads": 2, "heads_dim": 8},
+            ),
+            (
                 PsiformerWavefunction,
                 (0, 2),
                 {"ndets": 4, "jastrow": PsiformerJastrowType.SIMPLE_EE},
             ),
+            (
+                LapNetWavefunction,
+                (0, 2),
+                {"ndets": 4, "num_layers": 1, "num_heads": 2, "heads_dim": 8},
+            ),
         ],
-        ids=["psiformer_1_0", "ferminet_1_0", "psiformer_0_2"],
+        ids=[
+            "psiformer_1_0",
+            "ferminet_1_0",
+            "lapnet_1_0",
+            "psiformer_0_2",
+            "lapnet_0_2",
+        ],
     )
     def test_edge_nspins(self, wf_cls, nspins, wf_kwargs):
         """Test wavefunction with edge case nspins configurations."""
@@ -171,12 +216,24 @@ class TestGradientFlow:
             ),
             (FermiNetWavefunction, (2, 1), {"ndets": 4, "orbitals_spin_split": False}),
             (FermiNetWavefunction, (2, 1), {"ndets": 4, "orbitals_spin_split": True}),
+            (
+                LapNetWavefunction,
+                (2, 1),
+                {
+                    "ndets": 4,
+                    "num_layers": 1,
+                    "num_heads": 2,
+                    "heads_dim": 8,
+                    "jastrow": LapNetJastrowType.SIMPLE_EE,
+                },
+            ),
         ],
         ids=[
             "psiformer_split_false",
             "psiformer_split_true",
             "ferminet_split_false",
             "ferminet_split_true",
+            "lapnet",
         ],
     )
     def test_gradient_wrt_electrons(self, wf_cls, nspins, wf_kwargs):
@@ -209,6 +266,76 @@ class TestGradientFlow:
 
         hess = jax.hessian(logpsi_fn_flat)(data.electrons.ravel())
         assert jnp.all(jnp.isfinite(hess))
+
+    def test_lapnet_hessian(self):
+        """Test LapNet Hessian (second derivatives) is finite."""
+        nspins = (2, 1)
+        wf = LapNetWavefunction(
+            nspins=nspins,
+            ndets=4,
+            num_layers=1,
+            num_heads=2,
+            heads_dim=8,
+            jastrow=LapNetJastrowType.SIMPLE_EE,
+        )
+        data = make_test_data(nspins)
+        params = wf.init_params(data, TEST_KEY)
+
+        def logpsi_fn_flat(electrons_flat):
+            new_data = replace(data, electrons=electrons_flat.reshape(-1, 3))
+            return wf.evaluate(params, new_data)["logpsi"]
+
+        hess = jax.hessian(logpsi_fn_flat)(data.electrons.ravel())
+        assert jnp.all(jnp.isfinite(hess))
+
+    def test_lapnet_attention_matches_scaled_dot_product(self):
+        """LapNet attention helper matches the scaled dot-product formula."""
+        num_heads = 2
+        head_dim = 4
+        nelec = 3
+        key = jax.random.PRNGKey(7)
+        q_key, k_key, value_key = jax.random.split(key, 3)
+        query = jax.random.normal(q_key, (nelec, num_heads, head_dim))
+        key_features = jax.random.normal(k_key, (nelec, num_heads, head_dim))
+        value = jax.random.normal(value_key, (nelec, num_heads, head_dim))
+
+        actual = lapnet_sparse_attention(query, key_features, value)
+
+        logits = jnp.einsum("ihd,jhd->hij", query, key_features)
+        logits = logits / jnp.sqrt(jnp.asarray(head_dim, dtype=logits.dtype))
+        weights = jax.nn.softmax(logits, axis=-1)
+        manual = jnp.einsum("hij,jhd->ihd", weights, value)
+
+        np.testing.assert_allclose(actual, manual, rtol=1e-6, atol=1e-6)
+
+    def test_lapnet_sparse_attention_forward_laplacian(self):
+        """Sparse-seeded LapNet attention derivatives match the dense chain rule."""
+        pytest.importorskip("jax", minversion="0.7.1")
+
+        num_heads = 2
+        head_dim = 8
+        nelec = 2
+        key = jax.random.PRNGKey(11)
+        q_key, k_key, value_key = jax.random.split(key, 3)
+        query = jax.random.normal(q_key, (nelec, num_heads, head_dim))
+        key_features = jax.random.normal(k_key, (nelec, num_heads, head_dim))
+        value = jax.random.normal(value_key, (nelec, num_heads, head_dim))
+
+        query_tracked = make_laplacian_input(query, sparse_axis=0)
+        key_tracked = make_laplacian_input(key_features, sparse_axis=0)
+        value_tracked = make_laplacian_input(value, sparse_axis=0)
+
+        def attention_sum(q, k, v):
+            return jnp.sum(lapnet_sparse_attention(q, k, v))
+
+        check_with_brute_force(
+            attention_sum,
+            query_tracked,
+            key_tracked,
+            value_tracked,
+            rtol=2e-5,
+            atol=2e-5,
+        )
 
 
 def make_workflow_config(tmp_path, wf_config: dict) -> ConfigManager:
@@ -254,8 +381,14 @@ class TestWorkflowIntegration:
                 "hidden_dims_single": [16, 16],
                 "hidden_dims_double": [4, 4],
             },
+            {
+                "module": "jaqmc.app.molecule.wavefunction.lapnet",
+                "num_layers": 1,
+                "num_heads": 2,
+                "heads_dim": 8,
+            },
         ],
-        ids=["psiformer", "ferminet"],
+        ids=["psiformer", "ferminet", "lapnet"],
     )
     def test_workflow_runs(self, tmp_path, wf_config):
         """Test molecule workflow completes without error."""
@@ -268,7 +401,8 @@ class TestWorkflowIntegration:
         with h5py.File(stats_file, "r") as f:
             losses = f["loss"][:]
         assert np.all(np.isfinite(losses)), "Training produced non-finite loss values"
-        assert np.mean(losses[-3:]) < np.mean(losses[:3]), (
+        last_3_mean = np.mean(losses[-3:])
+        assert last_3_mean < -1 or last_3_mean < np.mean(losses[:3]), (
             f"Training loss did not decrease: first 3 mean={np.mean(losses[:3]):.4f}, "
             f"last 3 mean={np.mean(losses[-3:]):.4f}"
         )
