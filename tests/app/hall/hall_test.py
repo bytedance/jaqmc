@@ -14,6 +14,7 @@ from jaqmc.app.hall.estimator.penalized_loss import PenalizedLoss
 from jaqmc.app.hall.hamiltonian import SpherePotential
 from jaqmc.app.hall.wavefunction.free import Free
 from jaqmc.app.hall.wavefunction.jastrow import SphericalJastrow
+from jaqmc.app.hall.wavefunction.laughlin import Laughlin
 from jaqmc.app.hall.wavefunction.mhpo import MHPO
 from jaqmc.estimator.kinetic import LaplacianMode, SphericalKinetic
 from jaqmc.geometry.sphere import sphere_proposal
@@ -332,6 +333,90 @@ class TestFreeWavefunction:
         params = wf.init_params(data, jax.random.PRNGKey(1))
         out = wf.evaluate(params, data)
         assert jnp.isfinite(out["logpsi"])
+
+
+class TestLaughlinWavefunction:
+    """Laughlin wavefunction: filling validation and exact kinetic energy."""
+
+    def _make_laughlin(self, nspins, flux, flux_per_elec=1, excitation_lz=0):
+        wf = Laughlin(flux_per_elec=flux_per_elec, excitation_lz=excitation_lz)
+        wire(wf, nspins=nspins, flux=flux)
+        return wf
+
+    def test_unsupported_filling(self):
+        """Reject electron counts that do not match the ground-state filling."""
+        wf = self._make_laughlin(nspins=(2, 0), flux=6)
+        electrons = _sample(jax.random.PRNGKey(0), 1, 2)[0]
+        data = HallData(electrons=electrons)
+        with pytest.raises(ValueError, match="Unsupported Laughlin filling"):
+            wf.init_params(data, jax.random.PRNGKey(1))
+
+    @pytest.mark.parametrize("mode", LAPLACIAN_MODES)
+    @pytest.mark.parametrize("nelec,Q", [(3, 3), (4, 4.5)])
+    def test_kinetic_energy(self, mode, nelec, Q):
+        """Laughlin ground state reproduces exact kinetic and angular momentum."""
+        flux = int(2 * Q)
+        wf = self._make_laughlin(nspins=(nelec, 0), flux=flux)
+        electrons = _sample(jax.random.PRNGKey(1898), 2, nelec)
+        data = HallData(electrons=electrons[0])
+        wf.init_params(data, jax.random.PRNGKey(1))
+
+        def log_psi_fn(params, data):
+            return wf.logpsi({}, data)
+
+        estimator = SphericalKinetic(
+            mode=mode,
+            monopole_strength=float(Q),
+            radius=float(jnp.sqrt(Q)),
+            f_log_psi=log_psi_fn,
+        )
+        batch_eval = jax.jit(
+            jax.vmap(
+                lambda d: _eval_single(estimator, HallData(electrons=d)),
+                in_axes=0,
+            )
+        )
+        stats = batch_eval(electrons)
+        np.testing.assert_allclose(stats["energy:kinetic"], nelec / 2, atol=1e-3)
+        np.testing.assert_allclose(stats["angular_momentum_z"], 0, atol=1e-3)
+        np.testing.assert_allclose(stats["angular_momentum_z_square"], 0, atol=1e-3)
+        np.testing.assert_allclose(stats["angular_momentum_square"], 0, atol=1e-3)
+
+    @pytest.mark.parametrize("mode", LAPLACIAN_MODES)
+    @pytest.mark.parametrize(
+        "nelec,flux,excitation_lz",
+        [(4, 10, 2), (6, 14, 1)],
+    )
+    def test_excitation_kinetic_energy(self, mode, nelec, flux, excitation_lz):
+        """Quasihole and quasiparticle Laughlin states have exact kinetic energy."""
+        Q = flux / 2
+        wf = self._make_laughlin(
+            nspins=(nelec, 0), flux=flux, excitation_lz=excitation_lz
+        )
+        electrons = _sample(jax.random.PRNGKey(1898), 2, nelec)
+        data = HallData(electrons=electrons[0])
+        wf.init_params(data, jax.random.PRNGKey(1))
+
+        def log_psi_fn(params, data):
+            return wf.logpsi({}, data)
+
+        estimator = SphericalKinetic(
+            mode=mode,
+            monopole_strength=float(Q),
+            radius=float(jnp.sqrt(Q)),
+            f_log_psi=log_psi_fn,
+        )
+        batch_eval = jax.jit(
+            jax.vmap(
+                lambda d: _eval_single(estimator, HallData(electrons=d)),
+                in_axes=0,
+            )
+        )
+        stats = batch_eval(electrons)
+        np.testing.assert_allclose(stats["energy:kinetic"], nelec / 2, atol=1e-3)
+        np.testing.assert_allclose(
+            stats["angular_momentum_z"], excitation_lz, atol=1e-3
+        )
 
 
 class TestMHPO:
