@@ -318,17 +318,12 @@ def test_dotlist_missing_equals_raises_config_error():
         ConfigManager({}, dotlist=["workflow.batch_size"])
 
 
-def test_get_dataclass_missing_required_field_message():
+def test_get_dataclass_allows_missing_optional_source_path():
     cfg = ConfigManager({})
 
-    with pytest.raises(
-        ConfigError,
-        match=(
-            r"Invalid config at 'workflow': missing required field "
-            r"'source_path' while deserializing EvaluationWorkflowConfig"
-        ),
-    ):
-        cfg.get("workflow", EvaluationWorkflowConfig)
+    workflow = cfg.get("workflow", EvaluationWorkflowConfig)
+
+    assert workflow.source_path is None
 
 
 def test_get_dataclass_unknown_field_uses_pyserde_message():

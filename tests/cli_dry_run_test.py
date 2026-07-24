@@ -446,22 +446,6 @@ def test_cli_yaml_root_type_error(tmp_path: Path) -> None:
     assert f"Invalid YAML config in '{config_path}'" in result.output
 
 
-def test_cli_missing_required_field_uses_wrapped_pyserde_message() -> None:
-    result = CliRunner().invoke(
-        cli,
-        [
-            "hall",
-            "evaluate",
-            "--dry-run",
-            "workflow.batch_size=4",
-            "run.iterations=1",
-        ],
-    )
-
-    assert result.exit_code == 1
-    assert "Invalid config at 'workflow': missing required field" in result.output
-
-
 def test_cli_unknown_field_uses_wrapped_pyserde_message() -> None:
     result = CliRunner().invoke(
         cli,
