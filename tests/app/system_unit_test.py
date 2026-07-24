@@ -3,7 +3,6 @@
 
 import numpy as np
 import pytest
-import serde
 
 from jaqmc.app.molecule.config.base import MoleculePretrainReferenceConfig
 from jaqmc.app.molecule.wavefunction.ferminet import FermiNetWavefunction
@@ -12,7 +11,7 @@ from jaqmc.app.molecule.workflow import make_scf as make_molecule_scf
 from jaqmc.app.solid.config.base import SolidAtomConfig, SolidPretrainReferenceConfig
 from jaqmc.app.solid.workflow import configure_system as configure_solid_system
 from jaqmc.app.solid.workflow import make_scf as make_solid_scf
-from jaqmc.utils.config import ConfigManager
+from jaqmc.utils.config import ConfigError, ConfigManager
 from jaqmc.utils.units import ONE_ANGSTROM_IN_BOHR, LengthUnit
 
 
@@ -116,7 +115,7 @@ def test_solid_configure_system_normalizes_angstrom_before_scf():
 def test_system_config_rejects_unknown_length_unit():
     cfg = ConfigManager({"system": {"unit": "non-existing"}})
 
-    with pytest.raises(serde.SerdeError, match="not a valid LengthUnit"):
+    with pytest.raises(ConfigError, match="not a valid LengthUnit"):
         configure_molecule_system(cfg)
 
 
@@ -160,7 +159,7 @@ def test_solid_configure_system_rejects_cartesian_atom_coords():
         }
     )
 
-    with pytest.raises(serde.SerdeError, match="coords"):
+    with pytest.raises(ConfigError, match="coords"):
         configure_solid_system(cfg)
 
 

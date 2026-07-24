@@ -12,7 +12,7 @@ from jaqmc.app.molecule.config import AtomConfig, MoleculeConfig
 from jaqmc.app.molecule.workflow import make_estimators as make_molecule_estimators
 from jaqmc.estimator.ecp import ECPEnergy
 from jaqmc.estimator.ph import PHEnergy
-from jaqmc.utils.config import ConfigManager
+from jaqmc.utils.config import ConfigError, ConfigManager
 
 
 class _DummyWavefunction:
@@ -81,5 +81,5 @@ def test_ph_workflow_rejects_kinetic_mode_override_via_cfg_finalize():
 
     make_molecule_estimators(cfg, wf, system_config, always_enable_energy=True)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ConfigError, match="Unused config keys detected"):
         cfg.finalize(raise_on_unused=True)

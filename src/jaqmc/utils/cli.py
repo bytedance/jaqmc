@@ -6,7 +6,7 @@ from collections.abc import Sequence
 import click
 import yaml
 
-from jaqmc.utils.config import ConfigManager
+from jaqmc.utils.config import ConfigError, ConfigManager
 from jaqmc.utils.runtime import configure_runtime
 
 
@@ -34,9 +34,12 @@ def make_cli(workflow=None, **kwargs):
     def command(
         dotlist: tuple[str, ...], yml: Sequence[str], dry_run: bool = False
     ) -> None:
-        cfg = ConfigManager([load_yaml(f) for f in yml], list(dotlist))
-        configure_runtime(cfg, dry_run=dry_run)
-        workflow(cfg, dry_run=dry_run)
+        try:
+            cfg = ConfigManager([load_yaml(f) for f in yml], list(dotlist))
+            configure_runtime(cfg, dry_run=dry_run)
+            workflow(cfg, dry_run=dry_run)
+        except ConfigError as e:
+            raise click.ClickException(str(e)) from None
 
     return command
 
@@ -51,11 +54,14 @@ def load_yaml(f):
         Plain dictionary config.
 
     Raises:
-        ValueError: YAML contains list config.
+        ConfigError: YAML root is not a mapping.
     """
+    source = getattr(f, "name", "<stream>")
     config = yaml.safe_load(f)
     if not isinstance(config, dict):
-        raise ValueError(
-            f"JaQMC expects a dictionary config from {f.read()}. Got {type(config)}."
+        got = "empty document" if config is None else type(config).__name__
+        raise ConfigError(
+            f"Invalid YAML config in '{source}': expected a mapping at the "
+            f"document root, got {got}."
         )
     return config

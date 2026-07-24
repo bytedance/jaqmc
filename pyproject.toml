@@ -36,7 +36,7 @@ dependencies = [
     "jax>=0.4.36,<=0.9.1",
     "kfac-jax==0.0.8",
     "numpy>=2.3.5",
-    "pyserde>=0.31.1",
+    "pyserde>=0.31.7",
     "optax>=0.2.5",
     "pygments>=2.19.2",
     "pyscf>=2.11.0",
