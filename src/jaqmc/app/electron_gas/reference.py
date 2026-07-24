@@ -11,17 +11,7 @@ from jax import numpy as jnp
 from jaqmc.utils.supercell import get_reciprocal_vectors
 
 
-def canonical_twist(twist: tuple[float, float, float]) -> np.ndarray:
-    """Map fractional twist coordinates to the interval ``[-0.5, 0.5)``.
-
-    Returns:
-        Canonical fractional twist as a NumPy array.
-    """
-    twist_array = np.asarray(twist, dtype=float)
-    return (twist_array + 0.5) % 1.0 - 0.5
-
-
-def occupied_kpoints(
+def _occupied_kpoints(
     count: int,
     lattice: np.ndarray,
     twist: tuple[float, float, float],
@@ -44,7 +34,7 @@ def occupied_kpoints(
     if count == 0:
         return jnp.empty((0, 3), dtype=jnp.asarray(lattice).dtype)
 
-    canonical = canonical_twist(twist)
+    canonical = (np.asarray(twist, dtype=float) + 0.5) % 1.0 - 0.5
     radius = 1
     while True:
         integer_points = np.asarray(
@@ -87,7 +77,7 @@ class FreeElectronReference:
         self.nspins = nspins
         self.lattice = jnp.asarray(lattice)
         self.spin_kpoints = tuple(
-            occupied_kpoints(count, lattice, twist) for count in nspins
+            _occupied_kpoints(count, lattice, twist) for count in nspins
         )
 
     def get_orbital_kpoints(self) -> jnp.ndarray:

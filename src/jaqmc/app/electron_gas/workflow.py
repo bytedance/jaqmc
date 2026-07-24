@@ -119,7 +119,7 @@ def configure_system(
 
     Raises:
         TypeError: If the selected wavefunction is not solid-compatible.
-        ValueError: If a nuclear envelope is enabled for the electron gas.
+        ValueError: If a nuclear envelope or block determinant is requested.
     """
     system: ElectronGasConfig = cfg.get_module(
         "system", "jaqmc.app.electron_gas.config"
@@ -135,6 +135,8 @@ def configure_system(
         )
     if wf.envelope_type != EnvelopeType.null:
         raise ValueError("Electron-gas wavefunctions require envelope_type='null'.")
+    if not wf.full_det:
+        raise ValueError("Electron-gas wavefunctions require full_det=True.")
 
     wf.nspins = system.nspins
     wf.klist = reference.get_orbital_kpoints()

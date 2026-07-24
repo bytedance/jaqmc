@@ -6,10 +6,17 @@
 import math
 
 import numpy as np
+import serde
 
 from jaqmc.utils.config import configurable_dataclass
 
 __all__ = ["ElectronGasConfig"]
+
+
+def _positive_nelectrons(value: object) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ValueError(f"nelectrons must be a positive integer. Got {value!r}.")
+    return value
 
 
 @configurable_dataclass
@@ -25,25 +32,33 @@ class ElectronGasConfig:
 
     Args:
         rs: Wigner-Seitz radius in Bohr.
-        nspins: Number of spin-up and spin-down electrons.
+        nelectrons: Total number of electrons.
+        s_z: Total spin along the z direction, ``(n_up - n_down) / 2``.
         twist: Twist in fractional reciprocal-cell coordinates. Integer shifts
             are physically equivalent.
     """
 
-    rs: float = 1.0
-    nspins: tuple[int, int] = (7, 7)
+    rs: float
+    nelectrons: int = serde.field(deserializer=_positive_nelectrons)
+    s_z: float
     twist: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.rs) or self.rs <= 0:
             raise ValueError(f"rs must be finite and positive. Got {self.rs!r}.")
-        if len(self.nspins) != 2 or any(n < 0 for n in self.nspins):
+        _positive_nelectrons(self.nelectrons)
+        if not math.isfinite(self.s_z) or not math.isclose(
+            2 * self.s_z, round(2 * self.s_z)
+        ):
+            raise ValueError(f"s_z must be a finite half integer. Got {self.s_z!r}.")
+        spin_imbalance = round(2 * self.s_z)
+        if (
+            abs(spin_imbalance) > self.nelectrons
+            or (self.nelectrons + spin_imbalance) % 2 != 0
+        ):
             raise ValueError(
-                "nspins must contain two non-negative electron counts. "
-                f"Got {self.nspins!r}."
+                f"Impossible s_z={self.s_z} for {self.nelectrons} electrons."
             )
-        if self.nelectrons == 0:
-            raise ValueError("At least one electron is required.")
         if len(self.twist) != 3 or not np.all(np.isfinite(self.twist)):
             raise ValueError(
                 "twist must contain three finite fractional coordinates. "
@@ -51,9 +66,13 @@ class ElectronGasConfig:
             )
 
     @property
-    def nelectrons(self) -> int:
-        """Total number of electrons."""
-        return sum(self.nspins)
+    def nspins(self) -> tuple[int, int]:
+        """Return the derived ``(n_up, n_down)`` electron counts."""
+        spin_imbalance = round(2 * self.s_z)
+        return (
+            (self.nelectrons + spin_imbalance) // 2,
+            (self.nelectrons - spin_imbalance) // 2,
+        )
 
     @property
     def volume(self) -> float:

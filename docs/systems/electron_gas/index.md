@@ -1,18 +1,29 @@
 # Homogeneous electron gas
 
 The `jaqmc electron-gas` command simulates the three-dimensional homogeneous
-electron gas (HEG, or jellium) in a simple-cubic periodic cell. The
-implementation follows the physical conventions of
+electron gas (HEG, or jellium) in a simple-cubic periodic cell. It implements
+the finite-cell jellium Hamiltonian and Wigner-Seitz density convention used in
 [Li et al., Nature Communications 13, 7895 (2022)](https://doi.org/10.1038/s41467-022-35627-1)
-and uses JaQMC's periodic wavefunction, Ewald energy, sampler, and training
-workflow.
+using JaQMC's periodic wavefunction, Ewald energy, sampler, and training
+workflow. It is not a line-by-line port of
+[DeepSolid](https://github.com/bytedance/DeepSolid): the neural ansatz,
+determinant layout, and training defaults follow JaQMC.
 
 ## Define the system
 
-An HEG system is specified by the Wigner-Seitz radius `system.rs`, in Bohr, and
-the spin populations `system.nspins = [n_up, n_down]`. For
-$N=n_\uparrow+n_\downarrow$ electrons, JaQMC constructs a simple-cubic cell
-whose volume and side length are
+An HEG system is specified by the Wigner-Seitz radius `system.rs`, the total
+electron count `system.nelectrons`, and the spin projection `system.s_z`. These
+three fields are required; JaQMC does not assume a default physical system. It
+derives the spin populations from
+
+$$
+n_\uparrow + n_\downarrow = N,
+\qquad
+n_\uparrow - n_\downarrow = 2s_z.
+$$
+
+For $N$ electrons, JaQMC constructs a simple-cubic cell whose volume and side
+length are
 
 $$
 \Omega = \frac{4\pi}{3}N r_s^3,
@@ -26,29 +37,23 @@ $r_s=1$:
 ```bash
 jaqmc electron-gas train \
   system.rs=1.0 \
-  system.nspins='[7,7]' \
+  system.nelectrons=14 \
+  system.s_z=0 \
   workflow.save_path=./runs/heg_n14_rs1
 ```
 
-The default twist is Gamma. Set `system.twist` in fractional reciprocal-cell
-coordinates to use a different twist:
-
-```bash
-jaqmc electron-gas train \
-  system.rs=1.0 \
-  system.nspins='[7,7]' \
-  system.twist='[0.5,0.0,0.0]' \
-  workflow.save_path=./runs/heg_n14_twist
-```
-
-Integer shifts of the twist are physically equivalent.
+The default twist is Gamma. Set `system.twist`, in fractional reciprocal-cell
+coordinates, to use a different twist. Integer shifts are physically
+equivalent.
 
 ## How it works
 
 The Hamiltonian contains the ordinary Euclidean kinetic energy and the
 electron-electron Ewald interaction with a uniform neutralizing positive
 background. There are no nuclei, electron-nucleus features, atomic envelopes,
-or PySCF calculation.
+or PySCF calculation. Each determinant channel uses one full
+$N\times N$ electron-by-orbital matrix. Spin-block determinants are not
+implemented, and `wf.full_det=false` is rejected.
 
 Pretraining instead uses analytic plane-wave Slater determinants. Within each
 spin channel, reciprocal lattice vectors are filled in increasing
@@ -62,13 +67,9 @@ $$
 where $\mathbf{n}$ is an integer triplet, $\mathbf{t}$ is the fractional twist,
 and $\mathbf{B}$ is the reciprocal-cell matrix.
 
-| Concept | Configuration | Convention |
-| --- | --- | --- |
-| Density | `system.rs` | Bohr |
-| Spin sector | `system.nspins` | two non-negative counts, not both zero |
-| Boundary condition | `system.twist` | fractional reciprocal coordinates |
-| Positive background | automatic | charged Ewald correction |
-| Pretraining target | automatic | occupied plane waves |
+This is a noninteracting free-electron occupancy, not a self-consistent
+Hartree-Fock calculation. For a partially filled degenerate shell, the
+deterministic tie-break selects one representative occupation.
 
 ## Quick local check
 
@@ -78,7 +79,8 @@ checkpoint writing. It is a workflow sanity check, not an energy benchmark.
 ```bash
 JAX_PLATFORMS=cpu jaqmc electron-gas train \
   system.rs=1.0 \
-  system.nspins='[1,1]' \
+  system.nelectrons=2 \
+  system.s_z=0 \
   workflow.batch_size=8 \
   workflow.save_path=./runs/heg_smoke \
   wf.hidden_dims_single='[8]' \
@@ -91,17 +93,6 @@ JAX_PLATFORMS=cpu jaqmc electron-gas train \
   train.run.burn_in=1
 ```
 
-Use `--dry-run` to inspect the resolved configuration without starting
-pretraining or VMC:
-
-```bash
-jaqmc electron-gas train \
-  system.rs=1.0 \
-  system.nspins='[7,7]' \
-  workflow.save_path=./runs/heg_dry_run \
-  --dry-run
-```
-
 ## Kinetic energy
 
 The standard kinetic-energy implementation is selected through
@@ -111,7 +102,8 @@ enabled explicitly:
 ```bash
 jaqmc electron-gas train \
   system.rs=1.0 \
-  system.nspins='[7,7]' \
+  system.nelectrons=14 \
+  system.s_z=0 \
   estimators.energy.kinetic.mode=forward_laplacian \
   workflow.save_path=./runs/heg_forward_laplacian
 ```
@@ -127,7 +119,8 @@ updates. The system and wavefunction settings must match the training run.
 ```bash
 jaqmc electron-gas evaluate \
   system.rs=1.0 \
-  system.nspins='[7,7]' \
+  system.nelectrons=14 \
+  system.s_z=0 \
   workflow.source_path=./runs/heg_n14_rs1 \
   workflow.save_path=./runs/heg_n14_rs1_eval
 ```
@@ -141,7 +134,7 @@ checkpoint and evaluation mechanics.
 
 The current implementation supports a three-dimensional simple-cubic cell,
 two spin channels, Gamma or twisted boundary conditions, plane-wave
-pretraining, and the neutralizing-background Ewald energy.
+pretraining, full determinants, and the neutralizing-background Ewald energy.
 
 It does not yet include twist averaging, structure-factor corrections,
 thermodynamic-limit extrapolation, or HEG-specific alternative neural

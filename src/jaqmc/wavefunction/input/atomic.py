@@ -118,23 +118,17 @@ class SolidFeatures(nn.Module):
         distance_func = get_distance_function(self.distance_type)
 
         if self.distance_type == DistanceType.tri:
-            # Trigonometric features are periodic by construction, so wrapping
-            # is redundant. Keeping this path smooth also preserves sparse
-            # derivatives in the forward Laplacian.
-            primitive_electrons = electrons
-            simulation_electrons = electrons
+            # Wrapping adds a remainder operation that makes folx fall back to
+            # a full Hessian; trigonometric features are already periodic.
+            prim_electrons = sim_electrons = electrons
         else:
-            primitive_electrons = pbc.wrap_positions(electrons, self.primitive_lattice)
-            simulation_electrons = pbc.wrap_positions(
-                electrons, self.simulation_lattice
-            )
+            prim_electrons = pbc.wrap_positions(electrons, self.primitive_lattice)
+            sim_electrons = pbc.wrap_positions(electrons, self.simulation_lattice)
 
-        ae_displacements = primitive_electrons[:, None, :] - atoms
+        ae_displacements = prim_electrons[:, None, :] - atoms
         r_ae, ae_vec = distance_func(ae_displacements, self.prim_av, self.prim_bv)
 
-        ee_displacements = (
-            simulation_electrons[:, None, :] - simulation_electrons[None, :, :]
-        )
+        ee_displacements = sim_electrons[:, None, :] - sim_electrons[None, :, :]
 
         n = electrons.shape[0]
         eye = jnp.eye(n)[..., None]
