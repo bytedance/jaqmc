@@ -62,7 +62,7 @@ $$
 
 where $\nabla^2_S = \frac{1}{\sin\theta}\partial_\theta(\sin\theta\,\partial_\theta) + \frac{1}{\sin^2\theta}\partial^2_\phi$ is the spherical Laplacian and $R$ is the sphere radius (defaults to $\sqrt{Q}$). The formulas follow section 3.10.3 of *Composite Fermions* (Jain).
 
-In `scan` or `fori_loop` mode, the full Hessian of $\log\psi$ with respect to $(\theta, \phi)$ is computed. This also yields the angular momentum observables $L_z$ and $L^2$ as byproducts. The estimator reports these as `angular_momentum_z`, `angular_momentum_z_square`, and `angular_momentum_square`; the default console formatting may display shorter aliases such as `Lz` and `L_square`. In `forward_laplacian` mode, the Hessian is not available, so $L^2$ is computed by applying the angular momentum operator $\hat{L}$ twice ($L^2 = \hat{\mathbf{L}} \cdot \hat{\mathbf{L}}$) in a separate pass.
+In `hessian` mode, the full Hessian of $\log\psi$ with respect to $(\theta, \phi)$ is computed. This also yields the angular momentum observables $L_z$ and $L^2$ as byproducts. The estimator reports these as `angular_momentum_z`, `angular_momentum_z_square`, and `angular_momentum_square`; the default console formatting may display shorter aliases such as `Lz` and `L_square`. In `forward_laplacian` mode, the Hessian is not available, so $L^2$ is computed by applying the angular momentum operator $\hat{L}$ twice ($L^2 = \hat{\mathbf{L}} \cdot \hat{\mathbf{L}}$) in a separate pass.
 
 ## See also
 
