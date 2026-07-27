@@ -155,6 +155,38 @@ class TestSphericalKinetic:
         assert jnp.allclose(stats["angular_momentum_z_square"], L_z**2, atol=1e-3)
         assert jnp.allclose(stats["angular_momentum_square"], L_square, atol=1e-3)
 
+    @pytest.mark.skipif(
+        not _supports_forward_laplacian(),
+        reason="forward_laplacian requires newer JAX",
+    )
+    def test_hessian_and_forward_laplacian_agree_for_laughlin(self):
+        """Cross-check both modes on a Laughlin quasihole with nonzero L."""
+        data_arr = _sample(jax.random.PRNGKey(932), 3, nelec=2)
+        wf = Laughlin(excitation_lz=1)
+        wire(wf, nspins=(2, 0), flux=4)
+        wf.init_params(HallData(electrons=data_arr[0]), jax.random.PRNGKey(1))
+
+        def evaluate(mode):
+            estimator = SphericalKinetic(
+                mode=mode,
+                monopole_strength=2.0,
+                radius=float(jnp.sqrt(2.0)),
+                f_log_psi=wf.logpsi,
+            )
+            return jax.jit(
+                jax.vmap(
+                    lambda d: _eval_single(estimator, HallData(electrons=d)),
+                    in_axes=0,
+                )
+            )(data_arr)
+
+        hessian_stats = evaluate("hessian")
+        forward_laplacian_stats = evaluate("forward_laplacian")
+        for key, expected in hessian_stats.items():
+            np.testing.assert_allclose(
+                forward_laplacian_stats[key], expected, rtol=2e-4, atol=2e-4
+            )
+
 
 class TestSpherePotential:
     def test_coulomb_two_electrons(self):
