@@ -33,8 +33,9 @@ For arbitrary molecules, the config describes the nuclei plus the electronic
 constraints rather than separate spin counts directly. JaQMC resolves each atom's
 effective charge from its element symbol and optional `system.pp`, then derives
 the spin-up and spin-down electron counts from the resolved total electron
-count plus `system.s_z`. Use `system.total_charge` when the simulated system is
-ionic.
+count plus `system.s_z`. For a charged system, set `system.total_charge`, then
+set `atoms[*].initialization.local_charge` on the relevant atoms so that the
+values sum to `system.total_charge`. Omitted `local_charge` values are zero.
 
 For example, to train a neural wavefunction for water from an angstrom-scale
 geometry, save the following as `water.yml`:
@@ -55,11 +56,29 @@ system:
 This water example is neutral and all-electron, so JaQMC resolves ten explicit
 electrons and assigns five spin-up and five spin-down electrons from `s_z: 0`.
 If you later enable an ECP or PH pseudopotential, JaQMC derives the
-valence-electron count automatically after pseudopotential resolution. For
-ions, add `system.total_charge`; for example, `total_charge: 1` removes one
-explicit electron from the simulated system.
+valence-electron count automatically after pseudopotential resolution.
 
-If you need finer control over charge resolution or electron initialization:
+For example, this configuration initializes an H2+ ion with one fewer electron
+near the first hydrogen:
+
+```yaml
+system:
+  atoms:
+    - symbol: H
+      coords: [0.0, 0.0, 0.0]
+      initialization:
+        local_charge: 1
+    - symbol: H
+      coords: [1.4, 0.0, 0.0]
+  total_charge: 1
+  s_z: 0.5
+```
+
+Positive `local_charge` values initialize fewer electrons near an atom;
+negative values initialize more. These values determine the initial electron
+placement. The charge distribution can change freely during optimization.
+
+Related per-atom settings are:
 
 - `atoms[*].charge` overrides the effective charge seen by the simulated electrons.
 - `atoms[*].initialization.local_s_z` biases the initial alpha/beta split near one atom.
@@ -182,8 +201,8 @@ Once an ECP is enabled, JaQMC derives the explicit electron count from the
 valence system rather than from the all-electron atoms. The `atom` and
 `diatomic` shortcuts use `system.pp` to choose the corresponding
 simulated-electron count automatically. If you define `atoms` directly, set
-`system.s_z` to the desired value for the explicit electrons, and add
-`system.total_charge` if the simulated valence system is charged.
+`system.s_z` to the desired value for the explicit electrons. For a charged
+system, follow the `total_charge` and `local_charge` rule above.
 
 For mixed systems, apply ECPs only to the elements that need them:
 

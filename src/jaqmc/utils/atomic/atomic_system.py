@@ -85,7 +85,7 @@ class AtomicSystemConfig:
             )
 
         for atom, init in zip(self.atoms, self.per_atom_init):
-            local_electron_count = atom.charge + init.local_charge
+            local_electron_count = atom.charge - init.local_charge
             if local_electron_count < 0:
                 raise ValueError(
                     f"Atom-local initialization would place {local_electron_count} "
@@ -120,6 +120,13 @@ class AtomicSystemConfig:
         ):
             raise ValueError(
                 f"Impossible s_z={self.s_z} for {total_electron_count} electrons."
+            )
+
+        local_charge_sum = sum(init.local_charge for init in self.per_atom_init)
+        if local_charge_sum != self.total_charge:
+            raise ValueError(
+                "Per-atom initialization local_charge values must sum to the "
+                f"system total_charge; got {local_charge_sum} and {self.total_charge}."
             )
 
     @property

@@ -40,8 +40,9 @@ For arbitrary solids, the config describes the primitive-cell nuclei plus the
 electronic constraints. JaQMC resolves each atom's effective charge from its
 element symbol and optional `system.pp`, then derives the primitive-cell
 spin-up and spin-down electron counts from the resolved explicit electron count
-plus `system.s_z`. Use `system.total_charge` when the simulated primitive cell
-is ionic.
+plus `system.s_z`. For a charged primitive cell, set `system.total_charge`, then
+set `atoms[*].initialization.local_charge` on the relevant atoms so that the
+values sum to `system.total_charge`. Omitted `local_charge` values are zero.
 
 For example, save the following LiH primitive cell in angstrom as
 `lih_solid.yml`:
@@ -178,8 +179,8 @@ system:
 
 The `rock_salt` and `two_atom_chain` shortcuts use `system.pp` to choose
 valence electron counts automatically. If you define `atoms` directly, set
-`system.s_z` to the desired value for the explicit electrons and add
-`system.total_charge` if the simulated primitive cell is charged.
+`system.s_z` to the desired value for the explicit electrons. For a charged
+primitive cell, follow the `total_charge` and `local_charge` rule above.
 
 Solid workflows currently support ECP and all-electron treatment only. The
 shared `pp` key accepts the same ECP names as molecules, but `pp: ph` is
