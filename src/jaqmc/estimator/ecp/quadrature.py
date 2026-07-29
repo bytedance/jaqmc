@@ -7,6 +7,7 @@ This module provides numerical integration over the unit sphere using
 polyhedron-based quadrature rules (icosahedral and octahedral).
 """
 
+from enum import StrEnum
 from typing import ClassVar
 
 import jax
@@ -14,9 +15,27 @@ from jax import numpy as jnp
 
 from jaqmc.array_types import PRNGKey
 
-__all__ = ["Icosahedron", "Octahedron", "Quadrature", "get_quadrature"]
+__all__ = [
+    "ECPQuadrature",
+    "Icosahedron",
+    "Octahedron",
+    "Quadrature",
+    "get_quadrature",
+]
 
-DEFAULT_QUADRATURE_ID = "icosahedron_12"
+
+class ECPQuadrature(StrEnum):
+    """Spherical quadrature rules supported by the ECP estimator."""
+
+    octahedron_6 = "octahedron_6"
+    octahedron_18 = "octahedron_18"
+    octahedron_26 = "octahedron_26"
+    octahedron_50 = "octahedron_50"
+    icosahedron_12 = "icosahedron_12"
+    icosahedron_32 = "icosahedron_32"
+
+
+DEFAULT_QUADRATURE_ID = ECPQuadrature.icosahedron_12
 
 
 def _expand_sign(values: list[float]) -> list[list[float]]:
@@ -60,48 +79,37 @@ class Quadrature:
         self.n_points = n_points
 
     @staticmethod
-    def sample_rotation_matrices(n_samples: int, key: PRNGKey) -> jnp.ndarray:
+    def sample_rotation_matrices(
+        n_samples: int,
+        key: PRNGKey,
+        *,
+        dtype: jnp.dtype = jnp.float32,
+    ) -> jnp.ndarray:
         """Sample random rotation matrices for unbiased integration.
 
         Args:
             n_samples: Number of rotation matrices to sample.
             key: PRNG key for random rotation.
+            dtype: Floating-point dtype of the returned matrices.
 
         Returns:
             Rotation matrices of shape (n_samples, 3, 3).
         """
         if n_samples == 0:
-            return jnp.eye(3)[None, ...]
+            return jnp.eye(3, dtype=dtype)[None, ...]
 
-        key, subkey = jax.random.split(key)
-        phi = jax.random.uniform(subkey, shape=(n_samples,)) * jnp.pi * 2
+        def sample_one(sample_key: PRNGKey) -> jnp.ndarray:
+            # A random orthonormal frame fixes all three rotational degrees of
+            # freedom. Sampling only a polar axis leaves the twist correlated
+            # with that axis and is therefore not Haar-uniform on SO(3).
+            first, second = jax.random.normal(sample_key, shape=(2, 3), dtype=dtype)
+            first = first / jnp.linalg.norm(first)
+            second = second - first * jnp.dot(first, second)
+            second = second / jnp.linalg.norm(second)
+            third = jnp.cross(first, second)
+            return jnp.stack((first, second, third), axis=-1)
 
-        key, subkey = jax.random.split(key)
-        cos_theta = 1.0 - 2 * jax.random.uniform(subkey, shape=(n_samples,))
-        sin_theta = jnp.sqrt(1.0 - cos_theta**2)
-
-        sin_phi = jnp.sin(phi)
-        cos_phi = jnp.cos(phi)
-        sin_phi2 = sin_phi**2
-        cos_phi2 = cos_phi**2
-
-        # Build rotation matrix components
-        m11 = sin_phi2 + cos_theta * cos_phi2
-        m12 = sin_phi * cos_phi * (cos_theta - 1)
-        m13 = sin_theta * cos_phi
-
-        m21 = m12
-        m22 = cos_phi2 + cos_theta * sin_phi2
-        m23 = sin_theta * sin_phi
-
-        m31 = -m13
-        m32 = -m23
-        m33 = cos_theta
-
-        matrices = jnp.stack(
-            [m11, m12, m13, m21, m22, m23, m31, m32, m33], axis=-1
-        ).reshape(-1, 3, 3)
-        return matrices
+        return jax.vmap(sample_one)(jax.random.split(key, n_samples))
 
     def sample_rotated_points(self, n_samples: int, key: PRNGKey) -> jnp.ndarray:
         """Generate randomly rotated quadrature points for unbiased integration.
@@ -113,7 +121,9 @@ class Quadrature:
         Returns:
             Rotated points of shape (n_samples, n_points, 3).
         """
-        rotation_matrices = self.sample_rotation_matrices(n_samples, key)
+        rotation_matrices = self.sample_rotation_matrices(
+            n_samples, key, dtype=self.pts.dtype
+        )
         # Apply rotation via einsum
         rotated = jnp.einsum("ijk,lk->ilj", rotation_matrices, self.pts)
         return rotated
@@ -250,40 +260,30 @@ class Icosahedron(Quadrature):
 _QUADRATURE_REGISTRY: dict[str, Quadrature] = {}
 
 
-def get_quadrature(quadrature_id: str | None = None) -> Quadrature:
+def get_quadrature(
+    quadrature_id: ECPQuadrature | str | None = None,
+) -> Quadrature:
     """Get a quadrature instance by identifier.
 
     Args:
-        quadrature_id: Quadrature identifier in format "{type}_{n_points}".
-            Supported: "octahedron_6", "octahedron_26", "icosahedron_12".
+        quadrature_id: A supported :class:`ECPQuadrature` value.
             If None, uses the default "icosahedron_12".
 
     Returns:
         Quadrature instance.
 
-    Raises:
-        ValueError: If quadrature_id format is invalid or type is unknown.
     """
-    quadrature_id = quadrature_id or DEFAULT_QUADRATURE_ID
+    quadrature_id = ECPQuadrature(quadrature_id or DEFAULT_QUADRATURE_ID)
+    quadrature_key = str(quadrature_id)
 
-    if quadrature_id not in _QUADRATURE_REGISTRY:
-        parts = quadrature_id.split("_")
-        if len(parts) != 2:
-            raise ValueError(
-                f"Invalid quadrature_id format: {quadrature_id}. "
-                "Expected format: 'type_npoints' (e.g., 'icosahedron_12')"
-            )
+    if quadrature_key not in _QUADRATURE_REGISTRY:
+        parts = quadrature_key.split("_")
         quad_type, n_points_str = parts
         n_points = int(n_points_str)
 
         if quad_type == "octahedron":
-            _QUADRATURE_REGISTRY[quadrature_id] = Octahedron(n_points)
+            _QUADRATURE_REGISTRY[quadrature_key] = Octahedron(n_points)
         elif quad_type == "icosahedron":
-            _QUADRATURE_REGISTRY[quadrature_id] = Icosahedron(n_points)
-        else:
-            raise ValueError(
-                f"Unknown quadrature type: {quad_type}. "
-                "Supported: 'octahedron', 'icosahedron'"
-            )
+            _QUADRATURE_REGISTRY[quadrature_key] = Icosahedron(n_points)
 
-    return _QUADRATURE_REGISTRY[quadrature_id]
+    return _QUADRATURE_REGISTRY[quadrature_key]

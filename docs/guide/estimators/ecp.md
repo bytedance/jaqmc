@@ -38,7 +38,13 @@ where $r = |\mathbf{r} - \mathbf{R}|$ is the electron-atom distance, $\mathbf{r}
 
 **Nearest-core optimization.** For each electron, only the `max_core` nearest ECP atoms are considered for the nonlocal integral. This limits cost when many ECP atoms are present.
 
-**Random quadrature rotation.** Each electron gets a randomly rotated copy of the quadrature grid, reducing systematic bias from a fixed grid orientation. This means the ECP energy contribution has stochastic noise even at fixed electron positions.
+**Random quadrature rotation.** Each electron gets an independently sampled
+Haar-uniform rotation in $SO(3)$. The complete orthonormal frame is sampled,
+including the twist about its first axis; sampling only a polar direction is
+not uniform over rotations and can bias finite quadrature rules. This means the
+ECP energy contribution has stochastic noise even at fixed electron positions.
+Changing the rotation algorithm changes the random sequence and therefore does
+not preserve bitwise continuation of an existing stochastic trajectory.
 
 **PBC support.** When lattice vectors are provided, electron-atom distances use minimum-image convention, and displaced electrons are wrapped back into the cell with the appropriate Bloch phase (twist angle).
 

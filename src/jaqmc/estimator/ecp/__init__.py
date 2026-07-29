@@ -22,10 +22,17 @@ Example::
 """
 
 from .estimator import ECPEnergy
-from .quadrature import Icosahedron, Octahedron, Quadrature, get_quadrature
+from .quadrature import (
+    ECPQuadrature,
+    Icosahedron,
+    Octahedron,
+    Quadrature,
+    get_quadrature,
+)
 
 __all__ = [
     "ECPEnergy",
+    "ECPQuadrature",
     "Icosahedron",
     "Octahedron",
     "Quadrature",
