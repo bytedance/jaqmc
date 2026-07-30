@@ -15,9 +15,13 @@ Tests ``_select_nearest_cores`` for correct distance-based filtering.
 
 from typing import ClassVar
 
+import jax
 import numpy as np
 from jax import numpy as jnp
 
+from jaqmc.app.molecule.data import MoleculeData
+from jaqmc.app.molecule.wavefunction.psiformer import PsiformerWavefunction
+from jaqmc.estimator.ecp import ECPEnergy, ECPQuadrature
 from jaqmc.estimator.ecp.estimator import ECPRadial, _select_nearest_cores
 
 
@@ -70,6 +74,35 @@ def _make_ecp_coefficients(channels):
             radial[power_idx].append([alpha, c])
         pyscf_channels.append([pyscf_l, radial])
     return {"X": [num_channels, pyscf_channels]}
+
+
+def test_psiformer_ecp_estimator_smoke():
+    """Psiformer supports the standard ECP estimator interface."""
+    key = jax.random.key(7)
+    data = MoleculeData(
+        electrons=jnp.array([[0.7, -0.2, 0.3]]),
+        atoms=jnp.zeros((1, 3)),
+        charges=jnp.array([1.0]),
+    )
+    wavefunction = PsiformerWavefunction(nspins=(1, 0), ndets=1, num_layers=1)
+    params = wavefunction.init_params(data, key)
+    estimator = ECPEnergy(
+        quadrature_id=ECPQuadrature.icosahedron_12,
+        phase_logpsi=wavefunction.phase_logpsi,
+        ecp_coefficients=_make_ecp_coefficients(
+            [
+                [(2, 1.0, 1.0)],
+                [(2, 1.0, 1.0)],
+            ]
+        ),
+        atom_symbols=["X"],
+    )
+
+    estimator.init(data, key)
+    stats, state = estimator.evaluate_single_walker(params, data, {}, None, key)
+
+    assert state is None
+    assert np.isfinite(stats["energy:ecp"])
 
 
 class TestEvaluateEcpPotential:
