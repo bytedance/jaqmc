@@ -3,8 +3,6 @@
 
 """Generic dense ECP regressions for wavefunctions without cached updates."""
 
-from typing import Any, cast
-
 import jax
 import numpy as np
 import pyscf.gto
@@ -35,16 +33,9 @@ def test_psiformer_uses_generic_dense_ecp_path():
     wavefunction = PsiformerWavefunction(nspins=(1, 0), ndets=1, num_layers=1)
     params = wavefunction.init_params(data, key)
 
-    def phase_logpsi(current_params, current_data):
-        output = cast(
-            dict[str, Any],
-            wavefunction.apply(current_params, current_data),
-        )
-        return output["sign_logpsi"], output["logpsi"]
-
     estimator = ECPEnergy(
         quadrature_id=ECPQuadrature.icosahedron_12,
-        phase_logpsi=phase_logpsi,
+        phase_logpsi=wavefunction.phase_logpsi,
         ecp_coefficients=_li_ecp_coefficients(),
         atom_symbols=["Li"],
     )

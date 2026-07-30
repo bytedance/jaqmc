@@ -238,11 +238,13 @@ def test_random_rotation_removes_grid_orientation_bias():
 
 
 def test_rotation_zero_samples():
-    """n_samples=0 should return identity rotation."""
+    """n_samples=0 should preserve the documented empty leading dimension."""
     key = jax.random.key(0)
     matrices = Octahedron.sample_rotation_matrices(0, key)
-    assert matrices.shape == (1, 3, 3)
-    np.testing.assert_allclose(matrices[0], jnp.eye(3), atol=1e-12)
+    assert matrices.shape == (0, 3, 3)
+
+    rotated = Octahedron(6).sample_rotated_points(0, key)
+    assert rotated.shape == (0, 6, 3)
 
 
 def test_get_quadrature_returns_correct_type():

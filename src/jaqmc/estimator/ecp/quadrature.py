@@ -100,19 +100,29 @@ class Quadrature:
             Rotation matrices of shape (n_samples, 3, 3).
         """
         if n_samples == 0:
-            return jnp.eye(3, dtype=dtype)[None, ...]
+            return jnp.empty((0, 3, 3), dtype=dtype)
 
-        # A Gaussian frame followed by Gram-Schmidt is Haar distributed on
-        # SO(3). Generate all frames in one random-normal call; splitting and
-        # vmapping one key per frame adds overhead without changing the law.
-        frames = jax.random.normal(key, shape=(n_samples, 2, 3), dtype=dtype)
-        first = frames[:, 0, :]
-        second = frames[:, 1, :]
-        first = first / jnp.linalg.norm(first, axis=-1, keepdims=True)
-        second = second - first * jnp.sum(first * second, axis=-1, keepdims=True)
-        second = second / jnp.linalg.norm(second, axis=-1, keepdims=True)
-        third = jnp.cross(first, second)
-        return jnp.stack((first, second, third), axis=-1)
+        # A normalized isotropic Gaussian vector is uniform on S^3. The unit
+        # quaternion double cover S^3 -> SO(3) therefore produces Haar-uniform
+        # rotations while using fewer random values and normalizations than a
+        # sampled Gaussian frame followed by Gram-Schmidt.
+        quaternions = jax.random.normal(key, shape=(n_samples, 4), dtype=dtype)
+        quaternions = quaternions / jnp.linalg.norm(quaternions, axis=-1, keepdims=True)
+        w, x, y, z = jnp.moveaxis(quaternions, -1, 0)
+        return jnp.stack(
+            (
+                1 - 2 * (y**2 + z**2),
+                2 * (x * y - z * w),
+                2 * (x * z + y * w),
+                2 * (x * y + z * w),
+                1 - 2 * (x**2 + z**2),
+                2 * (y * z - x * w),
+                2 * (x * z - y * w),
+                2 * (y * z + x * w),
+                1 - 2 * (x**2 + y**2),
+            ),
+            axis=-1,
+        ).reshape(n_samples, 3, 3)
 
     def sample_rotated_points(self, n_samples: int, key: PRNGKey) -> jnp.ndarray:
         """Generate randomly rotated quadrature points for unbiased integration.

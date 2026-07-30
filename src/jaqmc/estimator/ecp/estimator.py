@@ -3,8 +3,9 @@
 
 r"""ECP energy estimator for molecular QMC calculations.
 
-Computes local (:math:`l=0`) and nonlocal (:math:`l>0`) effective core
-potential contributions to the energy.
+Computes local (:math:`l=-1`) and semilocal/nonlocal
+(:math:`l=0, 1, \ldots`) effective core potential contributions to the energy
+in the PySCF channel convention.
 
 .. seealso:: :doc:`/guide/estimators/ecp` for background, formulas,
    and implementation notes.
@@ -33,11 +34,13 @@ from .quadrature import ECPQuadrature, get_quadrature
 class ECPEnergy(PerWalkerEstimator):
     r"""ECP energy estimator.
 
-    Computes both local and nonlocal effective core potential contributions.
-    Added automatically when ``ecp`` is set in the system configuration.
+    Computes both local and semilocal/nonlocal effective core potential
+    contributions. Added automatically when ``system.pp`` selects an ECP for
+    at least one atom.
 
-    - Local (:math:`l=0`): Direct potential energy from the :math:`l=0` channel
-    - Nonlocal (:math:`l>0`): Angular integral weighted by :math:`V_l(r)`
+    - Local (:math:`l=-1`): Direct radial potential energy
+    - Semilocal/nonlocal (:math:`l=0, 1, \ldots`): Angular integral weighted
+      by :math:`V_l(r)`
 
     The estimator outputs ``energy:ecp`` which is included in the
     ``total_energy`` sum automatically.

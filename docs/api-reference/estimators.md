@@ -44,7 +44,7 @@ API reference for built-in estimators. For background, formulas, and configurati
 ```{eval-rst}
 .. autoclass:: jaqmc.estimator.ecp.estimator.ECPEnergy
 
-.. autoclass:: jaqmc.estimator.ecp.ECPQuadrature
+.. autoclass:: jaqmc.estimator.ecp.quadrature.ECPQuadrature
    :members:
 ```
 
