@@ -5,9 +5,8 @@
 
 Uses mathematical properties as test oracles:
 - Points lie on the unit sphere
-- Weights sum to 1 (before 4*pi scaling)
-- Integration of constant function gives 4*pi
-- Integration of Y_10 (cos theta) gives 0 by symmetry
+- Cartesian monomials integrate exactly through each rule's design order
+- Integration of a constant through the public API gives 4*pi
 - Rotation matrices are orthogonal with det = 1
 """
 
@@ -77,30 +76,11 @@ def test_correct_point_count(quadrature):
     assert quadrature.coefs.shape == (quadrature.n_points,)
 
 
-def test_weights_sum_to_one(quadrature):
-    """Weights should sum to 1 (integrate() multiplies by 4pi separately)."""
-    np.testing.assert_allclose(jnp.sum(quadrature.coefs), 1.0, atol=1e-6)
-
-
 def test_integrate_constant(quadrature):
     """Integral of f=1 over the sphere should be 4*pi."""
     values = jnp.ones(quadrature.n_points)
     result = quadrature.integrate(values)
     np.testing.assert_allclose(result, 4 * jnp.pi, atol=1e-4)
-
-
-def test_integrate_cos_theta_vanishes(quadrature):
-    """Integral of cos(theta) = z-coordinate over the sphere should be 0."""
-    cos_theta = quadrature.pts[:, 2]
-    result = quadrature.integrate(cos_theta)
-    np.testing.assert_allclose(result, 0.0, atol=1e-6)
-
-
-def test_integrate_x_vanishes(quadrature):
-    """Integral of x over the sphere should be 0 by symmetry."""
-    x = quadrature.pts[:, 0]
-    result = quadrature.integrate(x)
-    np.testing.assert_allclose(result, 0.0, atol=1e-6)
 
 
 @pytest.mark.parametrize(
@@ -191,21 +171,14 @@ def test_random_rotation_averages_grid_orientation():
     """A rotated octahedral grid recovers a degree-4 spherical average."""
     quadrature = Octahedron(6)
     n_samples = 65_536
-    key = jax.random.key(44)
-    matrices = quadrature.sample_rotation_matrices(n_samples, key)
-
-    def estimate(rotation_matrices: jnp.ndarray) -> tuple[float, float]:
-        points = jnp.einsum("ijk,lk->ilj", rotation_matrices, quadrature.pts)
-        values = jnp.square(points[..., 0] * points[..., 1])
-        per_rotation = jnp.sum(values * quadrature.coefs, axis=-1)
-        mean = jnp.mean(per_rotation)
-        sem = jnp.std(per_rotation, ddof=1) / jnp.sqrt(n_samples)
-        return float(mean), float(sem)
+    points = quadrature.sample_rotated_points(n_samples, jax.random.key(44))
+    values = jnp.square(points[..., 0] * points[..., 1])
+    per_rotation = jnp.sum(values * quadrature.coefs, axis=-1)
 
     exact = _sphere_average_monomial(2, 2, 0)
-    haar_mean, haar_sem = estimate(matrices)
-
-    assert abs(haar_mean - exact) <= 5 * haar_sem
+    mean = jnp.mean(per_rotation)
+    sem = jnp.std(per_rotation, ddof=1) / jnp.sqrt(n_samples)
+    assert abs(mean - exact) <= 5 * sem
 
 
 def test_rotation_zero_samples():

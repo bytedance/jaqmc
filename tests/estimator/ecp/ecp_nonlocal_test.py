@@ -28,10 +28,6 @@ def _constant_wf(flat_electrons):
     return jnp.array(1.0), jnp.array(0.0)
 
 
-def _phase_and_logabs(value):
-    return value / jnp.abs(value), jnp.log(jnp.abs(value))
-
-
 def test_nonlocal_integral_legendre_indexing():
     """Only the l=0 (P_0) channel should contribute for a constant wf.
 
@@ -108,9 +104,9 @@ def test_nonlocal_integral_linear_wavefunction_oracle():
 
     def linear_wf(displaced_electrons):
         value = 1.0 + coefficient * displaced_electrons[0, 2]
-        return _phase_and_logabs(value)
+        return jnp.array(1.0), jnp.log(value)
 
-    integral = make_nonlocal_integral(4, Octahedron(26))
+    integral = make_nonlocal_integral(4, Octahedron(6))
     actual = integral(
         linear_wf,
         electrons,
