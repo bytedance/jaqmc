@@ -25,112 +25,145 @@ from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
 
 
-def _angular_momentum_operator(f, Q: float):
-    r"""Create angular momentum operator :math:`\hat L`.
+def _total_angular_momentum_operator_terms(electrons, Q: float):
+    r"""Build the total-angular-momentum operator for one configuration.
 
-    Following section 3.10 of *Composite Fermions* (Jain):
+    Total angular momentum measures how the wavefunction changes when every
+    electron is rotated together. This helper returns the two geometric
+    ingredients needed to apply its three Cartesian components:
+
+    * ``directions[i, a]`` is the infinitesimal change in electron ``i``'s
+      ``(theta, phi)`` coordinates under a rotation about axis ``a``.
+      Differentiating the wavefunction along this direction gives the orbital
+      rotation generator :math:`\mathcal{G}_a`.
+    * ``monopole_terms[a]`` is the position-dependent correction
+      :math:`M_a` caused by the monopole field.
+
+    Together they define the physical total-angular-momentum component
 
     .. math::
-        \hat L = -i\,\hat\phi\,\partial_\theta
-                 + \hat\theta'\,i\,\partial_\phi
-                 + Q(\cot\theta\,\hat\theta + \hat r)
+        \hat L_a = -i\mathcal{G}_a + M_a.
 
-    Returns the differential and magnetic terms separately so that
-    :math:`L^2` can be assembled without a full Hessian.
-
-    Args:
-        f: Function ``(params, data) -> complex scalar``.
-        Q: Monopole strength.
+    This helper does not evaluate angular momentum itself; it constructs the
+    rotation fields used by :func:`_make_total_angular_momentum_estimator`.
 
     Returns:
-        A callable ``(params, data) -> (differential_term, magnetic_term)``
-        where each term has shape ``(3,)``.
+        ``(directions, monopole_terms)`` for axes ordered ``(x, y, z)``.
+        Their shapes are ``(n_electrons, 3, 2)`` and ``(3,)``, respectively.
     """
-    jac_f_real = jax.jacrev(lambda p, d: f(p, d).real, argnums=1)
-    jac_f_imag = jax.jacrev(lambda p, d: f(p, d).imag, argnums=1)
-
-    def operator(params, data):
-        theta, phi = data[..., 0], data[..., 1]
-        jacobian = jac_f_real(params, data) + 1j * jac_f_imag(params, data)
-        grad_theta, grad_phi = jacobian[..., 0, None], jacobian[..., 1, None]
-
-        r_hat = jnp.stack(
-            [sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta)], axis=-1
-        )
-        phi_hat = jnp.stack([-sin(phi), cos(phi), jnp.zeros_like(phi)], axis=-1)
-        theta_hat_prime = jnp.stack(
-            [cos(phi) / tan(theta), sin(phi) / tan(theta), -jnp.ones_like(theta)],
-            axis=-1,
-        )
-
-        differential_term = jnp.sum(
-            -1j * (phi_hat * grad_theta - theta_hat_prime * grad_phi), axis=-2
-        )
-        magnetic_term = Q * jnp.sum(
-            theta_hat_prime * cos(theta)[:, None] + r_hat, axis=0
-        )
-        return differential_term, magnetic_term
-
-    return operator
-
-
-def _angular_momentum_square(f, Q: float):
-    r"""Compute :math:`(\hat L^2\psi)/\psi` via double operator application.
-
-    Applies :math:`\hat L` twice to avoid a full Hessian. See the derivation
-    in ``deephall/hamiltonian.py`` for how the cross-terms simplify.
-
-    Args:
-        f: Function ``(params, data) -> complex scalar`` (log-psi).
-        Q: Monopole strength.
-
-    Returns:
-        A callable ``(params, data) -> dict`` with angular momentum stats.
-    """
-    L_on_logpsi = _angular_momentum_operator(f, Q)
-    L_squared_on_logpsi = _angular_momentum_operator(
-        lambda p, d: sum(L_on_logpsi(p, d)), Q
+    theta, phi = electrons[..., 0], electrons[..., 1]
+    r_hat = jnp.stack(
+        [sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta)], axis=-1
     )
+    phi_hat = jnp.stack([-sin(phi), cos(phi), jnp.zeros_like(phi)], axis=-1)
+    theta_hat_prime = jnp.stack(
+        [cos(phi) / tan(theta), sin(phi) / tan(theta), -jnp.ones_like(theta)],
+        axis=-1,
+    )
+    directions = jnp.stack([phi_hat, -theta_hat_prime], axis=-1)
+    monopole_terms = Q * jnp.sum(
+        theta_hat_prime * cos(theta)[..., None] + r_hat, axis=-2
+    )
+    return directions, monopole_terms
 
-    def compute(params, data):
-        angular_momentum = sum(L_on_logpsi(params, data))
-        l2_components = (
-            jnp.diag(L_squared_on_logpsi(params, data)[0]) + angular_momentum**2
+
+def _make_total_angular_momentum_estimator(f, Q: float):
+    r"""Create a one-walker evaluator for total angular momentum.
+
+    For each Cartesian axis :math:`a`, the operator is
+    :math:`\hat L_a=-i\mathcal{G}_a+M_a`: :math:`\mathcal{G}_a` differentiates
+    along the rotation along axis `a`, and :math:`M_a` is the monopole contribution.
+
+    Nested JVPs compute :math:`\mathcal{G}_a\log\psi` and
+    :math:`\mathcal{G}_a^2\log\psi`. Because the rotation direction depends on
+    the electron coordinates, the outer JVP also differentiates the direction
+    itself. These derivatives are combined as
+
+    .. math::
+        \frac{\hat L_a^2\psi}{\psi}
+        = -\mathcal{G}_a^2\log\psi
+          -(\mathcal{G}_a\log\psi)^2
+          -2iM_a\mathcal{G}_a\log\psi
+          -i\mathcal{G}_aM_a + M_a^2.
+
+    Summing over the three axes gives :math:`L^2`. The z-axis has
+    :math:`M_z=0` in this convention, so its derivatives also give
+    :math:`L_z` and :math:`L_z^2`.
+
+    Args:
+        f: Function ``(params, electrons) -> complex scalar`` returning
+            ``log(psi)`` for one walker.
+        Q: Magnetic monopole strength, equal to half the flux.
+
+    Returns:
+        A function accepting ``(params, electrons)`` and returning the local
+        ``angular_momentum_z``, ``angular_momentum_z_square``, and
+        ``angular_momentum_square`` observables.
+    """
+
+    def evaluate(params, electrons):
+        directions, _ = _total_angular_momentum_operator_terms(electrons, Q)
+
+        def evaluate_component(component):
+            def first_order_terms(x):
+                rotation_directions, monopole_terms = (
+                    _total_angular_momentum_operator_terms(x, Q)
+                )
+                rotation_direction = rotation_directions[..., component, :]
+                g_log_psi = jax.jvp(
+                    lambda y: f(params, y), (x,), (rotation_direction,)
+                )[1]
+                return g_log_psi, monopole_terms[component]
+
+            rotation_direction = directions[..., component, :]
+            ((g_log_psi, monopole_term), (g_squared_log_psi, monopole_derivative)) = (
+                jax.jvp(first_order_terms, (electrons,), (rotation_direction,))
+            )
+
+            angular_momentum = -1j * g_log_psi + monopole_term
+            angular_momentum_squared = (
+                -g_squared_log_psi
+                - g_log_psi**2
+                - 2j * monopole_term * g_log_psi
+                - 1j * monopole_derivative
+                + monopole_term**2
+            )
+            return angular_momentum, angular_momentum_squared
+
+        components, component_squares = zip(
+            *(evaluate_component(component) for component in range(3)),
+            strict=True,
         )
+
         return {
-            "angular_momentum_z": angular_momentum[2].real,
-            "angular_momentum_z_square": l2_components[2].real,
-            "angular_momentum_square": jnp.sum(l2_components).real,
+            "angular_momentum_z": components[2].real,
+            "angular_momentum_z_square": component_squares[2].real,
+            "angular_momentum_square": sum(component_squares, start=0.0j).real,
         }
 
-    return compute
+    return evaluate
 
 
 @configurable_dataclass
 class SphericalKinetic(PerWalkerEstimator):
-    r"""Kinetic energy on a sphere with magnetic monopole.
+    r"""Local kinetic and total-angular-momentum estimators on a sphere.
 
-    Uses the Hessian-based calculation following the formulas in
-    section 3.10.3 of *Composite Fermions* (Jain):
+    For each walker, this computes the kinetic energy
+    :math:`\sum_i(\Lambda_i^2\psi/\psi)/(2R^2)` and reports local
+    :math:`L_z`, :math:`L_z^2`, and :math:`L^2`.
 
-    .. math::
-        \frac{|\Lambda|^2 \psi}{2R^2 \psi}
-        = \frac{1}{2R^2}\left[
-            -R^2 \frac{\nabla^2\psi}{\psi}
-            + (Q\cot\theta)^2
-            + 2iQ \frac{\cot\theta}{\sin\theta}
-              \frac{\partial\log\psi}{\partial\phi}
-        \right]
+    ``forward_laplacian`` avoids a full coordinate Hessian but evaluates the
+    angular-momentum terms separately. ``hessian`` forms that Hessian and
+    reuses it for all outputs. Both modes compute the same quantities.
 
-    Also computes angular momentum observables.
+    Coordinates must avoid the poles, where the spherical chart is singular.
 
     Args:
-        mode: Laplacian computation mode. ``hessian`` use a Hessian-based approach;
-            ``forward_laplacian`` uses the Forward Laplacian.
-        monopole_strength: Half the magnetic flux (:math:`Q = \text{flux}/2`).
-        radius: Sphere radius. Defaults to :math:`\sqrt{Q}`.
+        mode: ``"forward_laplacian"`` or ``"hessian"``.
+        monopole_strength: Monopole strength :math:`Q = \mathrm{flux}/2`.
+        radius: Sphere radius. Defaults to :math:`\sqrt{Q}` for ``Q > 0``.
         f_log_psi: Complex log-psi function (runtime dep).
-        data_field: Name of the data field (runtime dep, default ``"electrons"``).
+        data_field: Electron-coordinate field name.
     """
 
     mode: Literal["hessian", "forward_laplacian"] = "hessian"
@@ -268,8 +301,7 @@ class SphericalKinetic(PerWalkerEstimator):
         )
         kinetic_energy = sum_kinetic_momentum_square / 2 / r**2
 
-        # Angular momentum via double operator application
-        angular_stats = _angular_momentum_square(f, Q)(params, electrons)
+        angular_stats = _make_total_angular_momentum_estimator(f, Q)(params, electrons)
 
         return {
             "energy:kinetic": kinetic_energy,
