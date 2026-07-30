@@ -25,7 +25,11 @@ __all__ = [
 
 
 class ECPQuadrature(StrEnum):
-    """Spherical quadrature rules supported by the ECP estimator."""
+    """Spherical quadrature rules supported by the ECP estimator.
+
+    The suffix is the number of integration points. Omitting
+    ``ECPEnergy.quadrature_id`` selects ``icosahedron_12``.
+    """
 
     octahedron_6 = "octahedron_6"
     octahedron_18 = "octahedron_18"
@@ -98,18 +102,17 @@ class Quadrature:
         if n_samples == 0:
             return jnp.eye(3, dtype=dtype)[None, ...]
 
-        def sample_one(sample_key: PRNGKey) -> jnp.ndarray:
-            # A random orthonormal frame fixes all three rotational degrees of
-            # freedom. Sampling only a polar axis leaves the twist correlated
-            # with that axis and is therefore not Haar-uniform on SO(3).
-            first, second = jax.random.normal(sample_key, shape=(2, 3), dtype=dtype)
-            first = first / jnp.linalg.norm(first)
-            second = second - first * jnp.dot(first, second)
-            second = second / jnp.linalg.norm(second)
-            third = jnp.cross(first, second)
-            return jnp.stack((first, second, third), axis=-1)
-
-        return jax.vmap(sample_one)(jax.random.split(key, n_samples))
+        # A Gaussian frame followed by Gram-Schmidt is Haar distributed on
+        # SO(3). Generate all frames in one random-normal call; splitting and
+        # vmapping one key per frame adds overhead without changing the law.
+        frames = jax.random.normal(key, shape=(n_samples, 2, 3), dtype=dtype)
+        first = frames[:, 0, :]
+        second = frames[:, 1, :]
+        first = first / jnp.linalg.norm(first, axis=-1, keepdims=True)
+        second = second - first * jnp.sum(first * second, axis=-1, keepdims=True)
+        second = second / jnp.linalg.norm(second, axis=-1, keepdims=True)
+        third = jnp.cross(first, second)
+        return jnp.stack((first, second, third), axis=-1)
 
     def sample_rotated_points(self, n_samples: int, key: PRNGKey) -> jnp.ndarray:
         """Generate randomly rotated quadrature points for unbiased integration.

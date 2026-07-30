@@ -157,19 +157,43 @@ def test_polynomial_exactness(name, quadrature_cls, n_points):
                 )
 
 
-def test_rotation_matrices_orthogonal():
-    """Random rotation matrices should satisfy R @ R.T = I and det(R) = 1."""
-    key = jax.random.key(42)
+@pytest.mark.requires_x64
+@pytest.mark.parametrize(
+    ("dtype", "atol"),
+    [
+        pytest.param(jnp.float32, 1e-5, id="fp32"),
+        pytest.param(jnp.float64, 1e-12, id="fp64"),
+    ],
+)
+def test_rotation_geometry_and_public_point_dtype(dtype, atol):
+    """The public sampler preserves dtype, orientation, and sphere radius."""
     n = 20
-    matrices = Octahedron.sample_rotation_matrices(n, key)
+    matrices = Octahedron.sample_rotation_matrices(
+        n,
+        jax.random.key(42),
+        dtype=dtype,
+    )
     assert matrices.shape == (n, 3, 3)
+    assert matrices.dtype == dtype
 
     np.testing.assert_allclose(
         matrices @ jnp.swapaxes(matrices, -1, -2),
-        jnp.broadcast_to(jnp.eye(3), matrices.shape),
-        atol=1e-5,
+        jnp.broadcast_to(jnp.eye(3, dtype=dtype), matrices.shape),
+        atol=atol,
     )
-    np.testing.assert_allclose(jnp.linalg.det(matrices), 1.0, atol=1e-5)
+    np.testing.assert_allclose(jnp.linalg.det(matrices), 1.0, atol=atol)
+
+    quadrature = Icosahedron(12)
+    quadrature.pts = quadrature.pts.astype(dtype)
+    quadrature.coefs = quadrature.coefs.astype(dtype)
+    rotated = quadrature.sample_rotated_points(5, jax.random.key(7))
+    assert rotated.shape == (5, 12, 3)
+    assert rotated.dtype == dtype
+    np.testing.assert_allclose(
+        jnp.linalg.norm(rotated, axis=-1),
+        1.0,
+        atol=atol,
+    )
 
 
 def test_rotation_sampler_is_haar_and_control_is_not():
@@ -188,30 +212,37 @@ def test_rotation_sampler_is_haar_and_control_is_not():
     assert float(jnp.mean(jnp.square(legacy[:, 0, 0]))) > 0.45
 
 
+def test_random_rotation_removes_grid_orientation_bias():
+    """A degree-4 observable exposes the former octahedral-grid bias."""
+    quadrature = Octahedron(6)
+    n_samples = 65_536
+    key = jax.random.key(44)
+    matrices = quadrature.sample_rotation_matrices(n_samples, key)
+    legacy = _legacy_two_angle_rotations(n_samples, key)
+
+    def estimate(rotation_matrices: jnp.ndarray) -> tuple[float, float]:
+        points = jnp.einsum("ijk,lk->ilj", rotation_matrices, quadrature.pts)
+        values = jnp.square(points[..., 0] * points[..., 1])
+        per_rotation = jnp.sum(values * quadrature.coefs, axis=-1)
+        mean = jnp.mean(per_rotation)
+        sem = jnp.std(per_rotation, ddof=1) / jnp.sqrt(n_samples)
+        return float(mean), float(sem)
+
+    exact = _sphere_average_monomial(2, 2, 0)
+    haar_mean, haar_sem = estimate(matrices)
+    legacy_mean, legacy_sem = estimate(legacy)
+
+    assert abs(haar_mean - exact) <= 5 * haar_sem
+    assert abs(legacy_mean - exact) > 0.01
+    assert abs(legacy_mean - exact) >= 25 * legacy_sem
+
+
 def test_rotation_zero_samples():
     """n_samples=0 should return identity rotation."""
     key = jax.random.key(0)
     matrices = Octahedron.sample_rotation_matrices(0, key)
     assert matrices.shape == (1, 3, 3)
     np.testing.assert_allclose(matrices[0], jnp.eye(3), atol=1e-12)
-
-
-@pytest.mark.requires_x64
-@pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
-def test_rotation_preserves_requested_dtype(dtype):
-    matrices = Octahedron.sample_rotation_matrices(4, jax.random.key(9), dtype=dtype)
-    assert matrices.dtype == dtype
-
-
-def test_rotated_points_stay_on_sphere():
-    """Rotated quadrature points should still lie on the unit sphere."""
-    quad = Icosahedron(12)
-    key = jax.random.key(7)
-    rotated = quad.sample_rotated_points(5, key)
-    assert rotated.shape == (5, 12, 3)
-
-    norms = jnp.linalg.norm(rotated, axis=-1)
-    np.testing.assert_allclose(norms, 1.0, atol=1e-5)
 
 
 def test_get_quadrature_returns_correct_type():

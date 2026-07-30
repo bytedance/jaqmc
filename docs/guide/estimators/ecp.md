@@ -38,13 +38,20 @@ where $r = |\mathbf{r} - \mathbf{R}|$ is the electron-atom distance, $\mathbf{r}
 
 **Nearest-core optimization.** For each electron, only the `max_core` nearest ECP atoms are considered for the nonlocal integral. This limits cost when many ECP atoms are present.
 
+**Spherical quadrature rule.** `quadrature_id` accepts `octahedron_6`,
+`octahedron_18`, `octahedron_26`, `octahedron_50`, `icosahedron_12`, or
+`icosahedron_32`. The suffix is the number of integration points. Omitting the
+option, or setting it to `null`, uses `icosahedron_12`.
+
 **Random quadrature rotation.** Each electron gets an independently sampled
-Haar-uniform rotation in $SO(3)$. The complete orthonormal frame is sampled,
-including the twist about its first axis; sampling only a polar direction is
-not uniform over rotations and can bias finite quadrature rules. This means the
-ECP energy contribution has stochastic noise even at fixed electron positions.
-Changing the rotation algorithm changes the random sequence and therefore does
-not preserve bitwise continuation of an existing stochastic trajectory.
+rotation of the grid. Haar-uniform sampling in $SO(3)$ is a grid-independent
+sufficient condition for the rotated finite rule to be unbiased. The complete
+orthonormal frame is sampled, including the twist about its first axis; the
+former construction sampled only a polar direction and could leave a
+grid-orientation bias. The ECP contribution therefore has stochastic noise even
+at fixed electron positions. Changing the rotation algorithm changes the random
+sequence and does not preserve bitwise continuation of an existing stochastic
+trajectory.
 
 **PBC support.** When lattice vectors are provided, electron-atom distances use minimum-image convention, and displaced electrons are wrapped back into the cell with the appropriate Bloch phase (twist angle).
 

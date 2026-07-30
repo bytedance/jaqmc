@@ -51,8 +51,9 @@ class ECPEnergy(PerWalkerEstimator):
             closest ``max_core`` ECP atoms contribute per electron;
             the rest are skipped. Increase this if your system has
             many ECP atoms in close proximity.
-        quadrature_id: Explicit spherical quadrature rule used to evaluate
-            nonlocal ECP integrals.
+        quadrature_id: Spherical quadrature rule used to evaluate nonlocal ECP
+            integrals. When ``None``, uses the default rule
+            :attr:`ECPQuadrature.icosahedron_12`.
         electrons_field: Name of electron position field in data.
         atoms_field: Name of atom position field in data.
         phase_logpsi: Wavefunction ratio function (runtime dep).
@@ -66,7 +67,7 @@ class ECPEnergy(PerWalkerEstimator):
     """
 
     max_core: int = 2
-    quadrature_id: ECPQuadrature = ECPQuadrature.icosahedron_12
+    quadrature_id: ECPQuadrature | None = None
     electrons_field: str = "electrons"
     atoms_field: str = "atoms"
 
