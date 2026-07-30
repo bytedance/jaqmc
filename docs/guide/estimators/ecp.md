@@ -43,15 +43,13 @@ where $r = |\mathbf{r} - \mathbf{R}|$ is the electron-atom distance, $\mathbf{r}
 `icosahedron_32`. The suffix is the number of integration points. Omitting the
 option, or setting it to `null`, uses `icosahedron_12`.
 
-**Random quadrature rotation.** Each electron gets an independently sampled
-rotation of the grid. Haar-uniform sampling in $SO(3)$ is a grid-independent
-sufficient condition for the rotated finite rule to be unbiased. The complete
-orthonormal frame is sampled, including the twist about its first axis; the
-former construction sampled only a polar direction and could leave a
-grid-orientation bias. The ECP contribution therefore has stochastic noise even
-at fixed electron positions. Changing the rotation algorithm changes the random
-sequence and does not preserve bitwise continuation of an existing stochastic
-trajectory.
+**Random quadrature rotation.** Before evaluating the nonlocal ECP, JaQMC
+applies an independent Haar-uniform three-dimensional rotation to the
+quadrature grid for each electron. Sampling the full grid orientation prevents
+the finite grid from favoring fixed spatial directions. Averaging over these
+rotations recovers the spherical integral; individual evaluations still contain
+quadrature-sampling noise, so the ECP estimate can differ even at the same
+electron coordinates.
 
 **PBC support.** When lattice vectors are provided, electron-atom distances use minimum-image convention, and displaced electrons are wrapped back into the cell with the appropriate Bloch phase (twist angle).
 

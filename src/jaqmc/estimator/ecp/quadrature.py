@@ -12,6 +12,7 @@ from typing import ClassVar
 
 import jax
 from jax import numpy as jnp
+from jax.scipy.spatial.transform import Rotation
 
 from jaqmc.array_types import PRNGKey
 
@@ -102,27 +103,10 @@ class Quadrature:
         if n_samples == 0:
             return jnp.empty((0, 3, 3), dtype=dtype)
 
-        # A normalized isotropic Gaussian vector is uniform on S^3. The unit
-        # quaternion double cover S^3 -> SO(3) therefore produces Haar-uniform
-        # rotations while using fewer random values and normalizations than a
-        # sampled Gaussian frame followed by Gram-Schmidt.
+        # Normalizing an isotropic Gaussian vector gives a uniform point on
+        # S^3, whose unit-quaternion map to SO(3) is Haar-uniform.
         quaternions = jax.random.normal(key, shape=(n_samples, 4), dtype=dtype)
-        quaternions = quaternions / jnp.linalg.norm(quaternions, axis=-1, keepdims=True)
-        w, x, y, z = jnp.moveaxis(quaternions, -1, 0)
-        return jnp.stack(
-            (
-                1 - 2 * (y**2 + z**2),
-                2 * (x * y - z * w),
-                2 * (x * z + y * w),
-                2 * (x * y + z * w),
-                1 - 2 * (x**2 + z**2),
-                2 * (y * z - x * w),
-                2 * (x * z - y * w),
-                2 * (y * z + x * w),
-                1 - 2 * (x**2 + y**2),
-            ),
-            axis=-1,
-        ).reshape(n_samples, 3, 3)
+        return Rotation.from_quat(quaternions).as_matrix()
 
     def sample_rotated_points(self, n_samples: int, key: PRNGKey) -> jnp.ndarray:
         """Generate randomly rotated quadrature points for unbiased integration.
@@ -270,11 +254,11 @@ class Icosahedron(Quadrature):
         self.coefs = jnp.array(self._coef_table[n_points])
 
 
-_QUADRATURE_REGISTRY: dict[str, Quadrature] = {}
+_QUADRATURE_REGISTRY: dict[ECPQuadrature, Quadrature] = {}
 
 
 def get_quadrature(
-    quadrature_id: ECPQuadrature | str | None = None,
+    quadrature_id: ECPQuadrature | None = None,
 ) -> Quadrature:
     """Get a quadrature instance by identifier.
 
@@ -284,19 +268,16 @@ def get_quadrature(
 
     Returns:
         Quadrature instance.
-
     """
-    quadrature_id = ECPQuadrature(quadrature_id or DEFAULT_QUADRATURE_ID)
-    quadrature_key = str(quadrature_id)
+    quadrature_id = quadrature_id or DEFAULT_QUADRATURE_ID
 
-    if quadrature_key not in _QUADRATURE_REGISTRY:
-        parts = quadrature_key.split("_")
-        quad_type, n_points_str = parts
+    if quadrature_id not in _QUADRATURE_REGISTRY:
+        quad_type, n_points_str = quadrature_id.value.split("_")
         n_points = int(n_points_str)
 
         if quad_type == "octahedron":
-            _QUADRATURE_REGISTRY[quadrature_key] = Octahedron(n_points)
+            _QUADRATURE_REGISTRY[quadrature_id] = Octahedron(n_points)
         elif quad_type == "icosahedron":
-            _QUADRATURE_REGISTRY[quadrature_key] = Icosahedron(n_points)
+            _QUADRATURE_REGISTRY[quadrature_id] = Icosahedron(n_points)
 
-    return _QUADRATURE_REGISTRY[quadrature_key]
+    return _QUADRATURE_REGISTRY[quadrature_id]

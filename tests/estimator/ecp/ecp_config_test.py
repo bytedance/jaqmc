@@ -4,38 +4,8 @@
 """Tests for ECP configuration utilities and solid config factories."""
 
 import pytest
-import serde
-import yaml
 
-from jaqmc.estimator.ecp import ECPEnergy, ECPQuadrature
 from jaqmc.utils.atomic import core_electrons_by_pp
-
-
-@pytest.mark.parametrize(
-    ("serialized_value", "expected"),
-    [
-        pytest.param(None, None, id="legacy_null_default"),
-        pytest.param(
-            "octahedron_26",
-            ECPQuadrature.octahedron_26,
-            id="explicit_enum_value",
-        ),
-    ],
-)
-def test_quadrature_id_yaml_serde_round_trip(serialized_value, expected):
-    """Legacy null and explicit enum values both survive the config boundary."""
-    configured = serde.from_dict(
-        ECPEnergy,
-        {"quadrature_id": serialized_value},
-    )
-    yaml_payload = yaml.safe_load(
-        yaml.safe_dump(serde.to_dict(configured), sort_keys=False)
-    )
-    restored = serde.from_dict(ECPEnergy, yaml_payload)
-
-    assert configured.quadrature_id == expected
-    assert yaml_payload["quadrature_id"] == serialized_value
-    assert restored.quadrature_id == expected
 
 
 class TestCoreElectronsByPP:

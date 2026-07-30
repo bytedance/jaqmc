@@ -115,12 +115,16 @@ def test_polynomial_exactness(name, quadrature_cls, n_points):
                 )
 
 
-@pytest.mark.requires_x64
 @pytest.mark.parametrize(
     ("dtype", "atol"),
     [
         pytest.param(jnp.float32, 1e-5, id="fp32"),
-        pytest.param(jnp.float64, 1e-12, id="fp64"),
+        pytest.param(
+            jnp.float64,
+            1e-12,
+            id="fp64",
+            marks=pytest.mark.requires_x64,
+        ),
     ],
 )
 def test_rotation_geometry_and_public_point_dtype(dtype, atol):
@@ -193,16 +197,16 @@ def test_rotation_zero_samples():
 
 def test_get_quadrature_returns_correct_type():
     """get_quadrature should return the right type and cache instances."""
-    q1 = get_quadrature("icosahedron_12")
+    q1 = get_quadrature(ECPQuadrature.icosahedron_12)
     assert isinstance(q1, Icosahedron)
     assert q1.n_points == 12
 
-    q2 = get_quadrature("octahedron_6")
+    q2 = get_quadrature(ECPQuadrature.octahedron_6)
     assert isinstance(q2, Octahedron)
     assert q2.n_points == 6
 
     # Same id returns same instance (caching)
-    q3 = get_quadrature("icosahedron_12")
+    q3 = get_quadrature(ECPQuadrature.icosahedron_12)
     assert q3 is q1
 
 
@@ -215,14 +219,6 @@ def test_quadrature_options_are_discoverable():
         "icosahedron_12",
         "icosahedron_32",
     ]
-
-
-def test_get_quadrature_invalid():
-    """Invalid quadrature ids should raise ValueError."""
-    with pytest.raises(ValueError, match="is not a valid ECPQuadrature"):
-        get_quadrature("bad")
-    with pytest.raises(ValueError, match="is not a valid ECPQuadrature"):
-        get_quadrature("tetrahedron_4")
 
 
 def test_invalid_point_counts():
