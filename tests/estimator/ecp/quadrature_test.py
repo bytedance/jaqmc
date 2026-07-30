@@ -55,28 +55,6 @@ def _sphere_average_monomial(a: int, b: int, c: int) -> float:
     return numerator / _double_factorial(a + b + c + 1)
 
 
-def _legacy_two_angle_rotations(n_samples: int, key) -> jnp.ndarray:
-    """Old polar-axis-only construction used as a discriminating control."""
-    phi_key, theta_key = jax.random.split(key)
-    phi = jax.random.uniform(phi_key, shape=(n_samples,)) * 2 * jnp.pi
-    cos_theta = 1 - 2 * jax.random.uniform(theta_key, shape=(n_samples,))
-    sin_theta = jnp.sqrt(1 - cos_theta**2)
-    sin_phi = jnp.sin(phi)
-    cos_phi = jnp.cos(phi)
-    entries = (
-        sin_phi**2 + cos_theta * cos_phi**2,
-        sin_phi * cos_phi * (cos_theta - 1),
-        sin_theta * cos_phi,
-        sin_phi * cos_phi * (cos_theta - 1),
-        cos_phi**2 + cos_theta * sin_phi**2,
-        sin_theta * sin_phi,
-        -sin_theta * cos_phi,
-        -sin_theta * sin_phi,
-        cos_theta,
-    )
-    return jnp.stack(entries, axis=-1).reshape(n_samples, 3, 3)
-
-
 @pytest.fixture(
     params=[
         pytest.param((cls, n), id=f"{name}_{n}") for name, cls, n in ALL_QUADRATURES
@@ -196,11 +174,10 @@ def test_rotation_geometry_and_public_point_dtype(dtype, atol):
     )
 
 
-def test_rotation_sampler_is_haar_and_control_is_not():
-    """Haar moments pass while the former two-angle construction clearly fails."""
+def test_rotation_sampler_has_haar_moments():
+    """Sampled rotation-matrix entries have the first two Haar moments."""
     key = jax.random.key(43)
     matrices = Octahedron.sample_rotation_matrices(16_384, key)
-    legacy = _legacy_two_angle_rotations(16_384, key)
 
     np.testing.assert_allclose(jnp.mean(matrices, axis=0), 0.0, atol=2e-2)
     np.testing.assert_allclose(
@@ -208,17 +185,14 @@ def test_rotation_sampler_is_haar_and_control_is_not():
         jnp.full((3, 3), 1.0 / 3.0),
         atol=2e-2,
     )
-    assert float(jnp.mean(legacy[:, 0, 0])) > 0.45
-    assert float(jnp.mean(jnp.square(legacy[:, 0, 0]))) > 0.45
 
 
-def test_random_rotation_removes_grid_orientation_bias():
-    """A degree-4 observable exposes the former octahedral-grid bias."""
+def test_random_rotation_averages_grid_orientation():
+    """A rotated octahedral grid recovers a degree-4 spherical average."""
     quadrature = Octahedron(6)
     n_samples = 65_536
     key = jax.random.key(44)
     matrices = quadrature.sample_rotation_matrices(n_samples, key)
-    legacy = _legacy_two_angle_rotations(n_samples, key)
 
     def estimate(rotation_matrices: jnp.ndarray) -> tuple[float, float]:
         points = jnp.einsum("ijk,lk->ilj", rotation_matrices, quadrature.pts)
@@ -230,11 +204,8 @@ def test_random_rotation_removes_grid_orientation_bias():
 
     exact = _sphere_average_monomial(2, 2, 0)
     haar_mean, haar_sem = estimate(matrices)
-    legacy_mean, legacy_sem = estimate(legacy)
 
     assert abs(haar_mean - exact) <= 5 * haar_sem
-    assert abs(legacy_mean - exact) > 0.01
-    assert abs(legacy_mean - exact) >= 25 * legacy_sem
 
 
 def test_rotation_zero_samples():
