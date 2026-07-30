@@ -4,6 +4,7 @@
 import logging
 
 import pytest
+from jax import numpy as jnp
 
 from jaqmc.writer.console import ConsoleWriter
 
@@ -17,6 +18,15 @@ def test_console_writer_default(mocker):
 
         # Expect step and loss (default field)
         mock_logger.info.assert_called_with("step=1, loss=1.2346")
+
+
+def test_console_writer_ignores_unselected_array_stats(mocker):
+    writer = ConsoleWriter(interval=1)
+    with writer.open(None, "test"):
+        mock_logger = mocker.patch.object(writer, "logger")
+        writer.write(1, {"loss": 1.234567, "samples": jnp.ones(2)})
+
+        mock_logger.info.assert_called_once_with("step=1, loss=1.2346")
 
 
 def test_console_writer_custom_fields(mocker):
@@ -94,4 +104,4 @@ def test_console_writer_warns_once_for_missing_field(
         and "missing_var" in record.getMessage()
     ]
     assert len(warnings) == 1
-    assert "Available fields: loss, step" in warnings[0].getMessage()
+    assert "Available fields: loss" in warnings[0].getMessage()

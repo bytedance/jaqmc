@@ -104,22 +104,18 @@ class ConsoleWriter(Writer):
         if step % self.interval != 0:
             return
 
-        values = {"step": step}
-        for k, v in stats.items():
-            values[k] = self.to_scalar(v)
-
         final_parts = [f"step={step}"]
         missing_fields: set[str] = set()
 
         for spec in self.fields_specs:
-            if spec.key in values:
-                val = values[spec.key]
+            if spec.key in stats:
+                val = self.to_scalar(stats[spec.key])
                 final_parts.append(f"{spec.display_name}={val:{spec.fmt or '.4f'}}")
             elif spec.key not in self._warned_missing_fields:
                 missing_fields.add(spec.key)
 
         if missing_fields:
-            available = ", ".join(sorted(values))
+            available = ", ".join(sorted(stats))
             self.logger.warning(
                 "Console fields %s are not present in stats. Available fields: %s",
                 missing_fields,
