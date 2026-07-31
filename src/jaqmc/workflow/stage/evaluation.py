@@ -178,11 +178,11 @@ class EvaluationWorkStage(SamplingWorkStage):
 
     def compute_step(
         self, state: SamplingState, rngs: PRNGKey
-    ) -> tuple[dict[str, Any], SamplingState]:
+    ) -> tuple[SamplingState, dict[str, Any]]:
         """Sample and estimate observables (no parameter update).
 
         Returns:
-            Tuple of (per-walker local stats, updated state).
+            Tuple of (updated state, per-walker local stats).
         """
         sampler_rngs, est_rngs = jax.random.split(rngs, 2)
         data, _, sampler_state = self.sample_plan.step(
@@ -191,12 +191,13 @@ class EvaluationWorkStage(SamplingWorkStage):
         step_stats, estimator_state = self.estimators.evaluate(
             state.params, data, state.estimator_state, est_rngs
         )
-        return step_stats, replace(
+        new_state = replace(
             state,
             batched_data=data,
             sampler_state=sampler_state,
             estimator_state=estimator_state,
         )
+        return new_state, step_stats
 
     def write_digest(self, state: SamplingState) -> None:
         """Finalize accumulated stats and save digest."""
@@ -243,7 +244,7 @@ class EvaluationWorkStage(SamplingWorkStage):
         compute = parallel_jax.jit_sharded(
             self.compute_step,
             in_specs=(partition, parallel_jax.DATA_PARTITION),
-            out_specs=(parallel_jax.SHARE_PARTITION, partition),
+            out_specs=(partition, parallel_jax.SHARE_PARTITION),
             check_vma=self.config.check_vma,
             donate_argnums=0,
         )
@@ -256,7 +257,7 @@ class EvaluationWorkStage(SamplingWorkStage):
 
         for step in range(initial_step, self.config.iterations):
             rngs, sub_rngs = split_rngs(rngs)
-            step_stats, state = compute(state, sub_rngs)
+            state, step_stats = compute(state, sub_rngs)
 
             if is_master:
                 self.hdf5.write(step, step_stats)
