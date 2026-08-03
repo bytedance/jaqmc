@@ -91,7 +91,7 @@ quick tests. See <project:../../guide/sampling.md> for walker count, mixing, and
 behavior.
 
 The sampler defaults are usually reasonable. Reach for
-{cfgkey}`train.sampler.steps <systems-hall-train-cfg-train-sampler-mcmc-steps>` or
+{cfgkey}`sampler.steps <systems-hall-train-cfg-sampler-steps>` or
 {cfgkey}`train.run.burn_in <systems-hall-train-cfg-train-run-burn-in>` only when the walkers are not
 mixing well or `pmove` looks unhealthy. For optimizer choice, the production default is
 [train.optim.module](#hall-train-optim); use the
