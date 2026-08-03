@@ -236,11 +236,11 @@ class VMCWorkStage(SamplingWorkStage):
 
     def compute_step(
         self, state: VMCState, rngs: PRNGKey
-    ) -> tuple[dict[str, Any], VMCState]:
+    ) -> tuple[VMCState, dict[str, Any]]:
         """Sample, estimate, compute gradients, and update parameters.
 
         Returns:
-            Tuple of (finalized stats, updated state with new params).
+            Tuple of (updated state with new params, finalized stats).
 
         Raises:
             ValueError: If no estimator provides ``grads``.
@@ -265,7 +265,7 @@ class VMCWorkStage(SamplingWorkStage):
             rngs=opt_rngs,
         )
         params = optax.apply_updates(state.params, updates)
-        return {**final_stats, **sampler_stats}, replace(
+        new_state = replace(
             state,
             params=params,
             batched_data=data,
@@ -273,6 +273,7 @@ class VMCWorkStage(SamplingWorkStage):
             estimator_state=estimator_state,
             opt_state=opt_state,
         )
+        return new_state, {**final_stats, **sampler_stats}
 
     def _has_nan(self, stats: dict[str, Any]) -> bool:
         if not self.config.stop_on_nan:
@@ -309,7 +310,7 @@ class VMCWorkStage(SamplingWorkStage):
         compute = parallel_jax.jit_sharded(
             self.compute_step,
             in_specs=(partition, parallel_jax.DATA_PARTITION),
-            out_specs=(parallel_jax.SHARE_PARTITION, partition),
+            out_specs=(partition, parallel_jax.SHARE_PARTITION),
             check_vma=check_vma,
             donate_argnums=0,
         )
@@ -320,7 +321,7 @@ class VMCWorkStage(SamplingWorkStage):
         # Main loop
         for step in range(initial_step, self.config.iterations):
             rngs, sub_rngs = split_rngs(rngs)
-            stats, state = compute(state, sub_rngs)
+            state, stats = compute(state, sub_rngs)
             self.writers.write(step, stats)
             if self._has_nan(stats):
                 raise StageAbort(step, state)
