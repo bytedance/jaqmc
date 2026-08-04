@@ -5,5 +5,6 @@ Each system page shows how to define the system, launch training, and run evalua
 ```{toctree}
 molecule/index.md
 solid/index.md
+electron_gas/index.md
 hall/index.md
 ```

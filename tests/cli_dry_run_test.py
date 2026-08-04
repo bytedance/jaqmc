@@ -273,6 +273,20 @@ train:
         },
     ),
     CliDryRunCase(
+        "electron_gas_train_dotlist",
+        "electron-gas train system.rs=1 system.nelectrons=2 system.s_z=0 "
+        "workflow.batch_size=4 wf.hidden_dims_single='[4]' "
+        "wf.hidden_dims_double='[2]' wf.ndets=1 "
+        "pretrain.run.iterations=1 train.run.iterations=1",
+    ),
+    CliDryRunCase(
+        "electron_gas_evaluate_dotlist",
+        "electron-gas evaluate system.rs=1 system.nelectrons=2 system.s_z=0 "
+        "workflow.batch_size=4 workflow.source_path=source "
+        "wf.hidden_dims_single='[4]' wf.hidden_dims_double='[2]' wf.ndets=1 "
+        "run.iterations=1",
+    ),
+    CliDryRunCase(
         "hall_train_yaml",
         "hall train --yml hall.yml",
         {

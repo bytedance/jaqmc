@@ -77,12 +77,15 @@ class SolidTrainWorkflow(VMCWorkflow):
         self.data_init = partial(data_init, system_config)
 
         loss_estimator = make_pretrain_loss(
-            orbitals_fn=wf.orbitals, scf=self.scf, nspins=nspins, full_det=wf.full_det
+            orbitals_fn=wf.orbitals,
+            orbital_ref=self.scf,
+            nspins=nspins,
+            full_det=wf.full_det,
         )
         f_log_amplitude = make_pretrain_log_amplitude(
             wf.logpsi,
             lambda data: self.scf.eval_slater(data.electrons, nspins).real,
-            scf_fraction=pretrain_config.sample_fraction,
+            ref_fraction=pretrain_config.sample_fraction,
         )
         sampler = cfg.get("sampler", MCMCSampler(sampling_proposal=sampling_proposal))
 
