@@ -570,3 +570,129 @@ def test_forward_laplacian_vs_scan_molecule_workflow(tmp_path):
     assert np.isclose(loss_scan[-1], loss_fwd_lap[-1], rtol=1e-2), (
         f"Final loss differs: scan={loss_scan[-1]}, default={loss_fwd_lap[-1]}"
     )
+
+
+@pytest.mark.parametrize("mode", [LaplacianMode.scan, LaplacianMode.forward_laplacian])
+def test_prefactor_scales_kinetic_energy(mode):
+    """The prefactor rescales the kinetic energy, including complex log-psi."""
+    if mode == LaplacianMode.forward_laplacian:
+        pytest.importorskip("folx")
+        pytest.importorskip("jax", minversion="0.7.1")
+
+    # Complex log-psi exercises the same code path the moire spinor model uses.
+    def log_psi(params, data):
+        del params
+        positions = data["positions"]
+        return 0.7 * jnp.sum(positions**2) + 0.2j * jnp.sum(positions)
+
+    key = jax.random.key(2024)
+    data = SimpleData(positions=jax.random.normal(key, (3, 2)))
+    params: dict[str, jnp.ndarray] = {}
+
+    prefactor = 12.5 / 0.8
+    base = EuclideanKinetic(mode=mode, f_log_psi=log_psi, data_field="positions")
+    scaled = EuclideanKinetic(
+        mode=mode, f_log_psi=log_psi, data_field="positions", prefactor=prefactor
+    )
+
+    base_stats, _ = base.evaluate_single_walker(params, data, {}, None, key)
+    scaled_stats, _ = scaled.evaluate_single_walker(params, data, {}, None, key)
+
+    np.testing.assert_allclose(
+        scaled_stats["energy:kinetic"],
+        prefactor * base_stats["energy:kinetic"],
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    # Default prefactor must leave the standard operator unchanged.
+    assert base.prefactor == pytest.approx(1.0)
+
+
+def _reference_weighted_kinetic(log_psi, params, positions, weights):
+    """Explicit per-particle weighted kinetic energy via a dense Hessian.
+
+    Computes ``-0.5 * sum_p w_p [ laplacian_p + |grad_p|^2 ]`` directly from
+    ``jax.grad``/``jax.hessian`` as an independent ground truth.
+    """
+
+    def f(x):
+        return log_psi(params, SimpleData(positions=x))
+
+    holo = jnp.iscomplexobj(jax.eval_shape(f, positions.astype(complex)))
+    x = positions.astype(complex) if holo else positions
+    grad = jax.grad(f, holomorphic=holo)(x)
+    hess = jax.hessian(f, holomorphic=holo)(x)
+    diag = jnp.einsum("pdpd->pd", hess)
+    per_particle = jnp.sum(diag, axis=1) + jnp.sum(grad**2, axis=1)
+    return -0.5 * jnp.sum(jnp.asarray(weights) * per_particle)
+
+
+@pytest.mark.parametrize("mode", [LaplacianMode.scan, LaplacianMode.forward_laplacian])
+def test_per_particle_prefactor_matches_reference(mode):
+    """An array prefactor applies a distinct weight to each particle."""
+    if mode == LaplacianMode.forward_laplacian:
+        pytest.importorskip("folx")
+        pytest.importorskip("jax", minversion="0.7.1")
+
+    # Complex log-psi with cross terms so the per-particle split is nontrivial.
+    def log_psi(params, data):
+        del params
+        positions = data["positions"]
+        coeffs = jnp.arange(1, positions.size + 1).reshape(positions.shape)
+        return 0.7 * jnp.sum(positions**2) + 0.2j * jnp.sum(coeffs * positions)
+
+    key = jax.random.key(7)
+    positions = jax.random.normal(key, (4, 2))
+    data = SimpleData(positions=positions)
+    params: dict[str, jnp.ndarray] = {}
+
+    weights = jnp.array([1.0, 2.5, 0.3, 4.0])  # per-particle prefactors (e.g. 1/m)
+    estimator = EuclideanKinetic(
+        mode=mode,
+        f_log_psi=log_psi,
+        data_field="positions",
+        prefactor=weights.tolist(),
+    )
+    stats, _ = estimator.evaluate_single_walker(params, data, {}, None, key)
+
+    expected = _reference_weighted_kinetic(log_psi, params, positions, weights)
+    np.testing.assert_allclose(stats["energy:kinetic"], expected, rtol=1e-5, atol=1e-6)
+
+
+@pytest.mark.parametrize("mode", [LaplacianMode.scan, LaplacianMode.forward_laplacian])
+def test_uniform_array_prefactor_matches_scalar(mode):
+    """A constant array prefactor equals the scalar prefactor of the same value."""
+    if mode == LaplacianMode.forward_laplacian:
+        pytest.importorskip("folx")
+        pytest.importorskip("jax", minversion="0.7.1")
+
+    def log_psi(params, data):
+        del params
+        positions = data["positions"]
+        return 0.7 * jnp.sum(positions**2) + 0.2j * jnp.sum(positions)
+
+    key = jax.random.key(99)
+    positions = jax.random.normal(key, (5, 3))
+    data = SimpleData(positions=positions)
+    params: dict[str, jnp.ndarray] = {}
+
+    value = 3.3
+    scalar = EuclideanKinetic(
+        mode=mode, f_log_psi=log_psi, data_field="positions", prefactor=value
+    )
+    array = EuclideanKinetic(
+        mode=mode,
+        f_log_psi=log_psi,
+        data_field="positions",
+        prefactor=[value] * positions.shape[0],
+    )
+
+    scalar_stats, _ = scalar.evaluate_single_walker(params, data, {}, None, key)
+    array_stats, _ = array.evaluate_single_walker(params, data, {}, None, key)
+
+    np.testing.assert_allclose(
+        array_stats["energy:kinetic"],
+        scalar_stats["energy:kinetic"],
+        rtol=1e-6,
+        atol=1e-6,
+    )
