@@ -117,6 +117,7 @@ build-backend = "uv_build"
 module-name = ["jaqmc", "jaqmc_legacy"]
 
 [tool.mypy]
+exclude_gitignore = true
 ignore_missing_imports = true
 warn_redundant_casts = true
 warn_unused_ignores = true
