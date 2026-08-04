@@ -73,6 +73,17 @@ Defines the periodic solid system to simulate. The implementation is selected by
    :scope: Solid
 ```
 
+(solid-train-sampler)=
+## Sampler (`sampler.*`)
+
+The solid workflow uses adaptive Metropolis-Hastings sampling with a periodic
+Gaussian proposal. Pretraining and training share these settings.
+
+```{eval-rst}
+.. config-defaults:: jaqmc.sampler.mcmc.MCMCSampler
+   :prefix: sampler
+```
+
 ---
 
 (solid-train-stage)=
@@ -126,17 +137,6 @@ The main VMC optimization loop. Samples electron configurations, computes energy
    :scope: LAMB
 ```
 
-(solid-train-sampler)=
-### Sampler (`train.sampler.*`)
-
-- Default sampler module: `mcmc`, and its effective keys are listed below.
-
-```{eval-rst}
-.. config-defaults:: jaqmc.sampler.mcmc.MCMCSampler
-   :prefix: train.sampler
-   :scope: MCMC
-```
-
 (solid-train-writers)=
 ### Writers (`train.writers.*`)
 
@@ -178,8 +178,9 @@ Loss and gradient estimator. Computes the VMC loss and parameter gradients. See 
 ## Pretrain Stage (`pretrain.*`)
 
 Initializes the neural network to approximate Hartree-Fock orbitals before VMC
-training. It uses the same run, sampler, and writer schemas as the train stage,
-but with a different optimizer default and a workflow-wired supervised loss.
+training. Its run and writer settings follow the same schemas as the train
+stage, while the optimizer default and workflow-wired supervised loss are
+specific to pretraining.
 
 ### Reference (`pretrain.reference.*`)
 
@@ -209,16 +210,6 @@ target orbitals for pretraining. Most runs can keep the default settings.
 .. config-defaults:: jaqmc.optimizer.optax.adam
    :prefix: pretrain.optim
    :scope: Adam
-```
-
-### Sampler (`pretrain.sampler.*`)
-
-- Default sampler module: `mcmc`.
-
-```{eval-rst}
-.. config-defaults:: jaqmc.sampler.mcmc.MCMCSampler
-   :prefix: pretrain.sampler
-   :scope: MCMC
 ```
 
 ### Writers (`pretrain.writers.*`)
