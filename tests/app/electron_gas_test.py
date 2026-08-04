@@ -16,6 +16,7 @@ from jaqmc.app.electron_gas.reference import FreeElectronReference
 from jaqmc.app.electron_gas.workflow import configure_system
 from jaqmc.estimator.kinetic import EuclideanKinetic, LaplacianMode
 from jaqmc.utils.config import ConfigManager
+from tests.jax_version import requires_forward_laplacian
 
 
 def test_config_defines_wigner_seitz_volume() -> None:
@@ -143,6 +144,7 @@ def test_electron_gas_rejects_block_determinants() -> None:
         configure_system(manager)
 
 
+@requires_forward_laplacian
 def test_sparse_forward_laplacian_matches_dense_and_scan() -> None:
     manager = ConfigManager(
         {
