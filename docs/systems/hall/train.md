@@ -75,6 +75,17 @@ See <project:index.md> for background on each architecture.
    :scope: Free
 ```
 
+(hall-train-sampler)=
+## Sampler (`sampler.*`)
+
+The Hall workflow uses adaptive Metropolis-Hastings sampling with a spherical
+proposal.
+
+```{eval-rst}
+.. config-defaults:: jaqmc.sampler.mcmc.MCMCSampler
+   :prefix: sampler
+```
+
 (hall-train-stage)=
 ## Train Stage (`train.*`)
 
@@ -124,17 +135,6 @@ The VMC optimization loop. Samples electron configurations on the Haldane sphere
 .. config-defaults:: jaqmc.optimizer.optax.lamb
    :prefix: train.optim
    :scope: LAMB
-```
-
-(hall-train-sampler)=
-### Sampler (`train.sampler.*`)
-
-- Default sampler module: `mcmc`, and its effective keys are listed below.
-
-```{eval-rst}
-.. config-defaults:: jaqmc.sampler.mcmc.MCMCSampler
-   :prefix: train.sampler
-   :scope: MCMC
 ```
 
 (hall-train-writers)=
