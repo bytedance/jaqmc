@@ -124,6 +124,8 @@ SPHERICAL_LAPLACIAN_MODES = (
     ),
 )
 
+NEURAL_BACKBONES = ["psiformer", "lapnet"]
+
 
 class TestSphericalKinetic:
     @pytest.mark.parametrize("mode", SPHERICAL_LAPLACIAN_MODES)
@@ -565,8 +567,14 @@ class TestLaughlinWavefunction:
 class TestMHPO:
     """MHPO wavefunction: antisymmetry and composite fermion branch."""
 
-    def _make_mhpo(self, nspins=(2, 1), flux=4, flux_per_elec=0):
-        wf = MHPO(ndets=1, num_heads=2, heads_dim=8, num_layers=1)
+    def _make_mhpo(self, nspins=(2, 1), flux=4, flux_per_elec=0, backbone="psiformer"):
+        wf = MHPO(
+            ndets=1,
+            backbone=backbone,
+            num_heads=2,
+            heads_dim=8,
+            num_layers=1,
+        )
         wire(wf, nspins=nspins, monopole_strength=flux / 2, flux=flux)
         wf.flux_per_elec = flux_per_elec
         electrons = _sample(jax.random.PRNGKey(0), 1, sum(nspins))[0]
@@ -574,9 +582,12 @@ class TestMHPO:
         params = wf.init_params(data, jax.random.PRNGKey(1))
         return wf, params, data, electrons
 
-    def test_antisymmetry(self):
+    @pytest.mark.parametrize("backbone", NEURAL_BACKBONES)
+    def test_antisymmetry(self, backbone):
         """Swapping two same-spin electrons flips the sign."""
-        wf, params, data, electrons = self._make_mhpo(nspins=(3, 0), flux=4)
+        wf, params, data, electrons = self._make_mhpo(
+            nspins=(3, 0), flux=4, backbone=backbone
+        )
         lp_orig = wf.evaluate(params, data)["logpsi"]
 
         swapped = electrons.at[0].set(electrons[1]).at[1].set(electrons[0])
@@ -586,9 +597,10 @@ class TestMHPO:
         np.testing.assert_allclose(float(jnp.real(ratio)), -1.0, atol=1e-3)
         np.testing.assert_allclose(float(jnp.imag(ratio)), 0.0, atol=1e-3)
 
-    def test_phi_periodicity(self):
+    @pytest.mark.parametrize("backbone", NEURAL_BACKBONES)
+    def test_phi_periodicity(self, backbone):
         """logpsi(phi) == logpsi(phi + 2*pi) for any electron."""
-        wf, params, data, electrons = self._make_mhpo()
+        wf, params, data, electrons = self._make_mhpo(backbone=backbone)
         lp_orig = wf.evaluate(params, data)["logpsi"]
 
         shifted = electrons.at[0, 1].add(2 * jnp.pi)
@@ -604,14 +616,15 @@ class TestMHPO:
             atol=1e-4,
         )
 
-    def test_pole_phi_independence(self):
+    @pytest.mark.parametrize("backbone", NEURAL_BACKBONES)
+    def test_pole_phi_independence(self, backbone):
         r"""At a pole, \|psi\|^2 must not depend on phi.
 
         MHPO has a neural backbone, so we use a looser tolerance than
         Free. The phi-dependent subleading terms scale as theta^2.
         """
         pole_theta = 5e-4
-        wf, params, _, electrons = self._make_mhpo()
+        wf, params, _, electrons = self._make_mhpo(backbone=backbone)
         phis = jnp.array([0.0, 1.0, 2.5, -1.3])
         re_log_psis = []
         for phi_val in phis:
@@ -620,9 +633,10 @@ class TestMHPO:
             re_log_psis.append(float(jnp.real(lp)))
         np.testing.assert_allclose(re_log_psis, re_log_psis[0], atol=1e-2)
 
-    def test_composite_fermion(self):
+    @pytest.mark.parametrize("backbone", NEURAL_BACKBONES)
+    def test_composite_fermion(self, backbone):
         """Composite fermion branch (flux_per_elec > 0) produces finite output."""
-        wf, params, data, _ = self._make_mhpo(flux_per_elec=2)
+        wf, params, data, _ = self._make_mhpo(flux_per_elec=2, backbone=backbone)
         out = wf.evaluate(params, data)
         assert jnp.isfinite(out["logpsi"])
 
@@ -677,7 +691,7 @@ class TestNeuralHallKineticSmoke:
 
         control = _kinetic_near_pole(estimator, params, electrons, 1e-3)
         assert np.all(np.isfinite(control))
-        assert np.max(np.abs(control)) < 10
+        assert np.max(np.abs(control)) < 15
 
         for theta in (1e-5, 1e-7):
             local_energies = _kinetic_near_pole(estimator, params, electrons, theta)

@@ -3,10 +3,12 @@
 
 """Monopole harmonics product orbital (MHPO) wavefunction on the Haldane sphere.
 
-Cartesian coordinates on the unit sphere feed a PsiformerBackbone (which
-appends spin encoding), followed by monopole harmonic orbital projection
+Cartesian coordinates on the unit sphere feed a configurable neural backbone
+(which appends spin encoding), followed by monopole harmonic orbital projection
 and a spherical Jastrow factor.
 """
+
+from typing import Literal
 
 import numpy as np
 from flax import linen as nn
@@ -15,9 +17,9 @@ from scipy import special as ss
 
 from jaqmc.geometry.sphere import cartesian_from_spinor
 from jaqmc.utils.wiring import runtime_dep
-from jaqmc.wavefunction.backbone.psiformer import PsiformerBackbone
 from jaqmc.wavefunction.output.orbital import SplitChannelDense
 
+from ._backbone import build_hall_backbone
 from .base import HallWavefunction, lll_monopole_harmonics
 from .jastrow import SphericalJastrow
 
@@ -74,7 +76,7 @@ class MHPO(HallWavefunction):
 
     Architecture:
         1. Input: ``(theta, phi)`` to a monopole spinor and Cartesian point
-        2. Backbone: :class:`~jaqmc.wavefunction.backbone.psiformer.PsiformerBackbone`
+        2. Backbone: configurable Psiformer or LapNet feature extractor
         3. Orbitals: Monopole harmonic projection
         4. Jastrow: Spherical chord-distance Jastrow factor
         5. Output: ``slogdet`` of orbital matrix to complex ``log psi``
@@ -93,7 +95,8 @@ class MHPO(HallWavefunction):
         ndets: Number of determinants.
         num_heads: Number of attention heads.
         heads_dim: Dimension of each attention head.
-        num_layers: Number of Psiformer layers.
+        backbone: Neural backbone implementation.
+        num_layers: Number of backbone layers.
         flux_per_elec: Flux quanta attached per electron for composite fermions.
     """
 
@@ -101,6 +104,7 @@ class MHPO(HallWavefunction):
     monopole_strength: float = runtime_dep()
     flux: int = runtime_dep()
     ndets: int = 1
+    backbone: Literal["psiformer", "lapnet"] = "psiformer"
     num_heads: int = 4
     heads_dim: int = 64
     num_layers: int = 2
@@ -108,7 +112,8 @@ class MHPO(HallWavefunction):
 
     def setup(self) -> None:
         reduced_flux = self.flux - self.flux_per_elec * (sum(self.nspins) - 1)
-        self.backbone_layer = PsiformerBackbone(
+        self.backbone_layer = build_hall_backbone(
+            backbone=self.backbone,
             nspins=self.nspins,
             num_layers=self.num_layers,
             num_heads=self.num_heads,
