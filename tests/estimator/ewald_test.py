@@ -219,3 +219,15 @@ def test_ewald_sum_2d_charged_background_ignores_orientation():
 def test_ewald_sum_2d_rejects_invalid_area(lattice):
     with pytest.raises(ValueError, match="finite, non-zero area"):
         EwaldSum2D(lattice)
+
+
+def test_simple_cubic_charge_with_uniform_background():
+    """Check the simple-cubic Madelung self-energy used by jellium."""
+    lattice = jnp.eye(3)
+    electron = jnp.array([[0.137, 0.271, 0.419]])
+
+    energy = EwaldSum(lattice).energy(electron, jnp.array([-1.0]))
+
+    # A point charge plus its uniform neutralizing background has energy
+    # -2.837297479 / (2 L) in a simple-cubic cell of side L.
+    np.testing.assert_allclose(energy, -2.837297479 / 2, atol=1e-5)
