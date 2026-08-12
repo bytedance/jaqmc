@@ -7,16 +7,40 @@ This module provides numerical integration over the unit sphere using
 polyhedron-based quadrature rules (icosahedral and octahedral).
 """
 
+from enum import StrEnum
 from typing import ClassVar
 
 import jax
 from jax import numpy as jnp
+from jax.scipy.spatial.transform import Rotation
 
 from jaqmc.array_types import PRNGKey
 
-__all__ = ["Icosahedron", "Octahedron", "Quadrature", "get_quadrature"]
+__all__ = [
+    "ECPQuadrature",
+    "Icosahedron",
+    "Octahedron",
+    "Quadrature",
+    "get_quadrature",
+]
 
-DEFAULT_QUADRATURE_ID = "icosahedron_12"
+
+class ECPQuadrature(StrEnum):
+    """Spherical quadrature rules supported by the ECP estimator.
+
+    The suffix is the number of integration points. Omitting
+    ``ECPEnergy.quadrature_id`` selects ``icosahedron_12``.
+    """
+
+    octahedron_6 = "octahedron_6"
+    octahedron_18 = "octahedron_18"
+    octahedron_26 = "octahedron_26"
+    octahedron_50 = "octahedron_50"
+    icosahedron_12 = "icosahedron_12"
+    icosahedron_32 = "icosahedron_32"
+
+
+DEFAULT_QUADRATURE_ID = ECPQuadrature.icosahedron_12
 
 
 def _expand_sign(values: list[float]) -> list[list[float]]:
@@ -60,48 +84,29 @@ class Quadrature:
         self.n_points = n_points
 
     @staticmethod
-    def sample_rotation_matrices(n_samples: int, key: PRNGKey) -> jnp.ndarray:
+    def sample_rotation_matrices(
+        n_samples: int,
+        key: PRNGKey,
+        *,
+        dtype: jnp.dtype = jnp.float32,
+    ) -> jnp.ndarray:
         """Sample random rotation matrices for unbiased integration.
 
         Args:
             n_samples: Number of rotation matrices to sample.
             key: PRNG key for random rotation.
+            dtype: Floating-point dtype of the returned matrices.
 
         Returns:
             Rotation matrices of shape (n_samples, 3, 3).
         """
         if n_samples == 0:
-            return jnp.eye(3)[None, ...]
+            return jnp.empty((0, 3, 3), dtype=dtype)
 
-        key, subkey = jax.random.split(key)
-        phi = jax.random.uniform(subkey, shape=(n_samples,)) * jnp.pi * 2
-
-        key, subkey = jax.random.split(key)
-        cos_theta = 1.0 - 2 * jax.random.uniform(subkey, shape=(n_samples,))
-        sin_theta = jnp.sqrt(1.0 - cos_theta**2)
-
-        sin_phi = jnp.sin(phi)
-        cos_phi = jnp.cos(phi)
-        sin_phi2 = sin_phi**2
-        cos_phi2 = cos_phi**2
-
-        # Build rotation matrix components
-        m11 = sin_phi2 + cos_theta * cos_phi2
-        m12 = sin_phi * cos_phi * (cos_theta - 1)
-        m13 = sin_theta * cos_phi
-
-        m21 = m12
-        m22 = cos_phi2 + cos_theta * sin_phi2
-        m23 = sin_theta * sin_phi
-
-        m31 = -m13
-        m32 = -m23
-        m33 = cos_theta
-
-        matrices = jnp.stack(
-            [m11, m12, m13, m21, m22, m23, m31, m32, m33], axis=-1
-        ).reshape(-1, 3, 3)
-        return matrices
+        # Normalizing an isotropic Gaussian vector gives a uniform point on
+        # S^3, whose unit-quaternion map to SO(3) is Haar-uniform.
+        quaternions = jax.random.normal(key, shape=(n_samples, 4), dtype=dtype)
+        return Rotation.from_quat(quaternions).as_matrix()
 
     def sample_rotated_points(self, n_samples: int, key: PRNGKey) -> jnp.ndarray:
         """Generate randomly rotated quadrature points for unbiased integration.
@@ -113,7 +118,9 @@ class Quadrature:
         Returns:
             Rotated points of shape (n_samples, n_points, 3).
         """
-        rotation_matrices = self.sample_rotation_matrices(n_samples, key)
+        rotation_matrices = self.sample_rotation_matrices(
+            n_samples, key, dtype=self.pts.dtype
+        )
         # Apply rotation via einsum
         rotated = jnp.einsum("ijk,lk->ilj", rotation_matrices, self.pts)
         return rotated
@@ -247,43 +254,30 @@ class Icosahedron(Quadrature):
         self.coefs = jnp.array(self._coef_table[n_points])
 
 
-_QUADRATURE_REGISTRY: dict[str, Quadrature] = {}
+_QUADRATURE_REGISTRY: dict[ECPQuadrature, Quadrature] = {}
 
 
-def get_quadrature(quadrature_id: str | None = None) -> Quadrature:
+def get_quadrature(
+    quadrature_id: ECPQuadrature | None = None,
+) -> Quadrature:
     """Get a quadrature instance by identifier.
 
     Args:
-        quadrature_id: Quadrature identifier in format "{type}_{n_points}".
-            Supported: "octahedron_6", "octahedron_26", "icosahedron_12".
+        quadrature_id: A supported :class:`ECPQuadrature` value.
             If None, uses the default "icosahedron_12".
 
     Returns:
         Quadrature instance.
-
-    Raises:
-        ValueError: If quadrature_id format is invalid or type is unknown.
     """
     quadrature_id = quadrature_id or DEFAULT_QUADRATURE_ID
 
     if quadrature_id not in _QUADRATURE_REGISTRY:
-        parts = quadrature_id.split("_")
-        if len(parts) != 2:
-            raise ValueError(
-                f"Invalid quadrature_id format: {quadrature_id}. "
-                "Expected format: 'type_npoints' (e.g., 'icosahedron_12')"
-            )
-        quad_type, n_points_str = parts
+        quad_type, n_points_str = quadrature_id.value.split("_")
         n_points = int(n_points_str)
 
         if quad_type == "octahedron":
             _QUADRATURE_REGISTRY[quadrature_id] = Octahedron(n_points)
         elif quad_type == "icosahedron":
             _QUADRATURE_REGISTRY[quadrature_id] = Icosahedron(n_points)
-        else:
-            raise ValueError(
-                f"Unknown quadrature type: {quad_type}. "
-                "Supported: 'octahedron', 'icosahedron'"
-            )
 
     return _QUADRATURE_REGISTRY[quadrature_id]

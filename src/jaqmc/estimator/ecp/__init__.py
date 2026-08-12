@@ -1,15 +1,16 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-"""Effective Core Potential (ECP) estimator for molecular QMC.
+r"""Effective Core Potential (ECP) estimator for molecular QMC.
 
 This module provides energy estimators for systems with effective core
 potentials (pseudopotentials). ECPs replace core electrons with an
 effective potential, reducing computational cost for heavy elements.
 
-The ECP energy consists of two parts:
-- Local (:math:`l=0`): A radial potential applied directly
-- Nonlocal (:math:`l>0`): Angular integrals requiring wavefunction ratio evaluation
+The ECP energy consists of two parts in the PySCF channel convention:
+- Local (:math:`l=-1`): A radial potential applied directly
+- Semilocal/nonlocal (:math:`l=0, 1, \ldots`): Angular integrals requiring
+  wavefunction ratio evaluation
 
 Example::
 
@@ -22,10 +23,17 @@ Example::
 """
 
 from .estimator import ECPEnergy
-from .quadrature import Icosahedron, Octahedron, Quadrature, get_quadrature
+from .quadrature import (
+    ECPQuadrature,
+    Icosahedron,
+    Octahedron,
+    Quadrature,
+    get_quadrature,
+)
 
 __all__ = [
     "ECPEnergy",
+    "ECPQuadrature",
     "Icosahedron",
     "Octahedron",
     "Quadrature",

@@ -43,7 +43,19 @@ API reference for built-in estimators. For background, formulas, and configurati
 
 ```{eval-rst}
 .. autoclass:: jaqmc.estimator.ecp.estimator.ECPEnergy
+
+.. autoclass:: jaqmc.estimator.ecp.quadrature.ECPQuadrature
+   :members:
 ```
+
+| `ECPQuadrature` value | Integration points |
+|---|---:|
+| `octahedron_6` | 6 |
+| `octahedron_18` | 18 |
+| `octahedron_26` | 26 |
+| `octahedron_50` | 50 |
+| `icosahedron_12` | 12 |
+| `icosahedron_32` | 32 |
 
 ### PH energy
 
