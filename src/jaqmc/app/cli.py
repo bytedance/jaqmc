@@ -103,6 +103,30 @@ def solid_evaluate(cfg: ConfigManager, dry_run: bool):
     SolidEvalWorkflow(cfg)(dry_run)
 
 
+# --- electron_gas ---
+
+
+@cli.group(name="electron-gas", help="Three-dimensional electron gas workflows.")
+def electron_gas():
+    pass
+
+
+@electron_gas.add_command
+@make_cli(name="train", help="Pretrain + train a homogeneous electron gas model.")
+def electron_gas_train(cfg: ConfigManager, dry_run: bool):
+    from .electron_gas import ElectronGasTrainWorkflow
+
+    ElectronGasTrainWorkflow(cfg)(dry_run)
+
+
+@electron_gas.add_command
+@make_cli(name="evaluate", help="Evaluate a trained electron gas model.")
+def electron_gas_evaluate(cfg: ConfigManager, dry_run: bool):
+    from .electron_gas import ElectronGasEvalWorkflow
+
+    ElectronGasEvalWorkflow(cfg)(dry_run)
+
+
 # --- hall ---
 
 
@@ -125,3 +149,27 @@ def hall_evaluate(cfg: ConfigManager, dry_run: bool):
     from .hall import HallEvalWorkflow
 
     HallEvalWorkflow(cfg)(dry_run)
+
+
+# --- moire ---
+
+
+@cli.group(help="Moire system workflows.")
+def moire():
+    pass
+
+
+@moire.add_command
+@make_cli(name="train", help="Train a moire system.")
+def moire_train(cfg: ConfigManager, dry_run: bool):
+    from .moire import MoireTrainWorkflow
+
+    MoireTrainWorkflow(cfg)(dry_run)
+
+
+@moire.add_command
+@make_cli(name="evaluate", help="Evaluate a trained moire system.")
+def moire_evaluate(cfg: ConfigManager, dry_run: bool):
+    from .moire import MoireEvalWorkflow
+
+    MoireEvalWorkflow(cfg)(dry_run)

@@ -252,7 +252,7 @@ def make_graph_patterns():
                 num_out_dims=n_outs,
             )
             for with_bias, repeat, n_ins, n_outs in itertools.product(
-                (True, False), range(3), range(1, 3), range(1, 3)
+                (True, False), range(4), range(1, 3), range(1, 3)
             )
         ),
         *kfac_jax.tag_graph_matcher.DEFAULT_GRAPH_PATTERNS,

@@ -90,7 +90,10 @@ class TestPretrainOrbitalShape:
         scf.run()
 
         loss_estimator = make_pretrain_loss(
-            orbitals_fn=wf.orbitals, scf=scf, nspins=nspins, full_det=wf.full_det
+            orbitals_fn=wf.orbitals,
+            orbital_ref=scf,
+            nspins=nspins,
+            full_det=wf.full_det,
         )
         loss_estimator.init(data, TEST_KEY)
         assert isinstance(loss_estimator, FunctionEstimator)

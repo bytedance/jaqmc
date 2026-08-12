@@ -63,6 +63,25 @@ def test_all_gather_single_process():
     np.testing.assert_array_equal(np.array(result), np.array(full_array))
 
 
+def test_pvary_outside_shard_map_is_identity_in_jitted_scan():
+    """Test pvary is a no-op without a bound shard_map axis."""
+    import jax
+    from jax import numpy as jnp
+
+    from jaqmc.utils.parallel_jax import pvary
+
+    @jax.jit
+    def scan_sum(values):
+        def body(total, value):
+            return total + pvary(value), None
+
+        total, _ = jax.lax.scan(body, pvary(jnp.zeros_like(values[0])), values)
+        return total
+
+    values = jnp.arange(5, dtype=jnp.float32)
+    np.testing.assert_array_equal(scan_sum(values), jnp.sum(values))
+
+
 def test_process_allgather_single_process():
     """Test process_allgather in single-process multi-device setting.
 

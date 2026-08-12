@@ -30,7 +30,16 @@ class LengthUnit(StrEnum):
 ONE_BOHR_IN_ANGSTROM = 0.52917721067
 ONE_ANGSTROM_IN_BOHR = 1 / ONE_BOHR_IN_ANGSTROM
 
+# 1 nm = 10 Angstrom, so 1 Bohr = ONE_BOHR_IN_ANGSTROM / 10 nm.
+ONE_BOHR_IN_NM = 0.052917721067
+ONE_NM_IN_BOHR = 1 / ONE_BOHR_IN_NM
+
 # 1 Hartree = 627.509474 kcal/mol
 # https://en.wikipedia.org/wiki/Hartree
 ONE_HARTREE_IN_KCAL = 627.509474
 ONE_KCAL_IN_HARTREE = 1 / ONE_HARTREE_IN_KCAL
+
+# 1 Hartree = 27.211386245 eV = 27211.386245 meV
+# https://physics.nist.gov/cgi-bin/cuu/Value?hrev
+ONE_HARTREE_IN_MEV = 27.211386245 * 1000.0
+ONE_MEV_IN_HARTREE = 1 / ONE_HARTREE_IN_MEV

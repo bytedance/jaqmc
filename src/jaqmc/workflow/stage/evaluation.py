@@ -7,21 +7,18 @@ Accumulates per-step statistics in an HDF5 file owned by the stage and produces 
 ``digest.npz`` summary after all steps. Optionally logs preview digests.
 """
 
-from collections.abc import Mapping
-from contextlib import contextmanager
+from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar
 
-import h5py
 import jax
 import numpy as np
-from upath import UPath
 
 from jaqmc.array_types import PRNGKey
 from jaqmc.utils import parallel_jax
 from jaqmc.utils.config import configurable_dataclass
+from jaqmc.utils.hdf5 import HDF5ReadWrite
 from jaqmc.writer import Writers
-from jaqmc.writer.hdf5 import h5_append
 
 from .base import RunContext, WorkStageConfig
 from .sampling import SamplingStageBuilder, SamplingState, SamplingWorkStage
@@ -39,53 +36,6 @@ class EvaluationWorkStageConfig(WorkStageConfig):
     """
 
     digest_step_interval: int = 0
-
-
-class HDF5ReadWrite:
-    def __init__(self, working_dir: UPath, prefix: str, is_master: bool):
-        self._working_dir = working_dir
-        self._prefix = f"{prefix}_" if prefix else ""
-        self.is_master = is_master
-
-    @contextmanager
-    def open(self):
-        if self.is_master:
-            self._working_dir.mkdir(exist_ok=True, parents=True)
-            stats_path = self._working_dir / f"{self._prefix}stats.h5"
-            open_mode = "r+b" if stats_path.exists() else "w+b"
-            with stats_path.open(open_mode) as raw, h5py.File(raw, "a") as h5:
-                self._stats_file = h5
-                yield
-        else:
-            self._stats_file = None
-            yield
-
-    def read(self) -> dict[str, np.ndarray]:
-        """Read all accumulated stats from the open HDF5 file.
-
-        Returns:
-            Dictionary mapping stat names to numpy arrays with a leading
-            step dimension.
-
-        Raises:
-            ValueError: Writing on closed file.
-        """
-        if not self.is_master:
-            return {}
-        if not self._stats_file:
-            raise ValueError("Writing on closed file.")
-        return {key: np.asarray(self._stats_file[key][:]) for key in self._stats_file}
-
-    def write(self, step: int, stats: Mapping[str, Any]) -> None:
-        if not self.is_master:
-            return
-        if not self._stats_file:
-            raise ValueError("Writing on closed file.")
-
-        for key, value in stats.items():
-            if not isinstance(value, jax.Array):
-                continue
-            h5_append(self._stats_file, key, value[None])
 
 
 class EvalStageBuilder(SamplingStageBuilder):
@@ -158,7 +108,11 @@ class EvaluationWorkStage(SamplingWorkStage):
         is_master = jax.process_index() == 0
         self._save_dir = save_dir
         self._prefix = prefix
-        self.hdf5 = HDF5ReadWrite(save_dir, prefix, is_master)
+
+        prefix_str = f"{prefix}_" if prefix else ""
+        self.hdf5 = HDF5ReadWrite(
+            save_dir / f"{prefix_str}stats.h5", truncate_to=self.config.iterations
+        )
         if self.config.digest_step_interval == 0:
             self.logger.info(
                 "Evaluation digest will only be printed at the last step. Set "
@@ -170,7 +124,7 @@ class EvaluationWorkStage(SamplingWorkStage):
                 "Evaluation digest will be logged every %d steps.",
                 self.config.digest_step_interval,
             )
-        with self.hdf5.open():
+        with self.hdf5.open() if is_master else nullcontext():
             state = super().run(state, context, rngs)
             if is_master:
                 self.write_digest(state)
@@ -178,11 +132,11 @@ class EvaluationWorkStage(SamplingWorkStage):
 
     def compute_step(
         self, state: SamplingState, rngs: PRNGKey
-    ) -> tuple[dict[str, Any], SamplingState]:
+    ) -> tuple[SamplingState, dict[str, Any]]:
         """Sample and estimate observables (no parameter update).
 
         Returns:
-            Tuple of (per-walker local stats, updated state).
+            Tuple of (updated state, per-walker local stats).
         """
         sampler_rngs, est_rngs = jax.random.split(rngs, 2)
         data, _, sampler_state = self.sample_plan.step(
@@ -191,12 +145,13 @@ class EvaluationWorkStage(SamplingWorkStage):
         step_stats, estimator_state = self.estimators.evaluate(
             state.params, data, state.estimator_state, est_rngs
         )
-        return step_stats, replace(
+        new_state = replace(
             state,
             batched_data=data,
             sampler_state=sampler_state,
             estimator_state=estimator_state,
         )
+        return new_state, step_stats
 
     def write_digest(self, state: SamplingState) -> None:
         """Finalize accumulated stats and save digest."""
@@ -243,7 +198,7 @@ class EvaluationWorkStage(SamplingWorkStage):
         compute = parallel_jax.jit_sharded(
             self.compute_step,
             in_specs=(partition, parallel_jax.DATA_PARTITION),
-            out_specs=(parallel_jax.SHARE_PARTITION, partition),
+            out_specs=(partition, parallel_jax.SHARE_PARTITION),
             check_vma=self.config.check_vma,
             donate_argnums=0,
         )
@@ -256,10 +211,10 @@ class EvaluationWorkStage(SamplingWorkStage):
 
         for step in range(initial_step, self.config.iterations):
             rngs, sub_rngs = split_rngs(rngs)
-            step_stats, state = compute(state, sub_rngs)
+            state, step_stats = compute(state, sub_rngs)
 
             if is_master:
-                self.hdf5.write(step, step_stats)
+                self.hdf5.write(step_stats)
                 self.writers.write(step, step_stats)
                 if digest_step_interval and (step + 1) % digest_step_interval == 0:
                     self.log_preview_digest(step, state)

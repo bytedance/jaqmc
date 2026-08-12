@@ -273,6 +273,20 @@ train:
         },
     ),
     CliDryRunCase(
+        "electron_gas_train_dotlist",
+        "electron-gas train system.rs=1 system.nelectrons=2 system.s_z=0 "
+        "workflow.batch_size=4 wf.hidden_dims_single='[4]' "
+        "wf.hidden_dims_double='[2]' wf.ndets=1 "
+        "pretrain.run.iterations=1 train.run.iterations=1",
+    ),
+    CliDryRunCase(
+        "electron_gas_evaluate_dotlist",
+        "electron-gas evaluate system.rs=1 system.nelectrons=2 system.s_z=0 "
+        "workflow.batch_size=4 workflow.source_path=source "
+        "wf.hidden_dims_single='[4]' wf.hidden_dims_double='[2]' wf.ndets=1 "
+        "run.iterations=1",
+    ),
+    CliDryRunCase(
         "hall_train_yaml",
         "hall train --yml hall.yml",
         {
@@ -302,6 +316,10 @@ train:
         "hall_train_laughlin_module_dotlist",
         "hall train wf.module=laughlin system.flux=10 system.nspins='[4,0]' "
         "workflow.batch_size=4 train.run.iterations=1",
+    ),
+    CliDryRunCase(
+        "moire_train_dotlist",
+        "moire train workflow.batch_size=4 train.run.iterations=1",
     ),
     CliDryRunCase(
         "molecule_evaluate_yaml",
@@ -362,6 +380,11 @@ estimators:
         "hall_evaluate_free_no_source",
         "hall evaluate system.flux=6 system.nspins='[3,0]' "
         "wf.module=free workflow.batch_size=4 run.iterations=1",
+    ),
+    CliDryRunCase(
+        "moire_evaluate_dotlist",
+        "moire evaluate workflow.batch_size=4 workflow.source_path=source "
+        "run.iterations=1",
     ),
 ]
 

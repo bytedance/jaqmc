@@ -51,11 +51,10 @@ class SpherePotential(PerWalkerEstimator):
         xyz = jnp.stack(
             [sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta)], axis=-1
         )
-        cos12 = jnp.einsum("ia,ja->ij", xyz, xyz)
-
+        i, j = jnp.triu_indices(xyz.shape[0], k=1)
+        r_ee = jnp.linalg.norm(xyz[i] - xyz[j], axis=-1) * self.radius
         if self.interaction_type == InteractionType.coulomb:
-            r_ee = jnp.sqrt(2 - 2 * cos12)
-            potential = jnp.sum(jnp.triu(1 / r_ee, k=1)) / self.radius
+            potential = jnp.sum(1 / r_ee)
         else:
             raise ValueError(f"Unknown interaction type: {self.interaction_type}")
 
