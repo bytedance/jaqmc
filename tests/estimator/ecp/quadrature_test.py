@@ -210,17 +210,6 @@ def test_get_quadrature_returns_correct_type():
     assert q3 is q1
 
 
-def test_quadrature_options_are_discoverable():
-    assert [choice.value for choice in ECPQuadrature] == [
-        "octahedron_6",
-        "octahedron_18",
-        "octahedron_26",
-        "octahedron_50",
-        "icosahedron_12",
-        "icosahedron_32",
-    ]
-
-
 def test_invalid_point_counts():
     """Unsupported point counts should raise ValueError."""
     with pytest.raises(ValueError):

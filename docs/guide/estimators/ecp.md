@@ -43,14 +43,6 @@ where $r = |\mathbf{r} - \mathbf{R}|$ is the electron-atom distance, $\mathbf{r}
 `icosahedron_32`. The suffix is the number of integration points. Omitting the
 option, or setting it to `null`, uses `icosahedron_12`.
 
-**Random quadrature rotation.** Before evaluating the nonlocal ECP, JaQMC
-applies an independent Haar-uniform three-dimensional rotation to the
-quadrature grid for each electron. Sampling the full grid orientation prevents
-the finite grid from favoring fixed spatial directions. Averaging over these
-rotations recovers the spherical integral; individual evaluations still contain
-quadrature-sampling noise, so the ECP estimate can differ even at the same
-electron coordinates.
-
 **PBC support.** When lattice vectors are provided, electron-atom distances use minimum-image convention, and displaced electrons are wrapped back into the cell with the appropriate Bloch phase (twist angle).
 
 ## See also
