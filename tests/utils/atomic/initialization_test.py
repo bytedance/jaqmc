@@ -7,6 +7,9 @@ import jax
 import pytest
 
 from jaqmc.app.molecule.config import AtomConfig, MoleculeConfig
+from jaqmc.app.molecule.data import data_init as molecule_data_init
+from jaqmc.app.solid.config import SolidAtomConfig, SolidConfig
+from jaqmc.app.solid.data import data_init as solid_data_init
 from jaqmc.utils.atomic import Atom, AtomInitialization, distribute_spins
 from jaqmc.utils.atomic.initialization import _atom_initial_spin_config
 
@@ -107,6 +110,21 @@ def test_distribute_spins_returns_all_explicit_overrides_when_consistent():
     assert spins_per_atom == [(1, 0), (0, 1)]
 
 
+def test_local_charge_keeps_its_sign_when_local_spin_is_set():
+    atoms, per_atom_init = _split_atoms_and_inits(
+        [
+            _resolved_atom_with_init("H", local_charge=1, local_s_z=0),
+            _resolved_atom_with_init("H", local_charge=-1, local_s_z=0),
+        ]
+    )
+
+    spins_per_atom = distribute_spins(
+        jax.random.PRNGKey(0), atoms, per_atom_init, (1, 1)
+    )
+
+    assert spins_per_atom == [(0, 0), (1, 1)]
+
+
 def test_distribute_spins_rejects_inconsistent_explicit_overrides():
     atoms, per_atom_init = _split_atoms_and_inits(
         [
@@ -124,7 +142,7 @@ def test_distribute_spins_rejects_total_electron_mismatch_without_overrides():
 
     with pytest.raises(
         ValueError,
-        match="After applying the explicit initialization hints",
+        match="The per-atom initialization contains",
     ):
         distribute_spins(jax.random.PRNGKey(0), atoms, per_atom_init, (0, 0))
 
@@ -139,9 +157,73 @@ def test_distribute_spins_rejects_override_electron_mismatch():
 
     with pytest.raises(
         ValueError,
-        match="per-atom charge offsets must sum to zero",
+        match="The per-atom initialization contains",
     ):
         distribute_spins(jax.random.PRNGKey(0), atoms, per_atom_init, (1, 1))
+
+
+@pytest.mark.parametrize(
+    ("symbol", "local_charge", "total_charge"),
+    [("Li", 1, 1), ("H", -1, -1)],
+)
+def test_charged_molecule_initialization_uses_local_charge(
+    symbol, local_charge, total_charge
+):
+    config = MoleculeConfig(
+        atom_configs=[_atom_config(symbol, local_charge=local_charge)],
+        total_charge=total_charge,
+        s_z=0,
+    )
+
+    electrons = molecule_data_init(
+        config, size=4, rngs=jax.random.PRNGKey(0)
+    ).data.electrons
+
+    assert config.electron_spins == (1, 1)
+    assert electrons.shape == (4, 2, 3)
+
+
+def test_charged_solid_initialization_uses_local_charge():
+    config = SolidConfig(
+        atom_configs=[
+            SolidAtomConfig(
+                symbol="H",
+                frac_coords=[0.0, 0.0, 0.0],
+                initialization=AtomInitialization(local_charge=1),
+            ),
+            SolidAtomConfig(symbol="H", frac_coords=[0.5, 0.0, 0.0]),
+        ],
+        total_charge=1,
+        s_z=0.5,
+    )
+
+    electrons = solid_data_init(
+        config, size=4, rngs=jax.random.PRNGKey(0)
+    ).data.electrons
+
+    assert config.electron_spins == (1, 0)
+    assert electrons.shape == (4, 1, 3)
+
+
+def test_atomic_system_rejects_unallocated_total_charge():
+    with pytest.raises(
+        ValueError,
+        match="local_charge values must sum to the system total_charge",
+    ):
+        MoleculeConfig(
+            atom_configs=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
+            total_charge=1,
+        )
+
+
+def test_atomic_system_accepts_zero_electron_state():
+    cfg = MoleculeConfig(
+        atom_configs=[_atom_config("H", local_charge=1)],
+        total_charge=1,
+        s_z=0,
+    )
+
+    assert cfg.electron_spins == (0, 0)
 
 
 def test_initial_spin_config_tracks_pp_resolved_charge():
@@ -177,7 +259,7 @@ def test_atom_with_initialization_rejects_spin_magnitude_mismatch():
 
 def test_atom_with_initialization_rejects_negative_local_electron_count():
     with pytest.raises(ValueError, match="local electron count must be non-negative"):
-        MoleculeConfig(atom_configs=[_atom_config("H", local_charge=-2)])
+        MoleculeConfig(atom_configs=[_atom_config("H", local_charge=2)])
 
 
 def test_atomic_system_rejects_spin_magnitude_mismatch():
@@ -203,16 +285,6 @@ def test_atomic_system_accepts_fully_polarized_one_electron_state():
     )
 
     assert cfg.electron_spins == (1, 0)
-
-
-def test_atomic_system_accepts_zero_electron_state():
-    cfg = MoleculeConfig(
-        atom_configs=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
-        total_charge=1,
-        s_z=0,
-    )
-
-    assert cfg.electron_spins == (0, 0)
 
 
 @pytest.mark.parametrize(

@@ -21,7 +21,7 @@ def _atom_initial_spin_config(atom: Atom, initialization: AtomInitialization):
     local_charge = initialization.local_charge
 
     if spin_imbalance is not None:
-        nelec = atom.charge + local_charge
+        nelec = atom.charge - local_charge
         spins = ((nelec + spin_imbalance) // 2, (nelec - spin_imbalance) // 2)
     elif local_charge > atom.spin_config[0]:
         spins = (0, sum(atom.spin_config) - local_charge)
@@ -42,13 +42,11 @@ def distribute_spins(
     per_atom_init: list[AtomInitialization],
     total_spins: tuple[int, int],
 ) -> list[tuple[int, int]]:
-    """Resolve a full per-atom initialization from partial user overrides.
+    """Resolve per-atom spin occupations for electron initialization.
 
-    Explicit atom initialization hints are first resolved into exact local
-    ``(n_alpha, n_beta)`` occupancies and then preserved exactly. Unspecified
-    atoms start from their chemical default ``atom.spin_config``, then absorb
-    any remaining channel-by-channel difference required to match
-    ``total_spins``.
+    ``local_charge`` sets how many electrons are initialized near each atom.
+    ``local_s_z`` also sets the initial alpha/beta split. For atoms without
+    ``local_s_z``, this split may change to match ``total_spins``.
 
     Args:
         rngs: Random number generator key.
@@ -60,14 +58,9 @@ def distribute_spins(
         Full per-atom initialization spins.
 
     Raises:
-        ValueError: If the explicit overrides over-constrain the target system
-            and the unspecified atoms cannot absorb the remaining difference.
+        ValueError: If the per-atom electron counts or local spin constraints
+            are incompatible with ``total_spins``.
     """
-    local_charge_sum = sum(init.local_charge for init in per_atom_init)
-    if not local_charge_sum == 0:
-        raise ValueError(
-            f"All per-atom charge offsets must sum to zero. Got {local_charge_sum}."
-        )
     spins_per_atom = list(map(_atom_initial_spin_config, atoms, per_atom_init))
     fixed_per_atom = [init.spin_imbalance is not None for init in per_atom_init]
     explicit_spins = [
@@ -81,7 +74,7 @@ def distribute_spins(
     total_electrons = sum(sum(spins) for spins in spins_per_atom)
     if sum(total_spins) != total_electrons:
         raise ValueError(
-            "After applying the explicit initialization hints, the system has "
+            "The per-atom initialization contains "
             f"{total_electrons} electrons but total_spins={total_spins} "
             f"requires {sum(total_spins)}."
         )
