@@ -38,7 +38,10 @@ where $r = |\mathbf{r} - \mathbf{R}|$ is the electron-atom distance, $\mathbf{r}
 
 **Nearest-core optimization.** For each electron, only the `max_core` nearest ECP atoms are considered for the nonlocal integral. This limits cost when many ECP atoms are present.
 
-**Random quadrature rotation.** Each electron gets a randomly rotated copy of the quadrature grid, reducing systematic bias from a fixed grid orientation. This means the ECP energy contribution has stochastic noise even at fixed electron positions.
+**Spherical quadrature rule.** `quadrature_id` accepts `octahedron_6`,
+`octahedron_18`, `octahedron_26`, `octahedron_50`, `icosahedron_12`, or
+`icosahedron_32`. The suffix is the number of integration points. Omitting the
+option, or setting it to `null`, uses `icosahedron_12`.
 
 **PBC support.** When lattice vectors are provided, electron-atom distances use minimum-image convention, and displaced electrons are wrapped back into the cell with the appropriate Bloch phase (twist angle).
 

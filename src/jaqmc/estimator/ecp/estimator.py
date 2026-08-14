@@ -3,8 +3,9 @@
 
 r"""ECP energy estimator for molecular QMC calculations.
 
-Computes local (:math:`l=0`) and nonlocal (:math:`l>0`) effective core
-potential contributions to the energy.
+Computes local (:math:`l=-1`) and semilocal/nonlocal
+(:math:`l=0, 1, \ldots`) effective core potential contributions to the energy
+in the PySCF channel convention.
 
 .. seealso:: :doc:`/guide/estimators/ecp` for background, formulas,
    and implementation notes.
@@ -26,18 +27,20 @@ from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import WavefunctionEvaluate
 
 from .nonlocal_integral import make_nonlocal_integral
-from .quadrature import get_quadrature
+from .quadrature import ECPQuadrature, get_quadrature
 
 
 @configurable_dataclass
 class ECPEnergy(PerWalkerEstimator):
     r"""ECP energy estimator.
 
-    Computes both local and nonlocal effective core potential contributions.
-    Added automatically when ``ecp`` is set in the system configuration.
+    Computes both local and semilocal/nonlocal effective core potential
+    contributions. Added automatically when ``system.pp`` selects an ECP for
+    at least one atom.
 
-    - Local (:math:`l=0`): Direct potential energy from the :math:`l=0` channel
-    - Nonlocal (:math:`l>0`): Angular integral weighted by :math:`V_l(r)`
+    - Local (:math:`l=-1`): Direct radial potential energy
+    - Semilocal/nonlocal (:math:`l=0, 1, \ldots`): Angular integral weighted
+      by :math:`V_l(r)`
 
     The estimator outputs ``energy:ecp`` which is included in the
     ``total_energy`` sum automatically.
@@ -51,9 +54,9 @@ class ECPEnergy(PerWalkerEstimator):
             closest ``max_core`` ECP atoms contribute per electron;
             the rest are skipped. Increase this if your system has
             many ECP atoms in close proximity.
-        quadrature_id: Spherical quadrature rule used to evaluate
-            nonlocal ECP integrals. When ``None``, a default rule
-            is selected automatically.
+        quadrature_id: Spherical quadrature rule used to evaluate nonlocal ECP
+            integrals. When ``None``, uses the default rule
+            :attr:`ECPQuadrature.icosahedron_12`.
         electrons_field: Name of electron position field in data.
         atoms_field: Name of atom position field in data.
         phase_logpsi: Wavefunction ratio function (runtime dep).
@@ -67,7 +70,7 @@ class ECPEnergy(PerWalkerEstimator):
     """
 
     max_core: int = 2
-    quadrature_id: str | None = None
+    quadrature_id: ECPQuadrature | None = None
     electrons_field: str = "electrons"
     atoms_field: str = "atoms"
 

@@ -85,14 +85,14 @@ def pvary[ValueT](x: ValueT) -> ValueT:
     if hasattr(jax.lax, "pcast"):
         try:
             return jax.lax.pcast(x, BATCH_AXIS_NAME, to="varying")
-        except ValueError:
+        except (ValueError, NameError):
             # Outside a shard_map context (e.g. interactive notebook use).
             logger.warning("Using pvary() outside a shard_map context.")
             return x
     if hasattr(jax.lax, "pvary"):
         try:
             return jax.lax.pvary(x, BATCH_AXIS_NAME)
-        except ValueError:
+        except (ValueError, NameError):
             logger.warning("Using pvary() outside a shard_map context.")
             return x
     return x

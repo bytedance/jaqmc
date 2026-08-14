@@ -318,6 +318,10 @@ train:
         "workflow.batch_size=4 train.run.iterations=1",
     ),
     CliDryRunCase(
+        "moire_train_dotlist",
+        "moire train workflow.batch_size=4 train.run.iterations=1",
+    ),
+    CliDryRunCase(
         "molecule_evaluate_yaml",
         "molecule evaluate --yml eval.yml",
         {
@@ -376,6 +380,11 @@ estimators:
         "hall_evaluate_free_no_source",
         "hall evaluate system.flux=6 system.nspins='[3,0]' "
         "wf.module=free workflow.batch_size=4 run.iterations=1",
+    ),
+    CliDryRunCase(
+        "moire_evaluate_dotlist",
+        "moire evaluate workflow.batch_size=4 workflow.source_path=source "
+        "run.iterations=1",
     ),
 ]
 
