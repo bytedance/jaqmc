@@ -30,15 +30,18 @@ are identical to the [training system config](#solid-train-system).
 Must match the training run. The effective defaults and built-in module choices
 are identical to the [training wavefunction config](#solid-train-wf).
 
-## Reference (`reference.*`)
+## Reference (`reference`)
 
-The Hartree-Fock reference is the PySCF calculation JaQMC uses when it needs
-reference orbitals or related setup from that calculation. Itis recommended to
-set the values to match the reference configuration used during training.
+Optional path to a `reference.npz`. When omitted, evaluation checks
+`workflow.restore_path`, `workflow.source_path`, and `workflow.save_path`, in
+that order. If none contains the file, evaluation generates one with PySCF in
+`workflow.save_path`. An explicit `reference=` path used for training is also
+required for evaluation; evaluation does not search the output directory
+created by `jaqmc solid reference prepare`. <project:reference.md> describes
+the complete resolution order.
 
-```{eval-rst}
-.. config-defaults:: jaqmc.app.solid.config.base.SolidPretrainReferenceConfig
-   :prefix: reference
+```yaml
+reference: ./runs/lih_solid/hf/reference.npz
 ```
 
 ## Run Options (`run.*`)
@@ -87,8 +90,6 @@ root-level writer keys enable additional outputs.
 Energy estimator definitions match training, with additional evaluation-only
 estimators enabled through boolean flags.
 
-- `PotentialEnergy` and `TotalEnergy` are added automatically by the workflow
-  and are not configurable via config keys.
 - `estimators.enabled.energy` defaults to `true`.
 - `estimators.enabled.spin` defaults to `false`.
 - `estimators.enabled.density` defaults to `false`.

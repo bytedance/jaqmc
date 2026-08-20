@@ -7,49 +7,26 @@ from collections.abc import Callable, Mapping
 from typing import Any, Protocol
 
 import jax
-import serde
 from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator import FunctionEstimator
-from jaqmc.estimator.base import Estimator
+from jaqmc.estimator import Estimator, FunctionEstimator
 from jaqmc.utils import parallel_jax
-from jaqmc.utils.config import configurable_dataclass
-from jaqmc.wavefunction import NumericWavefunctionEvaluate
-from jaqmc.wavefunction.base import WavefunctionEvaluate
+from jaqmc.wavefunction import NumericWavefunctionEvaluate, WavefunctionEvaluate
 
 
 class OrbitalReference(Protocol):
-    """Reference wavefunction that can evaluate spin-separated orbitals.
+    """Protocol for references that evaluate separate alpha and beta orbitals.
 
-    References usually come from an SCF calculation, but may also be analytic,
-    such as the free-electron plane waves used for electron-gas pretraining.
+    References usually come from a prepared orbital file, but may also be
+    analytic, such as the free-electron plane waves used for electron-gas
+    pretraining.
     """
 
     def eval_orbitals(
         self, pos: jnp.ndarray, nspins: tuple[int, int]
     ) -> tuple[jnp.ndarray, jnp.ndarray]: ...
-
-
-@configurable_dataclass
-class PretrainReferenceConfig:
-    """Configuration for the Hartree-Fock reference used during pretraining.
-
-    Args:
-        basis: The basis set for Hartree-Fock pretrain. Can be a string
-            (e.g., "sto-3g", "ccecpccpvdz") or a dict mapping element
-            symbols to basis names (e.g., {"Fe": "ccecpccpvdz", "O": "cc-pvdz"}).
-        sample_fraction: Mixing fraction for SCF during pretrain sampling.
-            (0.0 = pure NN, 1.0 = pure SCF.)
-        extra: Extra options for the PySCF mean-field object.
-            When specifying in CLI, all unknown/extra fields are captured.
-    """
-
-    basis: str | Mapping[str, str] | None = "cc-pVDZ"
-    sample_fraction: float = 1.0
-    verbose: int = 4
-    extra: dict[str, Any] = serde.field(flatten=True, default_factory=dict)
 
 
 def make_pretrain_log_amplitude[DataT: Data](
@@ -59,8 +36,8 @@ def make_pretrain_log_amplitude[DataT: Data](
 ) -> WavefunctionEvaluate[DataT, jnp.ndarray]:
     """Create a log amplitude function for pretraining sampling.
 
-    The reference normally comes from an SCF calculation, but may also be an
-    analytic reference. The returned function evaluates the reference ansatz,
+    The reference normally comes from a prepared orbital file, but may also be
+    an analytic model. The returned function evaluates the reference ansatz,
     the neural ansatz, or a weighted mixture of the two.
 
     Args:
@@ -108,14 +85,15 @@ def make_pretrain_loss(
 ) -> Estimator:
     """Return a loss estimator matching neural and reference orbitals.
 
-    The reference may come from an SCF calculation or an analytic model such as
-    free-electron plane waves.
+    The reference may come from a prepared orbital file or an analytic model
+    such as free-electron plane waves.
 
     Args:
-        orbitals_fn: Function to evaluate NN orbitals.
+        orbitals_fn: Neural orbital evaluator.
         orbital_ref: Spin-separated orbital reference.
         nspins: Electron spin counts as (n_alpha, n_beta).
-        full_det: Whether to use full determinant.
+        full_det: Whether ``orbitals_fn`` returns one full determinant matrix
+            instead of separate matrices for the two spin channels.
     """
 
     def loss_fn(params: Params, data: Data) -> jnp.ndarray:
@@ -131,9 +109,14 @@ def make_pretrain_loss(
                 ]
             )
             return jnp.mean(jnp.abs(concat_target - orbitals) ** 2)
-        return jnp.array(
-            [jnp.mean(jnp.abs(t - o) ** 2) for t, o in zip(target, orbitals)]
-        ).sum()
+        losses = [
+            jnp.mean(jnp.abs(target_spin - orbital_spin) ** 2)
+            for count, target_spin, orbital_spin in zip(
+                nspins, target, orbitals, strict=True
+            )
+            if count
+        ]
+        return jnp.sum(jnp.stack(losses)) if losses else jnp.array(0.0)
 
     loss_and_grad_fn = jax.value_and_grad(loss_fn, argnums=0)
 

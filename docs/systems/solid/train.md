@@ -86,6 +86,23 @@ Gaussian proposal. Pretraining and training share these settings.
 
 ---
 
+## Reference (`reference`)
+
+Optional path to a `reference.npz`. When omitted, `train` reuses one from the
+run directory or generates one with PySCF; the solid ansatz loads its occupied
+k-points from the file even when `pretrain.run.iterations=0`.
+<project:reference.md> describes resolution and standalone preparation.
+
+In YAML:
+
+```yaml
+reference: ./runs/lih_solid/hf/reference.npz
+```
+
+Or as a CLI override: `reference=./runs/lih_solid/hf/reference.npz`.
+
+---
+
 (solid-train-stage)=
 ## Train Stage (`train.*`)
 
@@ -177,20 +194,15 @@ Loss and gradient estimator. Computes the VMC loss and parameter gradients. See 
 
 ## Pretrain Stage (`pretrain.*`)
 
-Initializes the neural network to approximate Hartree-Fock orbitals before VMC
-training. Its run and writer settings follow the same schemas as the train
-stage, while the optimizer default and workflow-wired supervised loss are
+Initializes the neural network to approximate the loaded reference orbitals
+before VMC training. Its run and writer settings follow the same schemas as the
+train stage, while the optimizer default and workflow-wired supervised loss are
 specific to pretraining.
 
-### Reference (`pretrain.reference.*`)
+### Sampling mixture (`pretrain.sample_fraction`)
 
-The Hartree-Fock reference is the PySCF calculation JaQMC uses to generate the
-target orbitals for pretraining. Most runs can keep the default settings.
-
-```{eval-rst}
-.. config-defaults:: jaqmc.app.solid.config.base.SolidPretrainReferenceConfig
-   :prefix: pretrain.reference
-```
+Mixing fraction between the neural ansatz and the loaded reference during
+pretrain sampling. `0.0` is pure neural, `1.0` (the default) is pure reference.
 
 ### Run options (`pretrain.run.*`)
 
@@ -240,7 +252,7 @@ The pretrain stage enables `console`, `csv`, and `hdf5` writers by default.
 ### Loss gradients
 
 Pretraining does not use configurable `pretrain.grads.*` settings. The workflow
-wires a supervised Hartree-Fock orbital-matching loss directly.
+wires a supervised orbital-matching loss against the loaded reference.
 
 ---
 
@@ -254,8 +266,7 @@ typically overridden via config. The same definitions are used by
 
 `PotentialEnergy` uses [Ewald summation](../../guide/estimators/ewald.md) for
 periodic Coulomb interactions and is always present. `TotalEnergy`
-automatically sums all `energy:`-prefixed components. Neither is configurable
-via a config key.
+automatically sums all `energy:`-prefixed components.
 
 - `estimators.enabled.spin` defaults to `false`.
 

@@ -59,6 +59,29 @@ The script refuses to overwrite an existing run. Its primary outputs are:
 
 Use `CUDA_VISIBLE_DEVICES` to select devices.
 
+The default run generates an automatic molecular reference. A custom basis
+uses a standalone reference instead. For example, an aug-cc-pVTZ reference
+can be prepared and supplied to a separate ground-state run:
+
+```bash
+jaqmc molecule reference prepare \
+  --output runs/he_lit_custom_basis/reference \
+  --run \
+  system.module=atom \
+  system.symbol=He \
+  solver.basis=aug-cc-pVTZ
+
+jaqmc molecule train \
+  --yml contrib/lit/examples/he/config/ground.yml \
+  reference=runs/he_lit_custom_basis/reference/reference.npz \
+  workflow.save_path=runs/he_lit_custom_basis/ground
+```
+
+Pass the resulting checkpoint to `jaqmc lit run` with
+`lit.ground.checkpoint_path=runs/he_lit_custom_basis/ground`. The
+[molecular reference documentation](../../../../docs/systems/molecule/reference.md)
+covers other basis sets and solver options.
+
 ## Run the postprocessing
 
 After the GPU calculation finishes:

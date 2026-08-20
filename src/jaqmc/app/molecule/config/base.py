@@ -2,16 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import field
-from typing import Literal
+from typing import Any, Literal
 
 import serde
 
 from jaqmc.utils.atomic import Atom, AtomicSystemConfig, AtomInitialization
-from jaqmc.utils.atomic.pretrain import PretrainReferenceConfig
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.units import ONE_ANGSTROM_IN_BOHR, LengthUnit
 
-__all__ = ["MoleculeConfig", "MoleculePretrainReferenceConfig"]
+__all__ = [
+    "MoleculeConfig",
+    "MoleculeSolverConfig",
+]
 
 
 @configurable_dataclass(kw_only=False)
@@ -79,6 +81,37 @@ class MoleculeConfig(AtomicSystemConfig):
 
 
 @configurable_dataclass
-class MoleculePretrainReferenceConfig(PretrainReferenceConfig):
-    method: Literal["RHF", "UHF"] = "UHF"
-    "Variants of Hartree-Fock method."
+class MoleculeSolverConfig:
+    """Configuration for a generated PySCF molecular reference job.
+
+    Args:
+        basis: PySCF basis specification passed to ``pyscf.gto.Mole``.
+            A string names one basis for every element. ``None`` or an empty
+            mapping uses the automatic double-zeta policy (``cc-pVDZ`` for
+            all-electron elements and ``ccecpccpvdz`` for ``ccecp`` and PH).
+            A mapping overrides selected elements and fills the rest from that
+            policy. Other ECP families need an explicit entry.
+        pp: PySCF pseudopotential selection for the generated job. A string
+            applies one pseudopotential to every element; a mapping overrides
+            selected elements, while omitted elements inherit ``system.pp``.
+            PH is translated to its surrogate ECP for PySCF. These choices do
+            not modify ``system.pp``. Each override may name a PySCF ECP or GTH
+            pseudopotential and must preserve the valence-electron count from
+            ``system.pp``.
+        method: PySCF mean-field method. ``RHF`` and ``UHF`` use
+            :mod:`pyscf.scf`; ``RKS`` and ``UKS`` use :mod:`pyscf.dft`.
+        xc: Exchange-correlation functional assigned for DFT methods.
+        checkpoint: Checkpoint filename written inside the generated job
+            directory.
+        verbose: PySCF verbosity level.
+        extra: Extra solver keys flattened onto ``solver.*`` and forwarded to
+            the selected PySCF mean-field object.
+    """
+
+    basis: str | dict[str, str] | None = None
+    pp: str | dict[str, str] = field(default_factory=dict)
+    method: Literal["RHF", "UHF", "RKS", "UKS"] = "UHF"
+    xc: str = "pbe"
+    checkpoint: str = "pyscf.chk"
+    verbose: int = 4
+    extra: dict[str, Any] = serde.field(flatten=True, default_factory=dict)

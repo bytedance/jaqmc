@@ -6,7 +6,7 @@ single `jaqmc molecule train` command. JaQMC then follows the standard
 molecular workflow:
 
 1. **Hartree-Fock (HF)** computes a reference electronic-structure solution with
-   PySCF.
+   PySCF and writes `reference.npz`.
 2. **Pretraining** matches the neural wavefunction to those orbitals.
 3. **VMC training** performs the main energy optimization.
 
@@ -109,7 +109,7 @@ After training finishes, run evaluation to freeze the parameters and collect
 enough samples for a final energy estimate:
 
 ```bash
-jaqmc molecule evaluate --yml water.yml workflow.save_path=./runs/water-eval \
+jaqmc molecule evaluate --yml water.yml workflow.save_path=./runs/water/eval \
   workflow.source_path=./runs/water run.iterations=2000
 ```
 
@@ -213,76 +213,25 @@ system:
 ```
 
 (molecule-pretrain-reference)=
-## Pretrain reference settings
+## Orbital reference
 
-`pretrain.reference.*` configures the PySCF Hartree-Fock calculation used to
-generate the target orbitals for pretraining. In most runs, the basis is the
-only reference setting you need to choose. The default is cc-pVDZ, and you can
-change it with:
-
-```yaml
-pretrain:
-  reference:
-    basis: sto-3g
-```
-
-If the system uses an ECP, choose a pretrain basis that matches that
-pseudopotential. For example, with ccECP use the corresponding ccECP basis
-family:
-
-```yaml
-system:
-  module: atom
-  symbol: Fe
-  pp: ccecp
-pretrain:
-  reference:
-    basis: ccecpccpvdz
-```
-
-For mixed systems, keep the same per-element split between the physical system
-and the HF reference: put pseudopotential choices in `system.pp`, and put
-matching PySCF basis choices in `pretrain.reference.basis`.
-```yaml
-system:
-  pp:
-    Fe: ph
-    Li: ccecp
-pretrain:
-  reference:
-    basis:
-      Fe: ccecpccpvdz
-      Li: ccecpccpvdz
-```
-
-When the HF calculation itself needs tuning, use the `pretrain.reference.*`
-block for PySCF solver settings. JaQMC supports
-`pretrain.reference.method` (`UHF` or `RHF`) and forwards additional keys to the
-selected PySCF mean-field object.
-
-```yaml
-pretrain:
-  reference:
-    method: RHF
-    basis: cc-pvdz
-    conv_tol: 1.0e-10
-    max_cycle: 200
-    diis_space: 12
-```
-
-Use these extra keys for SCF convergence and solver behavior tuning, such as
-`conv_tol`, `max_cycle`, and related PySCF options. If a key is not supported by
-the selected PySCF object, JaQMC ignores it and logs a warning.
-
-For authoritative key definitions and defaults under `pretrain.reference.*`, see
-<project:train.md>.
+Pretraining matches the neural wavefunction to mean-field orbitals. When
+pretraining is enabled and no `reference=` path is given,
+`jaqmc molecule train` reuses one from the run directory or generates one with
+a PySCF Hartree-Fock calculation. Automatic generation covers all-electron,
+`ccecp`, and PH systems when each atom uses the effective charge derived from
+`system.pp`. Custom per-atom charges and other ECP families need a prepared
+reference. The `jaqmc molecule reference prepare` command exposes the PySCF
+input, supports non-default bases, and creates reusable files. Training accepts
+the resulting `reference.npz` through `reference=`. The complete workflow is
+described in <project:reference.md>.
 
 ## Estimators
 
 The training stage computes energy from several components: kinetic energy,
-electron-nucleus potential, and, when a pseudopotential is configured through
-`system.pp`, pseudopotential contributions from ECP and/or PH atoms. All stats
-keys that start with `energy:` are summed into `total_energy` automatically.
+Coulomb potential, and, when a pseudopotential is configured through `system.pp`,
+pseudopotential contributions from ECP and/or PH atoms. All stats keys that
+start with `energy:` are summed into `total_energy` automatically.
 
 For the full list of molecule estimators beyond energy, see the
 [estimator configuration reference](#molecule-estimators). For the physics
@@ -352,6 +301,8 @@ jaqmc molecule train wf.hidden_dims_single='[128, 128]' wf.hidden_dims_double='[
 After you can run a basic molecule workflow, these pages cover the usual next
 questions:
 
+- **Orbital references**: <project:reference.md> explains how to prepare and
+  convert reference orbitals, including PySCF solver options.
 - **Configuration reference**: <project:train.md> and <project:eval.md> list the resolved
   workflow defaults and every supported key.
 - **Training diagnostics**: <project:../../guide/training-stats.md>
@@ -372,4 +323,5 @@ questions:
 
 Training <train.md>
 Evaluation <eval.md>
+Reference orbitals <reference.md>
 ```

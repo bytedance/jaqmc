@@ -5,7 +5,7 @@ import pytest
 
 from jaqmc.app.molecule.config import AtomConfig, MoleculeConfig
 from jaqmc.app.molecule.config.diatomic import diatomic_config
-from jaqmc.utils.atomic import PH_SURROGATE_ECP, PP_PH, core_electrons_by_pp
+from jaqmc.utils.atomic import PP_PH, core_electrons_by_pp
 
 
 def test_core_electrons_by_pp_routes_all_electron_ecp_and_ph():
@@ -41,7 +41,6 @@ def test_atomic_system_config_mixes_ph_ecp_and_all_electron():
     assert [atom.charge for atom in cfg.atoms] == [16, 1, 1]
     assert cfg.ph_elements == {"Fe"}
     assert sorted(cfg.ecp_coefficients) == ["Li"]
-    assert PH_SURROGATE_ECP["Fe"] == "ccecp"
 
 
 def test_atomic_system_config_rejects_unsupported_ph_symbol():

@@ -6,6 +6,7 @@
 import numpy as np
 from jax import numpy as jnp
 
+from jaqmc.utils.linalg import slogdet_blocks
 from jaqmc.utils.supercell import get_reciprocal_vectors
 
 
@@ -111,12 +112,5 @@ class FreeElectronReference:
         Returns:
             Complex log wavefunction for each leading input batch element.
         """
-        orbitals = self.eval_orbitals(pos, nspins)
-        logpsi = jnp.zeros(
-            pos.shape[:-2], dtype=jnp.result_type(pos.dtype, jnp.complex64)
-        )
-        for matrix, count in zip(orbitals, nspins, strict=True):
-            if count:
-                sign, logabs = jnp.linalg.slogdet(matrix)
-                logpsi = logpsi + logabs + jnp.log(sign)
-        return logpsi
+        sign, logabs = slogdet_blocks(*self.eval_orbitals(pos, nspins))
+        return logabs + jnp.log(sign)

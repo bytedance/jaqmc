@@ -54,7 +54,7 @@ jaqmc molecule train \
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `distributed.coordinator_address` | `null` | IP:port of process 0. Set this to enable multi-host. |
+| `distributed.coordinator_address` | `null` | IP:port of process 0 (the coordinator). A non-null value enables multi-host. |
 | `distributed.num_processes` | `1` | Total number of processes across all machines. |
 | `distributed.process_id` | `0` | ID of the current process (0 to N-1). |
 | `distributed.initialization_timeout` | `300` | Timeout (seconds) waiting for all processes to connect. |
@@ -62,14 +62,13 @@ jaqmc molecule train \
 
 `batch_size` must be divisible by `num_processes` (raises `ValueError` otherwise). Each process gets `batch_size / num_processes` walkers, which are then [split further across its local GPUs](#how-walkers-are-distributed).
 
-### Checkpoints are portable
+### Shared storage
 
-Before saving, JaQMC gathers all data onto process 0 and writes a single checkpoint file. On restore, the data is redistributed to match the current device layout. So you can:
+Multi-host runs need a filesystem that every node can see. JaQMC never transfers files between processes; each process reads what it needs directly from disk. The `save_path` and any configured `restore_path` or `source_path` therefore belong on shared storage, such as an NFS-mounted home or scratch directory. A node-local `save_path` won't fail during the run itself, but the checkpoints written there stay on one node's disk, and on a cluster the next job may land on different nodes and find nothing to restore.
 
-- Train on 4 nodes, resume on 2 (or 1).
-- Switch between GPU counts without converting checkpoints.
+During a save, JaQMC gathers the full state from all processes, and process 0 writes a single checkpoint file. On startup, every process opens that file itself and the data is redistributed to match the current device layout, so the next run can use a different number of nodes, GPUs per node, or both: a run trained on 4 nodes can resume on 2 (or 1) without conversion.
 
-Only process 0 writes checkpoints, but all processes read from the same directory on restore — so the checkpoint directory must be on shared storage (e.g. NFS) visible to every node.
+Molecule and solid runs also read an input file at startup: the orbital reference (`reference.npz`). Like the checkpoint file, it must be readable from every node; if the reference is auto-generated, process 0 runs the solver while the other processes wait and then read the resulting file. The [molecule](../systems/molecule/reference.md) and [solid](../systems/solid/reference.md) reference pages give the details.
 
 ## Launching on Clusters
 
@@ -104,7 +103,7 @@ The script above uses `--ntasks-per-node=1`, so each SLURM task is one JaQMC pro
 With Open MPI, you can use `$OMPI_COMM_WORLD_RANK` for the process ID:
 
 ```bash
-# Resolve coordinator address once on the launch host
+# hosts.txt lists the allocated nodes, one per line
 MASTER_ADDR=$(head -1 hosts.txt)
 
 mpirun -np 4 --hostfile hosts.txt -x MASTER_ADDR bash -c '
@@ -162,9 +161,9 @@ distributed:
   process_id: 1
 ```
 
-JAX requires distributed initialization to happen before process/device-dependent runtime setup. In JaQMC, {func}`jaqmc.utils.runtime.configure_runtime` applies logging and JAX-global flags first, then initializes the distributed runtime so startup configuration is active consistently before workflow execution.
+JAX requires distributed initialization before any process- or device-dependent setup, so {func}`jaqmc.utils.runtime.configure_runtime` applies logging and JAX-global flags first and initializes the distributed runtime before the workflow runs.
 
-Without {func}`jaqmc.utils.runtime.configure_runtime`, multi-host config keys are silently ignored and the workflow runs on a single process, and any configured JAX global flags are not applied.
+Without {func}`jaqmc.utils.runtime.configure_runtime`, multi-host config keys are ignored, the workflow runs on a single process, and configured JAX global flags are not applied.
 
 ## Simulating Multiple Devices in Tests
 

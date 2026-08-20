@@ -60,6 +60,21 @@ class EvaluationWorkflow(Workflow):
     evaluation_stage: EvaluationWorkStage
     data_init: Callable
 
+    def __init__(self, cfg):
+        super().__init__(cfg)
+        source_path_str = self.config.source_path
+        if source_path_str:
+            self.source_path = UPath(source_path_str)
+            if not self.source_path.is_absolute():
+                self.source_path = (UPath.cwd() / self.source_path).resolve()
+            self.source_dir = (
+                self.source_path.parent
+                if self.source_path.is_file()
+                else self.source_path
+            )
+        else:
+            self.source_dir = self.source_path = None
+
     def prepare(self, dry_run: bool = False) -> None:
         super().prepare(dry_run)
         if not hasattr(self, "data_init") or not callable(self.data_init):
@@ -101,12 +116,7 @@ class EvaluationWorkflow(Workflow):
         rngs, sub_rngs = jax.random.split(rngs)
         state = self.evaluation_stage.create_state(sub_rngs, batched_data=batched_data)
 
-        source_path_str = self.config.source_path
-        if source_path_str:
-            source_path = UPath(source_path_str)
-            if not source_path.is_absolute():
-                source_path = (UPath.cwd() / source_path).resolve()
-
+        if self.source_path is not None:
             # Load params, data, sampler_state from training checkpoint.
             # The dict wrapper matches VMCState checkpoint key paths because
             # DictKey("params") and GetAttrKey("params") both serialize to
@@ -118,9 +128,9 @@ class EvaluationWorkflow(Workflow):
             }
             # If source_path is a file, restore directly; otherwise glob for
             # train_ckpt_*.npz in the directory.
-            prefix = "" if source_path.is_file() else "train"
+            prefix = "" if self.source_path.is_file() else "train"
             restored = self.evaluation_stage.restore_checkpoint(
-                source_path, wrapper, prefix=prefix, strict=True
+                self.source_path, wrapper, prefix=prefix, strict=True
             )
             state = replace(
                 state,

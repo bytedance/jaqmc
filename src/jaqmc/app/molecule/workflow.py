@@ -7,6 +7,7 @@ from functools import partial
 from typing import Any
 
 import numpy as np
+from upath import UPath
 
 from jaqmc.estimator import EstimatorLike
 from jaqmc.estimator.density import CartesianAxis, CartesianDensity
@@ -18,18 +19,20 @@ from jaqmc.estimator.total_energy import TotalEnergy
 from jaqmc.optimizer.kfac import KFACOptimizer
 from jaqmc.optimizer.optax import adam
 from jaqmc.sampler.mcmc import MCMCSampler
-from jaqmc.utils.atomic import MolecularSCF
-from jaqmc.utils.atomic.pretrain import make_pretrain_log_amplitude, make_pretrain_loss
+from jaqmc.utils.atomic import make_pretrain_loss
+from jaqmc.utils.atomic.pretrain import make_pretrain_log_amplitude
 from jaqmc.utils.config import ConfigManager, ConfigManagerLike
+from jaqmc.utils.reference import auto_generate_reference
 from jaqmc.wavefunction import Wavefunction
-from jaqmc.workflow.evaluation import EvaluationWorkflow
-from jaqmc.workflow.stage.evaluation import EvaluationWorkStage
-from jaqmc.workflow.stage.vmc import VMCWorkStage
-from jaqmc.workflow.vmc import VMCWorkflow
+from jaqmc.workflow import EvaluationWorkflow, VMCWorkflow
+from jaqmc.workflow.stage import EvaluationWorkStage, VMCWorkStage
+from jaqmc.workflow.stage.vmc import VMCStageBuilder
 
-from .config import MoleculeConfig, MoleculePretrainReferenceConfig
+from .config import MoleculeConfig, MoleculeSolverConfig
 from .data import data_init
 from .hamiltonian import potential_energy
+from .reference import MoleculeReference, load_reference
+from .reference import pyscf as reference_pyscf
 from .wavefunction import MoleculeWavefunction
 
 logger = logging.getLogger(__name__)
@@ -63,29 +66,23 @@ class MoleculeTrainWorkflow(VMCWorkflow):
         super().__init__(cfg)
         system_config, wf = configure_system(cfg)
 
-        nspins = system_config.electron_spins
-        pretrain_config = cfg.get("pretrain.reference", MoleculePretrainReferenceConfig)
-        self.scf = make_scf(pretrain_config, system_config)
+        self.wf = wf
         self.data_init = partial(data_init, system_config)
         sampler = cfg.get("sampler", MCMCSampler)
+        self.reference: MoleculeReference | None = None
+        self._system_config = system_config
 
-        pretrain_loss = make_pretrain_loss(
-            orbitals_fn=wf.orbitals,
-            orbital_ref=self.scf,
-            nspins=nspins,
-            full_det=wf.full_det,
-        )
-        pretrain_f_log_amplitude = make_pretrain_log_amplitude(
-            wf.logpsi,
-            lambda data: self.scf.eval_slater(data.electrons, nspins)[1],
-            ref_fraction=pretrain_config.sample_fraction,
-        )
-
-        pretrain = VMCWorkStage.builder(cfg.scoped("pretrain"), wf)
-        pretrain.configure_sample_plan(pretrain_f_log_amplitude, {"electrons": sampler})
-        pretrain.configure_optimizer(default=adam, f_log_psi=wf.logpsi)
-        pretrain.configure_estimators(grads=pretrain_loss)
-        self.pretrain_stage = pretrain.build()
+        self._pretrain_builder: VMCStageBuilder | None = None
+        if cfg.get("pretrain.run.iterations", 2_000) > 0:
+            if reference_path := cfg.get("reference", ""):
+                self.reference = load_reference(
+                    UPath(reference_path), self._system_config
+                )
+            self._pretrain_sample_fraction = cfg.get("pretrain.sample_fraction", 1.0)
+            pretrain = VMCWorkStage.builder(cfg.scoped("pretrain"), wf)
+            pretrain.configure_optimizer(default=adam, f_log_psi=wf.logpsi)
+            pretrain.configure_writers()
+            self._pretrain_builder = pretrain
 
         train = VMCWorkStage.builder(cfg.scoped("train"), wf)
         train.configure_sample_plan(wf.logpsi, {"electrons": sampler})
@@ -95,9 +92,44 @@ class MoleculeTrainWorkflow(VMCWorkflow):
         train.configure_loss_grads(f_log_psi=wf.logpsi)
         self.train_stage = train.build()
 
-    def run(self) -> None:
-        self.scf.run()
-        super().run()
+    def prepare(self, dry_run: bool = False) -> None:
+        super().prepare(dry_run)
+        if self._pretrain_builder is None or (dry_run and self.reference is None):
+            return
+
+        if self.reference is None:
+            reference_path = self.save_path / "reference.npz"
+            if (restore_reference_path := self.restore_dir / "reference.npz").exists():
+                reference_path = restore_reference_path
+            if not reference_path.exists():
+                auto_generate_reference(
+                    path=reference_path,
+                    job=reference_pyscf.MoleculePySCFReferenceJob(
+                        self._system_config, MoleculeSolverConfig()
+                    ),
+                )
+            self.reference = load_reference(reference_path, self._system_config)
+        reference = self.reference
+
+        pretrain_loss = make_pretrain_loss(
+            orbitals_fn=self.wf.orbitals,
+            orbital_ref=reference,
+            nspins=self._system_config.electron_spins,
+            full_det=self.wf.full_det,
+        )
+        pretrain_f_log_amplitude = make_pretrain_log_amplitude(
+            self.wf.logpsi,
+            lambda data: reference.eval_slater(
+                data.electrons, self._system_config.electron_spins
+            )[1],
+            ref_fraction=self._pretrain_sample_fraction,
+        )
+        self._pretrain_builder.configure_sample_plan(
+            pretrain_f_log_amplitude,
+            {"electrons": self.train_stage.sample_plan.samplers["electrons",]},
+        )
+        self._pretrain_builder.configure_estimators(grads=pretrain_loss)
+        self.pretrain_stage = self._pretrain_builder.build()
 
 
 class MoleculeEvalWorkflow(EvaluationWorkflow):
@@ -137,20 +169,6 @@ def configure_system(
             f"got {type(wf).__name__}"
         )
     return system_config, wf
-
-
-def make_scf(
-    pretrain_config: MoleculePretrainReferenceConfig, system_config: MoleculeConfig
-) -> MolecularSCF:
-    restricted = pretrain_config.method == "RHF"
-    return MolecularSCF(
-        system_config.atoms,
-        system_config.electron_spins,
-        basis=pretrain_config.basis,
-        restricted=restricted,
-        verbose=pretrain_config.verbose,
-        pyscf_options=pretrain_config.extra,
-    )
 
 
 def make_estimators(

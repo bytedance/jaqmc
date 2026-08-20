@@ -15,7 +15,6 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaqmc.app.molecule import MoleculeTrainWorkflow
 from jaqmc.app.molecule.data import MoleculeData
 from jaqmc.app.molecule.wavefunction.ferminet import FermiNetWavefunction
 from jaqmc.app.molecule.wavefunction.lapnet import JastrowType as LapNetJastrowType
@@ -24,11 +23,13 @@ from jaqmc.app.molecule.wavefunction.psiformer import (
     JastrowType as PsiformerJastrowType,
 )
 from jaqmc.app.molecule.wavefunction.psiformer import PsiformerWavefunction
+from jaqmc.app.molecule.workflow import MoleculeTrainWorkflow
 from jaqmc.laplacian import make_laplacian_input
 from jaqmc.utils.config import ConfigManager
 from jaqmc.wavefunction.backbone.lapnet import lapnet_sparse_attention
 from jaqmc.wavefunction.output.envelope import EnvelopeType
 from tests.laplacian.helpers import check_with_brute_force
+from tests.utils.reference_fixtures import write_molecule_pyscf_reference
 
 # Shared test key
 TEST_KEY = jax.random.PRNGKey(42)
@@ -344,6 +345,10 @@ def make_workflow_config(tmp_path, wf_config: dict) -> ConfigManager:
     Returns:
         ConfigManager with H2 molecule system and minimal iteration counts.
     """
+    reference = tmp_path / "reference.npz"
+    write_molecule_pyscf_reference(
+        reference, atom="H 1 0 0; H -1 0 0", spin=0, method="RHF"
+    )
     return ConfigManager(
         {
             "workflow": {"seed": 42, "save_path": str(tmp_path), "batch_size": 64},
@@ -354,6 +359,7 @@ def make_workflow_config(tmp_path, wf_config: dict) -> ConfigManager:
                     {"symbol": "H", "coords": [-1, 0, 0]},
                 ],
             },
+            "reference": str(reference),
             "pretrain": {"run": {"iterations": 2, "burn_in": 0}},
             "train": {
                 "run": {"iterations": 10, "burn_in": 10},

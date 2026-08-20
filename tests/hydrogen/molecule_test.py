@@ -3,7 +3,7 @@
 
 import h5py
 
-from jaqmc.app.molecule import MoleculeTrainWorkflow
+from jaqmc.app.molecule.workflow import MoleculeTrainWorkflow
 from jaqmc.utils.config import ConfigManager
 
 

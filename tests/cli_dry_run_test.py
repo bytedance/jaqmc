@@ -1,7 +1,6 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -14,20 +13,33 @@ from jaqmc.app.cli import cli
 @dataclass(frozen=True)
 class CliDryRunCase:
     id: str
-    command: str
+    app: str
+    action: str
+    dotlist: tuple[str, ...] = ()
     files: dict[str, str] = field(default_factory=dict)
+    yaml_files: tuple[str, ...] = ()
+
+    @property
+    def argv(self) -> list[str]:
+        argv = [self.app, self.action]
+        for path in self.yaml_files:
+            argv.extend(("--yml", path))
+        return [*argv, *self.dotlist]
 
 
 CASES = [
-    CliDryRunCase("hydrogen_atom_train", "hydrogen-atom train"),
+    CliDryRunCase("hydrogen_atom_train", "hydrogen-atom", "train"),
     CliDryRunCase(
         "molecule_atom_dotlist",
-        "molecule train system.module=atom system.symbol=Li",
+        "molecule",
+        "train",
+        ("system.module=atom", "system.symbol=Li"),
     ),
     CliDryRunCase(
         "molecule_water_angstrom_yaml",
-        "molecule train --yml water_angstrom.yml",
-        {
+        "molecule",
+        "train",
+        files={
             "water_angstrom.yml": """
 system:
   unit: angstrom
@@ -51,11 +63,13 @@ train:
     iterations: 1
 """,
         },
+        yaml_files=("water_angstrom.yml",),
     ),
     CliDryRunCase(
         "molecule_water_yaml",
-        "molecule train --yml water.yml",
-        {
+        "molecule",
+        "train",
+        files={
             "water.yml": """
 system:
   atoms:
@@ -78,11 +92,14 @@ train:
     iterations: 1
 """,
         },
+        yaml_files=("water.yml",),
     ),
     CliDryRunCase(
         "molecule_yaml_layering",
-        "molecule train --yml base.yml --yml override.yml train.run.iterations=2",
-        {
+        "molecule",
+        "train",
+        dotlist=("train.run.iterations=2",),
+        files={
             "base.yml": """
 system:
   module: atom
@@ -101,11 +118,13 @@ system:
   symbol: Li
 """,
         },
+        yaml_files=("base.yml", "override.yml"),
     ),
     CliDryRunCase(
         "molecule_diatomic_yaml",
-        "molecule train --yml lih_diatomic.yml",
-        {
+        "molecule",
+        "train",
+        files={
             "lih_diatomic.yml": """
 system:
   module: diatomic
@@ -118,8 +137,6 @@ wf:
   hidden_dims_single: [4, 4]
   hidden_dims_double: [2, 2]
 pretrain:
-  reference:
-    basis: sto-3g
   run:
     iterations: 1
 train:
@@ -127,11 +144,13 @@ train:
     iterations: 1
 """,
         },
+        yaml_files=("lih_diatomic.yml",),
     ),
     CliDryRunCase(
         "molecule_alkane_yaml",
-        "molecule train --yml ethane_alkane.yml",
-        {
+        "molecule",
+        "train",
+        files={
             "ethane_alkane.yml": """
 system:
   module: alkane
@@ -142,8 +161,6 @@ wf:
   hidden_dims_single: [4, 4]
   hidden_dims_double: [2, 2]
 pretrain:
-  reference:
-    basis: sto-3g
   run:
     iterations: 1
 train:
@@ -151,11 +168,13 @@ train:
     iterations: 1
 """,
         },
+        yaml_files=("ethane_alkane.yml",),
     ),
     CliDryRunCase(
         "molecule_ecp_atom_yaml",
-        "molecule train --yml fe_ecp.yml",
-        {
+        "molecule",
+        "train",
+        files={
             "fe_ecp.yml": """
 system:
   module: atom
@@ -167,9 +186,6 @@ wf:
   hidden_dims_single: [4, 4]
   hidden_dims_double: [2, 2]
 pretrain:
-  reference:
-    basis: ccecpccpvdz
-    method: UHF
   run:
     iterations: 1
 train:
@@ -177,24 +193,43 @@ train:
     iterations: 1
 """,
         },
+        yaml_files=("fe_ecp.yml",),
     ),
     CliDryRunCase(
         "molecule_psiformer_dotlist",
-        "molecule train wf.module=psiformer workflow.batch_size=4 "
-        "wf.num_layers=1 wf.num_heads=1 wf.heads_dim=4 "
-        "wf.mlp_hidden_dims='[4]' pretrain.run.iterations=1 "
-        "train.run.iterations=1",
+        "molecule",
+        "train",
+        dotlist=(
+            "wf.module=psiformer",
+            "workflow.batch_size=4",
+            "wf.num_layers=1",
+            "wf.num_heads=1",
+            "wf.heads_dim=4",
+            "wf.mlp_hidden_dims=[4]",
+            "pretrain.run.iterations=1",
+            "train.run.iterations=1",
+        ),
     ),
     CliDryRunCase(
         "molecule_lapnet_dotlist",
-        "molecule train wf.module=lapnet workflow.batch_size=4 "
-        "wf.num_layers=1 wf.num_heads=2 wf.heads_dim=8 "
-        "wf.ndets=4 pretrain.run.iterations=1 train.run.iterations=1",
+        "molecule",
+        "train",
+        dotlist=(
+            "wf.module=lapnet",
+            "workflow.batch_size=4",
+            "wf.num_layers=1",
+            "wf.num_heads=2",
+            "wf.heads_dim=8",
+            "wf.ndets=4",
+            "pretrain.run.iterations=1",
+            "train.run.iterations=1",
+        ),
     ),
     CliDryRunCase(
         "solid_two_atom_chain_yaml",
-        "solid train --yml solid.yml",
-        {
+        "solid",
+        "train",
+        files={
             "solid.yml": """
 system:
   module: two_atom_chain
@@ -212,11 +247,13 @@ train:
     iterations: 1
 """,
         },
+        yaml_files=("solid.yml",),
     ),
     CliDryRunCase(
         "solid_arbitrary_lih_yaml",
-        "solid train --yml lih_solid.yml",
-        {
+        "solid",
+        "train",
+        files={
             "lih_solid.yml": """
 system:
   lattice:
@@ -234,8 +271,6 @@ wf:
   hidden_dims_single: [4, 4]
   hidden_dims_double: [2, 2]
 pretrain:
-  reference:
-    basis: sto-3g
   run:
     iterations: 1
 train:
@@ -243,11 +278,13 @@ train:
     iterations: 1
 """,
         },
+        yaml_files=("lih_solid.yml",),
     ),
     CliDryRunCase(
         "solid_rock_salt_yaml",
-        "solid train --yml rock_salt.yml",
-        {
+        "solid",
+        "train",
+        files={
             "rock_salt.yml": """
 system:
   module: rock_salt
@@ -261,9 +298,6 @@ wf:
   hidden_dims_single: [4, 4]
   hidden_dims_double: [2, 2]
 pretrain:
-  reference:
-    basis: sto-3g
-    method: KRHF
   run:
     iterations: 1
 train:
@@ -271,25 +305,45 @@ train:
     iterations: 1
 """,
         },
+        yaml_files=("rock_salt.yml",),
     ),
     CliDryRunCase(
         "electron_gas_train_dotlist",
-        "electron-gas train system.rs=1 system.nelectrons=2 system.s_z=0 "
-        "workflow.batch_size=4 wf.hidden_dims_single='[4]' "
-        "wf.hidden_dims_double='[2]' wf.ndets=1 "
-        "pretrain.run.iterations=1 train.run.iterations=1",
+        "electron-gas",
+        "train",
+        dotlist=(
+            "system.rs=1",
+            "system.nelectrons=2",
+            "system.s_z=0",
+            "workflow.batch_size=4",
+            "wf.hidden_dims_single=[4]",
+            "wf.hidden_dims_double=[2]",
+            "wf.ndets=1",
+            "pretrain.run.iterations=1",
+            "train.run.iterations=1",
+        ),
     ),
     CliDryRunCase(
         "electron_gas_evaluate_dotlist",
-        "electron-gas evaluate system.rs=1 system.nelectrons=2 system.s_z=0 "
-        "workflow.batch_size=4 workflow.source_path=source "
-        "wf.hidden_dims_single='[4]' wf.hidden_dims_double='[2]' wf.ndets=1 "
-        "run.iterations=1",
+        "electron-gas",
+        "evaluate",
+        dotlist=(
+            "system.rs=1",
+            "system.nelectrons=2",
+            "system.s_z=0",
+            "workflow.batch_size=4",
+            "workflow.source_path=source",
+            "wf.hidden_dims_single=[4]",
+            "wf.hidden_dims_double=[2]",
+            "wf.ndets=1",
+            "run.iterations=1",
+        ),
     ),
     CliDryRunCase(
         "hall_train_yaml",
-        "hall train --yml hall.yml",
-        {
+        "hall",
+        "train",
+        files={
             "hall.yml": """
 system:
   nspins: [3, 0]
@@ -301,30 +355,54 @@ train:
     iterations: 1
 """,
         },
+        yaml_files=("hall.yml",),
     ),
     CliDryRunCase(
         "hall_train_penalty_dotlist",
-        "hall train system.lz_penalty=10 system.lz_center=0 "
-        "workflow.batch_size=4 train.run.iterations=1",
+        "hall",
+        "train",
+        dotlist=(
+            "system.lz_penalty=10",
+            "system.lz_center=0",
+            "workflow.batch_size=4",
+            "train.run.iterations=1",
+        ),
     ),
     CliDryRunCase(
         "hall_train_composite_fermion_dotlist",
-        "hall train system.flux=10 system.nspins='[4,0]' "
-        "wf.flux_per_elec=2 workflow.batch_size=4 train.run.iterations=1",
+        "hall",
+        "train",
+        dotlist=(
+            "system.flux=10",
+            "system.nspins=[4,0]",
+            "wf.flux_per_elec=2",
+            "workflow.batch_size=4",
+            "train.run.iterations=1",
+        ),
     ),
     CliDryRunCase(
         "hall_train_laughlin_module_dotlist",
-        "hall train wf.module=laughlin system.flux=10 system.nspins='[4,0]' "
-        "workflow.batch_size=4 train.run.iterations=1",
+        "hall",
+        "train",
+        dotlist=(
+            "wf.module=laughlin",
+            "system.flux=10",
+            "system.nspins=[4,0]",
+            "workflow.batch_size=4",
+            "train.run.iterations=1",
+        ),
     ),
     CliDryRunCase(
         "moire_train_dotlist",
-        "moire train workflow.batch_size=4 train.run.iterations=1",
+        "moire",
+        "train",
+        dotlist=("workflow.batch_size=4", "train.run.iterations=1"),
     ),
     CliDryRunCase(
         "molecule_evaluate_yaml",
-        "molecule evaluate --yml eval.yml",
-        {
+        "molecule",
+        "evaluate",
+        files={
             "eval.yml": """
 system:
   module: atom
@@ -339,11 +417,13 @@ run:
   iterations: 1
 """,
         },
+        yaml_files=("eval.yml",),
     ),
     CliDryRunCase(
         "solid_evaluate_density_yaml",
-        "solid evaluate --yml solid_eval.yml",
-        {
+        "solid",
+        "evaluate",
+        files={
             "solid_eval.yml": """
 system:
   module: rock_salt
@@ -353,9 +433,6 @@ workflow:
 wf:
   hidden_dims_single: [4, 4]
   hidden_dims_double: [2, 2]
-reference:
-  basis: sto-3g
-  method: KRHF
 run:
   iterations: 1
 estimators:
@@ -363,28 +440,54 @@ estimators:
     density: true
 """,
         },
+        yaml_files=("solid_eval.yml",),
     ),
     CliDryRunCase(
         "hall_evaluate_observables_dotlist",
-        "hall evaluate workflow.batch_size=4 workflow.source_path=source "
-        "run.iterations=1 estimators.enabled.density=true "
-        "estimators.enabled.pair_correlation=true "
-        "estimators.enabled.one_rdm=true",
+        "hall",
+        "evaluate",
+        dotlist=(
+            "workflow.batch_size=4",
+            "workflow.source_path=source",
+            "run.iterations=1",
+            "estimators.enabled.density=true",
+            "estimators.enabled.pair_correlation=true",
+            "estimators.enabled.one_rdm=true",
+        ),
     ),
     CliDryRunCase(
         "hall_evaluate_laughlin_no_source",
-        "hall evaluate system.flux=6 system.nspins='[3,0]' "
-        "wf.module=laughlin workflow.batch_size=4 run.iterations=1",
+        "hall",
+        "evaluate",
+        dotlist=(
+            "system.flux=6",
+            "system.nspins=[3,0]",
+            "wf.module=laughlin",
+            "workflow.batch_size=4",
+            "run.iterations=1",
+        ),
     ),
     CliDryRunCase(
         "hall_evaluate_free_no_source",
-        "hall evaluate system.flux=6 system.nspins='[3,0]' "
-        "wf.module=free workflow.batch_size=4 run.iterations=1",
+        "hall",
+        "evaluate",
+        dotlist=(
+            "system.flux=6",
+            "system.nspins=[3,0]",
+            "wf.module=free",
+            "workflow.batch_size=4",
+            "run.iterations=1",
+        ),
     ),
     CliDryRunCase(
         "moire_evaluate_dotlist",
-        "moire evaluate workflow.batch_size=4 workflow.source_path=source "
-        "run.iterations=1",
+        "moire",
+        "evaluate",
+        dotlist=(
+            "workflow.batch_size=4",
+            "workflow.source_path=source",
+            "run.iterations=1",
+        ),
     ),
 ]
 
@@ -396,8 +499,15 @@ def test_cli_command_dry_run(
     monkeypatch.chdir(tmp_path)
     for name, text in case.files.items():
         (tmp_path / name).write_text(text.strip() + "\n", encoding="utf8")
-    result = CliRunner().invoke(cli, [*shlex.split(case.command), "--dry-run"])
-    assert result.exit_code == 0, f"command: {case.command}\noutput:\n{result.output}"
+    argv = [*case.argv, "--dry-run"]
+    result = CliRunner().invoke(cli, argv)
+    assert result.exit_code == 0, f"command: {argv}\noutput:\n{result.output}"
+    written = [
+        str(path.relative_to(tmp_path))
+        for path in tmp_path.rglob("*")
+        if path.name not in case.files
+    ]
+    assert not written, f"dry-run wrote files: {written}"
 
 
 def test_cli_verbose_config_dotlist(caplog: pytest.LogCaptureFixture) -> None:

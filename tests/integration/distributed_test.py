@@ -38,7 +38,7 @@ def run_hydrogen_atom(distributed, save_path):
 
 
 def run_molecule(distributed, save_path):
-    from jaqmc.app.molecule import MoleculeTrainWorkflow
+    from jaqmc.app.molecule.workflow import MoleculeTrainWorkflow
     from jaqmc.utils.config import ConfigManager
 
     cfg = ConfigManager(
@@ -59,7 +59,7 @@ def run_molecule(distributed, save_path):
 
 
 def run_solid(distributed, save_path):
-    from jaqmc.app.solid import SolidTrainWorkflow
+    from jaqmc.app.solid.workflow import SolidTrainWorkflow
     from jaqmc.utils.config import ConfigManager
 
     cfg = ConfigManager(
@@ -175,6 +175,9 @@ def test_distributed_training(tmp_path: Path, run, num_processes, mode):
     assert stats_h5.exists()
     with h5py.File(stats_h5, "r") as f:
         assert len(f["loss"]) == 1
+
+    if run in {run_molecule, run_solid}:
+        assert (tmp_path / "reference.npz").exists()
 
     if num_processes > 1:
         found_log = any(

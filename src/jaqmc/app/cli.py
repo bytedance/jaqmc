@@ -40,6 +40,9 @@ import click
 from jaqmc.utils.cli import make_cli
 from jaqmc.utils.config import ConfigManager
 
+from .molecule.reference.cli import reference as molecule_reference
+from .solid.reference.cli import reference as solid_reference
+
 ENTRY_POINT_GROUP = "jaqmc.apps"
 
 
@@ -158,6 +161,9 @@ def molecule_evaluate(cfg: ConfigManager, dry_run: bool):
     MoleculeEvalWorkflow(cfg)(dry_run)
 
 
+molecule.add_command(molecule_reference)
+
+
 # --- solid ---
 
 
@@ -180,6 +186,9 @@ def solid_evaluate(cfg: ConfigManager, dry_run: bool):
     from .solid import SolidEvalWorkflow
 
     SolidEvalWorkflow(cfg)(dry_run)
+
+
+solid.add_command(solid_reference)
 
 
 # --- electron_gas ---

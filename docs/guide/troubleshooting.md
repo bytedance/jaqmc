@@ -1,10 +1,10 @@
 # Troubleshooting
 
-When you debug a run, keep the evidence reproducible. Save the original command
-or YAML, the resolved `config.yaml`, the seed, and the first bad step. For
-final energy conclusions, prefer a separate evaluation run over the training
-log; see
-<project:analyzing-evaluations.md>.
+Reproducible debugging evidence includes the original command or YAML, the
+resolved `train_config.yaml` or `evaluation_config.yaml`, the seed, and the
+first bad step. Final energy conclusions are better supported by a separate
+evaluation run than by the training log.
+<project:analyzing-evaluations.md> describes the analysis workflow.
 
 ## When Training Starts but Metrics Look Wrong
 
@@ -133,28 +133,34 @@ See <project:sampling.md> for the sampler parameters and adaptation behavior.
 
 ## Configuration and Runtime Errors
 
-### Config Typo or "Stopping Due to Invalid Configs"
+### Config Typo or Unused Config Keys
 
-**Symptom:** the run aborts immediately with:
+The run aborts immediately with an error like:
 
 ```text
-Stopping due to invalid configs specified.
+Unused config keys detected:
+- from CLI: {'solver.basis'}
 ```
 
-A warning above the error lists the keys that were specified but never read.
-This usually means a typo, such as `train.run.iteration` instead of
-`train.run.iterations`.
+or:
 
-Try these fixes:
+```text
+Invalid config at 'train.run': unknown fields: {'iteration'}, expected one of {...}
+```
 
-- Check the spelling of the key named in the warning.
-- Use `--dry-run` to inspect the resolved config.
-- Add `workflow.config.verbose=true` to show available fields and their
+The first error lists keys that were passed but never read: a typo, keys meant
+for another command (`solver.*` belongs to `jaqmc <app> reference prepare`,
+not `train`), or leftovers from older configs such as `pretrain.reference.*`.
+The second is a typo inside a known section, such as `train.run.iteration`
+instead of `train.run.iterations`, and lists the valid field names.
+
+- `--dry-run` displays the resolved config.
+- `workflow.config.verbose=true` includes available fields and their
   descriptions.
+- `workflow.config.ignore_extra=true` permits intentional unused keys.
 
 ```{tip}
-CLI overrides must not have spaces around `=`. Write `key=value`, not
-`key = value`.
+CLI override syntax has no spaces around `=`: `key=value`, not `key = value`.
 ```
 
 ### Spin/Electron Count Parity Error
@@ -174,6 +180,26 @@ compatible `s_z`: `0` for a singlet, `1` for a triplet, and so on. For
 `system.module=atom`, JaQMC fills in the neutral atom's default `s_z`
 automatically from the bundled element table. Override `system.s_z`
 explicitly when you need a different charge or spin state.
+
+### Reference Does Not Match the Configured System
+
+A molecule or solid run aborts while loading `reference.npz`:
+
+```text
+ValueError: Reference k-points do not match the configured supercell and twist.
+```
+
+Molecule runs report a similar mismatch of atoms, effective charges, or
+electron spins. The `reference.npz` was generated for a different geometry,
+electron count, supercell, or twist. For an automatically discovered file in a
+run directory, deletion allows JaQMC to regenerate it, while replacement
+provides a new reference. An explicit `reference=` path instead requires a
+valid replacement file or removal of the override. Automatic generation
+supports standard all-electron and `ccecp` systems, plus PH for molecules;
+custom per-atom effective charges and other ECP families require a prepared
+reference. The system-specific details are on the
+[molecule](../systems/molecule/reference.md) and
+[solid](../systems/solid/reference.md) reference pages.
 
 ### Checkpoint Resume Ends Immediately
 
