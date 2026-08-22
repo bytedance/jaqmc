@@ -64,6 +64,10 @@ class LogDet(nn.Module):
         """
         signs, logdets = jnp.linalg.slogdet(xs)
         logmax = jnp.max(logdets)  # logsumexp trick
+        # When every determinant is singular, ``logmax`` is ``-inf``.
+        # Shifting by zero keeps all exponential weights at zero and avoids
+        # the undefined ``-inf - (-inf)`` operation.
+        logmax = jnp.where(jnp.isneginf(logmax), jnp.zeros_like(logmax), logmax)
         if jnp.iscomplexobj(xs):
             return ComplexLogDetOutput(
                 logpsi=jnp.log(jnp.sum(signs * jnp.exp(logdets - logmax))) + logmax,
