@@ -7,14 +7,15 @@ Accumulates a histogram of geodesic pair angles :math:`\theta_{ij}`
 weighted by :math:`1/\sin\theta_{ij}` to obtain the pair correlation
 function :math:`g(\theta)`.
 
-The normalization factor per evaluation step is included, but the
-division by the total number of steps is **not** — divide the state
-by the step count to obtain the final :math:`g(\theta)`.
+The normalization factor per evaluation step is included.  The final
+:math:`g(\theta)` is averaged across devices and evaluation steps by
+:meth:`PairCorrelation.finalize_state`.
 """
 
 from collections.abc import Mapping
 from typing import Any
 
+import jax
 from jax import numpy as jnp
 
 from jaqmc.array_types import PRNGKey
@@ -42,7 +43,7 @@ class PairCorrelation(Estimator):
     data_field: str = runtime_dep(default="electrons")
 
     def init(self, data: Data, rngs: PRNGKey) -> jnp.ndarray:
-        return jnp.zeros(self.bins)
+        return jnp.zeros((jax.device_count(), self.bins))
 
     def evaluate_batch_walkers(
         self,
@@ -84,3 +85,12 @@ class PairCorrelation(Estimator):
         self, mean_stats: Mapping[str, Any], state: jnp.ndarray
     ) -> dict[str, Any]:
         return {}
+
+    def finalize_state(self, state: jnp.ndarray, *, n_steps: int) -> dict[str, Any]:
+        """Average the accumulated pair correlation across devices and steps.
+
+        Returns:
+            The normalized pair-correlation histogram.
+        """
+        pair_correlation = jnp.mean(state, axis=0) / n_steps
+        return {"pair_correlation": pair_correlation}
