@@ -7,6 +7,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Self
@@ -142,52 +143,62 @@ class WorkStage[StateT: StageState](ABC):
 
         partition = state.partition()
         initial_step, restored = ckpt.restore(state)
-        state = jax.device_put(restored, parallel_jax.make_sharding(partition))
-        if self.config.iterations <= initial_step:
+        with self._open_stage_resources(initial_step):
+            state = jax.device_put(restored, parallel_jax.make_sharding(partition))
+            if self.config.iterations <= initial_step:
+                return state
+
+            rngs = jax.device_put(
+                jax.random.split(rngs, jax.device_count()).flatten(),
+                parallel_jax.make_sharding(parallel_jax.DATA_PARTITION),
+            )
+
+            def save(step: int, st: StateT) -> None:
+                gathered = st.process_allgather()
+                if is_master:
+                    ckpt.save(step, gathered)
+
+            remaining = self.config.iterations - initial_step
+            self.logger.info("Start %s %s steps.", remaining, self.name)
+
+            last_save_time = time.time()
+            tracker = TimeTracker(warmup_steps=self.config.timing_warmup_steps)
+
+            try:
+                with self.writers.open(
+                    save_dir, prefix, is_master=is_master, initial_step=initial_step
+                ):
+                    tracker.start()
+                    for step, state in self.loop(state, initial_step, rngs):
+                        tracker.tick()
+
+                        if context.signal_handler.exit_requested:
+                            raise StageAbort(step, state)
+
+                        now = time.time()
+                        is_last = step == self.config.iterations - 1
+                        time_ok = now - last_save_time > self.config.save_time_interval
+                        step_ok = (step + 1) % self.config.save_step_interval == 0
+                        if is_last or (time_ok and step_ok):
+                            save(step, state)
+                            last_save_time = now
+            except StageAbort as e:
+                save(e.step, e.state)
+                tracker.log_time_per_step(logger=self.logger)
+                raise SystemExit("=" * 30 + " ABORT " + "=" * 30) from None
+
+            self.logger.info("Done %s %s steps.", remaining, self.name)
+            tracker.log_time_per_step(logger=self.logger)
             return state
 
-        rngs = jax.device_put(
-            jax.random.split(rngs, jax.device_count()).flatten(),
-            parallel_jax.make_sharding(parallel_jax.DATA_PARTITION),
-        )
+    def _open_stage_resources(self, initial_step: int) -> AbstractContextManager[None]:
+        """Open stage-owned resources after checkpoint restoration.
 
-        def save(step: int, st: StateT) -> None:
-            gathered = st.process_allgather()
-            if is_master:
-                ckpt.save(step, gathered)
-
-        remaining = self.config.iterations - initial_step
-        self.logger.info("Start %s %s steps.", remaining, self.name)
-
-        last_save_time = time.time()
-        tracker = TimeTracker(warmup_steps=self.config.timing_warmup_steps)
-
-        try:
-            with self.writers.open(
-                save_dir, prefix, is_master=is_master, initial_step=initial_step
-            ):
-                tracker.start()
-                for step, state in self.loop(state, initial_step, rngs):
-                    tracker.tick()
-
-                    if context.signal_handler.exit_requested:
-                        raise StageAbort(step, state)
-
-                    now = time.time()
-                    is_last = step == self.config.iterations - 1
-                    time_ok = now - last_save_time > self.config.save_time_interval
-                    step_ok = (step + 1) % self.config.save_step_interval == 0
-                    if is_last or (time_ok and step_ok):
-                        save(step, state)
-                        last_save_time = now
-        except StageAbort as e:
-            save(e.step, e.state)
-            tracker.log_time_per_step(logger=self.logger)
-            raise SystemExit("=" * 30 + " ABORT " + "=" * 30) from None
-
-        self.logger.info("Done %s %s steps.", remaining, self.name)
-        tracker.log_time_per_step(logger=self.logger)
-        return state
+        Returns:
+            Context manager for resources needed during the stage run.
+        """
+        del initial_step
+        return nullcontext()
 
     @abstractmethod
     def loop(

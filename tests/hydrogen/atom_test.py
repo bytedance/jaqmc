@@ -91,6 +91,46 @@ def test_evaluation_writes_per_step_stats_and_digest(tmp_path):
     assert digest["energy:kinetic"].ndim == 0
 
 
+def test_evaluation_stats_truncated_to_restored_checkpoint(tmp_path):
+    train_dir = tmp_path / "train-run"
+    eval_dir = tmp_path / "eval-run"
+
+    train_cfg = ConfigManager(
+        {
+            "workflow": {"save_path": str(train_dir), "batch_size": 128},
+            "train": {"run": {"iterations": 3}},
+        }
+    )
+    hydrogen_atom_train_workflow(train_cfg)()
+
+    def run_evaluation(iterations, save_step_interval=1000):
+        cfg = ConfigManager(
+            {
+                "workflow": {
+                    "save_path": str(eval_dir),
+                    "batch_size": 128,
+                    "source_path": str(train_dir),
+                },
+                "run": {
+                    "iterations": iterations,
+                    "save_step_interval": save_step_interval,
+                    "save_time_interval": 0,
+                },
+            }
+        )
+        hydrogen_atom_eval_workflow(cfg)()
+
+    run_evaluation(5, save_step_interval=3)
+    (eval_dir / "evaluation_ckpt_000004.npz").unlink()
+
+    # Restore checkpoint step 2 (initial_step=3), discard stale rows 3-4,
+    # then append steps 3-7 without duplicating statistics.
+    run_evaluation(8)
+
+    with h5py.File(eval_dir / "evaluation_stats.h5", "r") as f:
+        assert f["total_energy"].shape[0] == 8
+
+
 def test_evaluation_requires_source_path_for_trainable_wavefunction(tmp_path):
     eval_dir = tmp_path / "eval-run"
     eval_cfg = ConfigManager(

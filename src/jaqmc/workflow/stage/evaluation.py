@@ -7,7 +7,7 @@ Accumulates per-step statistics in an HDF5 file owned by the stage and produces 
 ``digest.npz`` summary after all steps. Optionally logs preview digests.
 """
 
-from contextlib import nullcontext
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar
 
@@ -110,9 +110,7 @@ class EvaluationWorkStage(SamplingWorkStage):
         self._prefix = prefix
 
         prefix_str = f"{prefix}_" if prefix else ""
-        self.hdf5 = HDF5ReadWrite(
-            save_dir / f"{prefix_str}stats.h5", truncate_to=self.config.iterations
-        )
+        self.hdf5 = HDF5ReadWrite(save_dir / f"{prefix_str}stats.h5")
         if self.config.digest_step_interval == 0:
             self.logger.info(
                 "Evaluation digest will only be printed at the last step. Set "
@@ -124,11 +122,16 @@ class EvaluationWorkStage(SamplingWorkStage):
                 "Evaluation digest will be logged every %d steps.",
                 self.config.digest_step_interval,
             )
-        with self.hdf5.open() if is_master else nullcontext():
-            state = super().run(state, context, rngs)
-            if is_master:
+        state = super().run(state, context, rngs)
+        if is_master:
+            self.hdf5.truncate_to = None
+            with self.hdf5.open():
                 self.write_digest(state)
         return state
+
+    def _open_stage_resources(self, initial_step: int) -> AbstractContextManager[None]:
+        self.hdf5.truncate_to = initial_step
+        return self.hdf5.open() if jax.process_index() == 0 else nullcontext()
 
     def compute_step(
         self, state: SamplingState, rngs: PRNGKey
