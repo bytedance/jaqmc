@@ -40,12 +40,10 @@ def mean_reduce(
     Returns:
         Step-level statistics (walker dimension consumed).
     """
-    stats = parallel_jax.pmean(
-        jax.tree.map(lambda x: jnp.nanmean(x, axis=0), walker_stats)
-    )
+    stats = jax.tree.map(parallel_jax.pnanmean, walker_stats)
     if include_variance:
         var_stats = jax.tree.map(
-            lambda x, mean_x: parallel_jax.pmean(jnp.nanmean(x**2, axis=0)) - mean_x**2,
+            lambda x, mean_x: parallel_jax.pnanmean(x**2) - mean_x**2,
             walker_stats,
             stats,
         )
