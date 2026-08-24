@@ -8,7 +8,6 @@ from typing import Literal
 import jax
 from jax import numpy as jnp
 
-from jaqmc.utils.array import match_first_axis_of
 from jaqmc.utils.config import configurable_dataclass
 
 from .mcmc import MCMCSampler
@@ -46,16 +45,23 @@ class DeterminantMCMCSampler(MCMCSampler):
         replica_index = jax.random.randint(
             index_key, (batch_size,), 0, self.n_states
         )
-        proposed_all = self._physical_proposal(rngs, x, stddev)
-        proposed_leaves = jax.tree.leaves(proposed_all)
-        proposed = []
-        for leaf, proposal in zip(leaves, proposed_leaves):
+        selected = []
+        for leaf in leaves:
             if leaf.ndim < 2 or leaf.shape[1] != self.n_states:
                 raise ValueError(
                     "Determinant sampler fields must have shape [batch, states, ...]"
                 )
-            replica_axis = jnp.arange(self.n_states)[None, :]
-            mask = replica_axis == replica_index[:, None]
-            mask = match_first_axis_of(mask, leaf)
-            proposed.append(jnp.where(mask, proposal, leaf))
+            selected.append(
+                jax.vmap(lambda row, index: row[index])(leaf, replica_index)
+            )
+        selected_tree = jax.tree.unflatten(treedef, selected)
+        proposed_selected = self._physical_proposal(rngs, selected_tree, stddev)
+        proposed_leaves = jax.tree.leaves(proposed_selected)
+        proposed = []
+        for leaf, proposal in zip(leaves, proposed_leaves):
+            proposed.append(
+                jax.vmap(lambda row, value, index: row.at[index].set(value))(
+                    leaf, proposal, replica_index
+                )
+            )
         return jax.tree.unflatten(treedef, proposed)

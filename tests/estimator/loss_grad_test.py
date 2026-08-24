@@ -3,6 +3,7 @@
 
 import numpy as np
 import yaml
+import jax
 from jax import lax
 from jax import numpy as jnp
 
@@ -74,6 +75,44 @@ def test_loss_and_grad_reduce_uses_selected_clip_method(monkeypatch):
         reduced["grad_logpsi_and_loss"]["w"],
         jnp.mean(grads["w"] * expected_clipped),
     )
+
+
+def test_loss_and_grad_keeps_imaginary_local_energy_contribution():
+    estimator = LossAndGrad(clip_method="none")
+    local_energy = jnp.array([1.0 + 2.0j, 3.0 - 1.0j])
+    grad_logpsi = {"w": jnp.array([1.0 + 1.0j, 2.0 - 3.0j])}
+
+    reduced = estimator.reduce(
+        {"loss": local_energy, "grad_logpsi": grad_logpsi}
+    )
+    final = estimator.finalize_stats(
+        jax.tree.map(lambda x: x[None], reduced), None
+    )
+    centered = local_energy - jnp.mean(local_energy)
+    expected = 2 * jnp.mean(jnp.real(jnp.conj(grad_logpsi["w"]) * centered))
+    wrong_real_only = 2 * jnp.mean(
+        jnp.real(jnp.conj(grad_logpsi["w"]) * jnp.real(centered))
+    )
+
+    np.testing.assert_allclose(final["grads"]["w"], expected)
+    assert not np.isclose(float(expected), float(wrong_real_only))
+
+
+def test_loss_and_grad_validity_mask_uses_same_walker_subset():
+    estimator = LossAndGrad(clip_method="none", validity_key="valid")
+    reduced = estimator.reduce(
+        {
+            "loss": jnp.array([1.0, 1000.0, 5.0]),
+            "grad_logpsi": {"w": jnp.array([1.0, 100.0, 3.0])},
+            "loss_valid": jnp.array([True, False, True]),
+        }
+    )
+    final = estimator.finalize_stats(
+        jax.tree.map(lambda x: x[None], reduced), None
+    )
+    expected = 2 * jnp.mean(jnp.array([1.0, 3.0]) * (jnp.array([1.0, 5.0]) - 3.0))
+
+    np.testing.assert_allclose(final["grads"]["w"], expected)
 
 
 def test_loss_and_grad_config_roundtrip_preserves_clip_method():

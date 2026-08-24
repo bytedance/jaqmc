@@ -4,12 +4,15 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from jaqmc.data import Data
 from jaqmc.wavefunction.determinant_state import (
+    CheckpointStateBundle,
     DeterminantStateWavefunction,
     SubspaceSpec,
 )
+from jaqmc.utils.checkpoint import NumPyCheckpointManager
 
 
 class ToyData(Data):
@@ -86,3 +89,24 @@ def test_component_matrix_matches_explicit_loop_and_permutation_invariance():
     np.testing.assert_allclose(
         jnp.exp(2 * original.real), jnp.exp(2 * permuted.real), rtol=1e-6
     )
+
+
+def test_checkpoint_state_bundle_loads_and_stacks_native_params(tmp_path):
+    paths = []
+    for index, slope in enumerate((0.4, 1.2)):
+        path = tmp_path / f"state-{index}"
+        NumPyCheckpointManager(path, prefix="train").save(
+            index, {"params": {"slope": jnp.array(slope)}}
+        )
+        paths.append(str(path))
+    physical = ToyData(electrons=jnp.array([[0.2]]), fixed=jnp.array(1.0))
+    bundle = CheckpointStateBundle(ToyWavefunction(), SubspaceSpec(2), paths)
+
+    params = bundle.init_params(physical, jax.random.key(0))
+
+    np.testing.assert_allclose(params["slope"], [0.4, 1.2])
+
+
+def test_checkpoint_state_bundle_requires_one_path_per_state():
+    with pytest.raises(ValueError, match="exactly n_states=2"):
+        CheckpointStateBundle(ToyWavefunction(), SubspaceSpec(2), ["one"])

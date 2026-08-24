@@ -19,6 +19,22 @@ def test_proposal_changes_exactly_one_replica_per_walker():
     np.testing.assert_array_equal(changed.sum(axis=1), jnp.ones(16))
 
 
+def test_physical_proposal_only_receives_selected_replica_shape():
+    seen_shapes = []
+
+    def proposal(rngs, x, stddev):
+        del rngs
+        seen_shapes.append(x.shape)
+        return x + stddev
+
+    sampler = DeterminantMCMCSampler(n_states=3, sampling_proposal=proposal)
+    electrons = jnp.zeros((5, 3, 2, 3))
+
+    sampler.sampling_proposal(jax.random.key(1), electrons, 0.1)
+
+    assert seen_shapes == [(5, 2, 3)]
+
+
 def test_m1_proposal_matches_native_physical_proposal():
     def deterministic_proposal(rngs, x, stddev):
         del rngs

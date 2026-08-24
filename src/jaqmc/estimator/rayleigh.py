@@ -3,8 +3,8 @@
 
 """Rayleigh-matrix estimators built from JaQMC physical-energy components."""
 
-import dataclasses
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 import jax
@@ -12,19 +12,34 @@ from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
-from jaqmc.estimator.base import Estimator, PerWalkerEstimator, mean_reduce
+from jaqmc.estimator.base import Estimator, PerWalkerEstimator
 from jaqmc.utils import parallel_jax
 from jaqmc.utils.chunked_vmap import chunked_vmap
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.subspace_linalg import (
-    complex_variance,
     rayleigh_solve,
     row_scaled_matrix,
     singular_value_diagnostics,
     solve_residual,
 )
 from jaqmc.utils.wiring import runtime_dep
-from jaqmc.wavefunction.determinant_state import SubspaceSpec, take_replica
+from jaqmc.wavefunction.determinant_state import (
+    SubspaceSpec,
+    take_replica,
+    take_replica_dynamic,
+)
+
+
+@dataclass(frozen=True)
+class PhysicalEnergyPlan:
+    """Classify native estimators by their replica/state dependence."""
+
+    replica_only: tuple[str, ...] = ("potential",)
+
+    def split(self, estimators: Mapping[str, Any]):
+        replica_only = tuple(name for name in estimators if name in self.replica_only)
+        pair_dependent = tuple(name for name in estimators if name not in replica_only)
+        return replica_only, pair_dependent
 
 
 class CrossLocalEnergyEvaluator:
@@ -36,10 +51,13 @@ class CrossLocalEnergyEvaluator:
         spec: SubspaceSpec,
         *,
         pair_chunk_size: int | None = None,
+        plan: PhysicalEnergyPlan | None = None,
     ):
         self.estimators = dict(estimators)
         self.spec = spec
         self.pair_chunk_size = pair_chunk_size
+        self.plan = plan or PhysicalEnergyPlan()
+        self.replica_only, self.pair_dependent = self.plan.split(self.estimators)
         self._states: dict[str, Any] = {}
 
     def init(self, replica_data: Data, rngs: PRNGKey) -> None:
@@ -59,12 +77,18 @@ class CrossLocalEnergyEvaluator:
                 f"estimators; got state from {stateful}"
             )
 
-    def _single(
-        self, params: Params, data: Data, rngs: PRNGKey
-    ) -> jax.Array:
-        stats: dict[str, Any] = {}
+    def _run_names(
+        self,
+        names: tuple[str, ...],
+        params: Params,
+        data: Data,
+        stats: dict[str, Any],
+        rngs: PRNGKey,
+    ) -> dict[str, Any]:
         keys = jax.random.split(rngs, len(self.estimators))
         for (name, estimator), key in zip(self.estimators.items(), keys):
+            if name not in names:
+                continue
             if isinstance(estimator, Estimator):
                 part, _ = estimator.evaluate_single_walker(
                     params, data, stats, self._states.get(name), key
@@ -74,6 +98,43 @@ class CrossLocalEnergyEvaluator:
                     params, data, stats, self._states.get(name), key
                 )
             stats.update(part)
+        return stats
+
+    def _replica_stats(
+        self, stacked_params: Params, replica_data: Data, replica_index: jax.Array,
+        rngs: PRNGKey,
+    ) -> dict[str, Any]:
+        params = jax.tree.map(
+            lambda x: jax.lax.dynamic_index_in_dim(x, 0, axis=0, keepdims=False),
+            stacked_params,
+        )
+        data = take_replica_dynamic(replica_data, replica_index, self.spec)
+        return self._run_names(self.replica_only, params, data, {}, rngs)
+
+    def _pair_local_energy(
+        self,
+        stacked_params: Params,
+        replica_data: Data,
+        replica_stats: Mapping[str, Any],
+        pair_index: jax.Array,
+        rngs: PRNGKey,
+    ) -> jax.Array:
+        m = self.spec.n_states
+        replica_index, state_index = pair_index // m, pair_index % m
+        params = jax.tree.map(
+            lambda x: jax.lax.dynamic_index_in_dim(
+                x, state_index, axis=0, keepdims=False
+            ),
+            stacked_params,
+        )
+        data = take_replica_dynamic(replica_data, replica_index, self.spec)
+        stats = jax.tree.map(
+            lambda x: jax.lax.dynamic_index_in_dim(
+                x, replica_index, axis=0, keepdims=False
+            ),
+            dict(replica_stats),
+        )
+        stats = self._run_names(self.pair_dependent, params, data, stats, rngs)
         if "total_energy" in stats:
             return stats["total_energy"]
         components = [
@@ -88,29 +149,22 @@ class CrossLocalEnergyEvaluator:
     ) -> jax.Array:
         """Return ``E_local[r, s]`` using flattened, optionally chunked pairs."""
         m = self.spec.n_states
-        replica_indices = jnp.repeat(jnp.arange(m), m)
-        state_indices = jnp.tile(jnp.arange(m), m)
-        pair_params = jax.tree.map(lambda x: x[state_indices], stacked_params)
-        pair_data = dataclasses.replace(
+        replica_rngs, pair_rngs = jax.random.split(rngs)
+        replica_stats = jax.vmap(
+            self._replica_stats, in_axes=(None, None, 0, 0)
+        )(
+            stacked_params,
             replica_data,
-            **{
-                name: replica_data[name][replica_indices]
-                for name in self.spec.replica_fields
-            },
+            jnp.arange(m),
+            jax.random.split(replica_rngs, m),
         )
-        pair_axes = dataclasses.replace(
-            pair_data,
-            **{
-                name: 0 if name in self.spec.replica_fields else None
-                for name in pair_data.field_names
-            },
-        )
-        keys = jax.random.split(rngs, m * m)
+        pair_indices = jnp.arange(m * m)
+        keys = jax.random.split(pair_rngs, m * m)
         values = chunked_vmap(
-            self._single,
-            in_axes=(0, pair_axes, 0),
+            self._pair_local_energy,
+            in_axes=(None, None, None, 0, 0),
             chunk_size=self.pair_chunk_size,
-        )(pair_params, pair_data, keys)
+        )(stacked_params, replica_data, replica_stats, pair_indices, keys)
         return values.reshape(m, m)
 
 
@@ -121,6 +175,8 @@ class RayleighMatrixEstimator(PerWalkerEstimator):
     matrix_dtype: str = "complex128"
     pair_chunk_size: int | None = None
     condition_warning: float = 1e10
+    condition_hard_limit: float = 1e14
+    min_valid_fraction: float = 0.99
     solve_residual_warning: float = 1e-6
     max_imag_eigenvalue_warning: float = 1e-6
     f_component_logpsi_matrix: Any = runtime_dep()
@@ -146,12 +202,24 @@ class RayleighMatrixEstimator(PerWalkerEstimator):
         phi = phi.astype(dtype)
         local_energy = self.f_cross_local_energy(params, data, rngs).astype(dtype)
         phi_h = phi * local_energy
-        rayleigh = rayleigh_solve(phi, phi_h)
-        residual = solve_residual(phi, rayleigh, phi_h)
         sigma_min, sigma_max, condition = singular_value_diagnostics(phi)
+        matrix_finite = jnp.all(jnp.isfinite(phi)) & jnp.all(jnp.isfinite(phi_h))
+        condition_ok = jnp.isfinite(condition) & (
+            condition < self.condition_hard_limit
+        )
+        solve_input_valid = matrix_finite & condition_ok
+        rayleigh = jax.lax.cond(
+            solve_input_valid,
+            lambda _: rayleigh_solve(phi, phi_h),
+            lambda _: jnp.zeros_like(phi_h),
+            operand=None,
+        )
+        residual = solve_residual(phi, rayleigh, phi_h)
+        rayleigh_valid = solve_input_valid & jnp.all(jnp.isfinite(rayleigh))
         trace = jnp.trace(rayleigh)
         return {
             "local_rayleigh": rayleigh,
+            "subspace_local_energy": trace,
             "subspace_energy": jnp.real(trace),
             "subspace_energy_imag": jnp.imag(trace),
             "rayleigh_solve_residual": residual,
@@ -164,19 +232,37 @@ class RayleighMatrixEstimator(PerWalkerEstimator):
             "amplitude_condition_warning": (
                 ~jnp.isfinite(condition) | (condition > self.condition_warning)
             ),
-            "rayleigh_finite": jnp.all(jnp.isfinite(rayleigh)),
+            "rayleigh_finite": rayleigh_valid,
+            "rayleigh_valid": rayleigh_valid,
         }, state
 
     def reduce(self, walker_stats: Mapping[str, Any]) -> dict[str, Any]:
         local_rayleigh = walker_stats["local_rayleigh"]
-        rayleigh_mean = parallel_jax.pmean(jnp.nanmean(local_rayleigh, axis=0))
-        rayleigh_var = parallel_jax.pmean(complex_variance(local_rayleigh, axis=0))
-        scalar_stats = {
-            key: value
-            for key, value in walker_stats.items()
-            if key != "local_rayleigh"
-        }
-        reduced = mean_reduce(scalar_stats)
+        valid = walker_stats["rayleigh_valid"] & jnp.all(
+            jnp.isfinite(local_rayleigh), axis=(-2, -1)
+        )
+        mask = valid[:, None, None]
+        safe = jnp.where(mask, local_rayleigh, 0)
+        local_count = jnp.sum(valid)
+        global_count = parallel_jax.psum(local_count)
+        safe_count = jnp.maximum(global_count, 1)
+        rayleigh_mean = parallel_jax.psum(jnp.sum(safe, axis=0)) / safe_count
+        second_moment = (
+            parallel_jax.psum(jnp.sum(jnp.where(mask, jnp.abs(safe) ** 2, 0), axis=0))
+            / safe_count
+        )
+        rayleigh_var = jnp.maximum(second_moment - jnp.abs(rayleigh_mean) ** 2, 0)
+        global_total = parallel_jax.psum(jnp.asarray(valid.shape[0]))
+        valid_fraction = global_count / global_total
+        invalid_count = global_total - global_count
+
+        reduced = {}
+        for key, value in walker_stats.items():
+            if key == "local_rayleigh":
+                continue
+            value_mask = valid.reshape((valid.shape[0],) + (1,) * (value.ndim - 1))
+            masked = jnp.where(value_mask, value, jnp.nan)
+            reduced[key] = parallel_jax.pmean(jnp.nanmean(masked, axis=0))
         eigenvalues, eigenvectors = jnp.linalg.eig(rayleigh_mean)
         order = jnp.argsort(jnp.real(eigenvalues))
         eigenvalues = eigenvalues[order]
@@ -186,6 +272,10 @@ class RayleighMatrixEstimator(PerWalkerEstimator):
             **reduced,
             "rayleigh_mean": rayleigh_mean,
             "local_rayleigh_variance": rayleigh_var,
+            "rayleigh_valid_fraction": valid_fraction,
+            "rayleigh_invalid_count": invalid_count,
+            "training_step_valid": (global_count > 0)
+            & (valid_fraction >= self.min_valid_fraction),
             "ritz_energies": jnp.real(eigenvalues),
             "ritz_energies_imag": jnp.imag(eigenvalues),
             "ritz_vectors": eigenvectors,

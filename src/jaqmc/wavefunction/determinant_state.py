@@ -12,6 +12,7 @@ from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
+from jaqmc.utils.checkpoint import NumPyCheckpointManager
 from jaqmc.utils.subspace_linalg import row_scaled_matrix, stable_complex_logdet
 from jaqmc.wavefunction.base import WavefunctionLike
 
@@ -38,6 +39,27 @@ def take_replica(data: Data, replica_index: int, spec: SubspaceSpec) -> Data:
     return dataclasses.replace(
         data,
         **{name: data[name][replica_index] for name in spec.replica_fields},
+    )
+
+
+def take_replica_dynamic(
+    data: Data, replica_index: jax.Array, spec: SubspaceSpec
+) -> Data:
+    """Select one replica with a traced index without expanding replica data."""
+    missing = set(spec.replica_fields) - set(data.field_names)
+    if missing:
+        raise KeyError(f"Replica fields are absent from data: {sorted(missing)}")
+    return dataclasses.replace(
+        data,
+        **{
+            name: jax.tree.map(
+                lambda x: jax.lax.dynamic_index_in_dim(
+                    x, replica_index, axis=0, keepdims=False
+                ),
+                data[name],
+            )
+            for name in spec.replica_fields
+        },
     )
 
 
@@ -91,6 +113,47 @@ class IndependentStateBundle:
         return jax.vmap(
             self.complex_logpsi_all_states, in_axes=(None, physical_axis)
         )(stacked_params, replica_data)
+
+
+class CheckpointStateBundle(IndependentStateBundle):
+    """Initialize independent states from native JaQMC checkpoints."""
+
+    def __init__(
+        self,
+        base_wavefunction: WavefunctionLike,
+        spec: SubspaceSpec,
+        checkpoint_paths: tuple[str, ...] | list[str],
+    ):
+        super().__init__(base_wavefunction, spec)
+        self.checkpoint_paths = tuple(checkpoint_paths)
+        if len(self.checkpoint_paths) != spec.n_states:
+            raise ValueError(
+                "subspace.initialization.checkpoints must contain exactly "
+                f"n_states={spec.n_states} paths; got {len(self.checkpoint_paths)}"
+            )
+
+    def init_params(self, physical_data: Data, rngs: PRNGKey) -> Params:
+        template = self.base_wavefunction.init_params(physical_data, rngs)
+        template_def = jax.tree.structure(template)
+        template_shapes = jax.tree.map(jnp.shape, template)
+        loaded = []
+        for checkpoint_path in self.checkpoint_paths:
+            manager = NumPyCheckpointManager(
+                checkpoint_path, checkpoint_path, prefix="train"
+            )
+            _, restored = manager.restore({"params": template}, strict=True)
+            params = restored["params"]
+            if jax.tree.structure(params) != template_def:
+                raise ValueError(
+                    f"Checkpoint parameter PyTree does not match: {checkpoint_path}"
+                )
+            shapes = jax.tree.map(jnp.shape, params)
+            if jax.tree.leaves(shapes) != jax.tree.leaves(template_shapes):
+                raise ValueError(
+                    f"Checkpoint parameter shapes do not match: {checkpoint_path}"
+                )
+            loaded.append(params)
+        return jax.tree.map(lambda *xs: jnp.stack(xs), *loaded)
 
 
 class StateBundleLike(Protocol):

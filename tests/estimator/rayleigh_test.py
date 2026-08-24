@@ -4,6 +4,7 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from jaqmc.data import Data
 from jaqmc.estimator.rayleigh import (
@@ -37,6 +38,9 @@ def test_rayleigh_estimator_matches_direct_solve():
     np.testing.assert_allclose(stats["local_rayleigh"], expected, rtol=1e-6)
     np.testing.assert_allclose(
         stats["subspace_energy"], jnp.trace(expected).real, rtol=1e-6
+    )
+    np.testing.assert_allclose(
+        stats["subspace_local_energy"], jnp.trace(expected), rtol=1e-6
     )
     # CUDA complex64 small solves have backend-dependent residuals around
     # 1e-4; the estimator's production default remains complex128.
@@ -76,6 +80,84 @@ def test_cross_local_energy_reuses_ordered_native_estimator_pipeline():
     actual = evaluator(params, data, jax.random.key(1))
 
     np.testing.assert_allclose(actual, [[2.0, 5.0], [6.0, 15.0]])
+
+
+def test_cross_local_energy_reuses_state_independent_potential():
+    def potential(params, data, prev_stats, state, rngs):
+        del params, prev_stats, rngs
+        return {"energy:potential": jnp.sum(data.electrons)}, state
+
+    def kinetic(params, data, prev_stats, state, rngs):
+        del data, prev_stats, rngs
+        return {"energy:kinetic": params["slope"]}, state
+
+    evaluator = CrossLocalEnergyEvaluator(
+        {"potential": potential, "kinetic": kinetic, "total": TotalEnergy()},
+        SubspaceSpec(2),
+        pair_chunk_size=1,
+    )
+    data = ToyData(electrons=jnp.array([[[1.0]], [[3.0]]]))
+    params = {"slope": jnp.array([2.0, 5.0])}
+    evaluator.init(data, jax.random.key(0))
+
+    actual = evaluator(params, data, jax.random.key(1))
+
+    np.testing.assert_allclose(actual, [[3.0, 6.0], [5.0, 8.0]])
+
+
+@pytest.mark.parametrize("n_states", [2, 4, 8, 16])
+@pytest.mark.parametrize("chunk_size", [1, 2, 4])
+def test_cross_local_energy_dynamic_pair_indexing_scales(n_states, chunk_size):
+    def component(params, data, prev_stats, state, rngs):
+        del prev_stats, rngs
+        return {
+            "total_energy": params["slope"] * jnp.sum(data.electrons)
+        }, state
+
+    evaluator = CrossLocalEnergyEvaluator(
+        {"total": component},
+        SubspaceSpec(n_states),
+        pair_chunk_size=chunk_size,
+    )
+    data = ToyData(
+        electrons=jnp.arange(1, n_states + 1, dtype=float)[:, None, None]
+    )
+    params = {"slope": jnp.arange(1, n_states + 1, dtype=float)}
+    evaluator.init(data, jax.random.key(0))
+
+    actual = jax.jit(evaluator)(params, data, jax.random.key(1))
+    expected = jnp.arange(1, n_states + 1, dtype=float)[:, None] * jnp.arange(
+        1, n_states + 1, dtype=float
+    )[None, :]
+
+    np.testing.assert_allclose(actual, expected)
+
+
+def test_reduce_uses_one_whole_walker_mask_for_every_matrix_element():
+    estimator = RayleighMatrixEstimator(matrix_dtype="complex64")
+    matrices = jnp.array(
+        [
+            [[1.0, 2.0], [3.0, 4.0]],
+            [[10.0, jnp.nan], [30.0, 40.0]],
+            [[5.0, 6.0], [7.0, 8.0]],
+        ],
+        dtype=jnp.complex64,
+    )
+    stats = {
+        "local_rayleigh": matrices,
+        "subspace_local_energy": jnp.array([5.0, jnp.nan, 13.0]),
+        "subspace_energy": jnp.array([5.0, jnp.nan, 13.0]),
+        "rayleigh_valid": jnp.array([True, True, True]),
+    }
+
+    reduced = estimator.reduce(stats)
+
+    np.testing.assert_allclose(
+        reduced["rayleigh_mean"], (matrices[0] + matrices[2]) / 2
+    )
+    np.testing.assert_allclose(reduced["rayleigh_valid_fraction"], 2 / 3)
+    np.testing.assert_allclose(reduced["rayleigh_invalid_count"], 1)
+    assert not reduced["training_step_valid"]
 
 
 def test_near_singular_amplitude_matrix_triggers_diagnostic():

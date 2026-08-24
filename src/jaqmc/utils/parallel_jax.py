@@ -115,6 +115,18 @@ def pmean[ValueT](x: ValueT) -> ValueT:
         return x
 
 
+def psum[ValueT](x: ValueT) -> ValueT:
+    """Sum ``x`` across devices along the batch axis.
+
+    Outside a ``shard_map`` context this is the identity, matching
+    :func:`pmean`'s convenient single-device behavior.
+    """
+    try:
+        return jax.lax.psum(x, axis_name=BATCH_AXIS_NAME)
+    except NameError:
+        return x
+
+
 def all_gather(x):
     """Gather ``x`` from every device along the batch axis and tile the result.
 

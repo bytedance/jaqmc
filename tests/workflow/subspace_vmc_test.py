@@ -1,6 +1,8 @@
 # Copyright (c) 2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+from dataclasses import dataclass
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -12,9 +14,11 @@ from jaqmc.wavefunction.determinant_state import SubspaceSpec, take_replica
 from jaqmc.workflow.base import init_batched_data
 from jaqmc.workflow.subspace_vmc import (
     SubspaceVMCWorkflow,
+    SubspaceVMCWorkStage,
     make_subspace_data_init,
     replicate_walker_replicas,
 )
+from jaqmc.workflow.stage.vmc import VMCWorkStage
 
 
 class ToyData(Data):
@@ -128,16 +132,48 @@ def test_workflow_accepts_documented_nested_subspace_config():
     compute = parallel_jax.jit_sharded(
         workflow.train_stage.compute_step,
         in_specs=(partition, parallel_jax.DATA_PARTITION),
-        out_specs=(parallel_jax.SHARE_PARTITION, partition),
+        out_specs=(partition, parallel_jax.SHARE_PARTITION),
         check_vma=False,
     )
     rngs = jax.device_put(
         jax.random.split(jax.random.PRNGKey(4), jax.device_count()).flatten(),
         parallel_jax.make_sharding(parallel_jax.DATA_PARTITION),
     )
-    stats, updated = compute(state, rngs)
+    updated, stats = compute(state, rngs)
 
     assert jnp.isfinite(stats["subspace_energy"])
     assert all(
         np.isfinite(np.asarray(x)).all() for x in jax.tree.leaves(updated.params)
     )
+
+
+def test_invalid_subspace_step_rolls_back_params_and_optimizer(monkeypatch):
+    @dataclass
+    class ToyState:
+        params: dict
+        opt_state: dict
+
+    original = ToyState(
+        params={"w": jnp.array(1.0)}, opt_state={"count": jnp.array(2)}
+    )
+
+    def invalid_update(self, state, rngs):
+        del self, rngs
+        return (
+            ToyState(
+                params={"w": jnp.array(jnp.nan)},
+                opt_state={"count": jnp.array(3)},
+            ),
+            {"training_step_valid": jnp.array(False)},
+        )
+
+    monkeypatch.setattr(VMCWorkStage, "compute_step", invalid_update)
+    stage = object.__new__(SubspaceVMCWorkStage)
+
+    updated, stats = stage.compute_step(original, jax.random.key(0))
+
+    np.testing.assert_array_equal(updated.params["w"], original.params["w"])
+    np.testing.assert_array_equal(
+        updated.opt_state["count"], original.opt_state["count"]
+    )
+    assert stage._has_nan(stats)

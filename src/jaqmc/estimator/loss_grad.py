@@ -65,6 +65,7 @@ class LossAndGrad(PerWalkerEstimator):
     loss_key: str = "total_energy"
     clip_method: Literal["iqr", "mad", "none"] = "mad"
     clip_scale: float = 5.0
+    validity_key: str | None = None
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
 
     def evaluate_single_walker(
@@ -87,26 +88,36 @@ class LossAndGrad(PerWalkerEstimator):
                 f"{prev_walker_stats[self.loss_key].shape}."
             )
         # We copy over loss stats because we need to do customized reduce
-        return {
+        result = {
             "logpsi": primals,
             "grad_logpsi": grads,
             "loss": prev_walker_stats[self.loss_key],
-        }, state
+        }
+        if self.validity_key is not None:
+            result["loss_valid"] = prev_walker_stats[self.validity_key]
+        return result, state
 
     def reduce(self, walker_stats: Mapping[str, Any]) -> dict[str, Any]:
-        clipped_loss = clip_observable(
-            walker_stats["loss"], self.clip_method, scale=self.clip_scale
-        )
+        loss = walker_stats["loss"]
+        grad_logpsi = walker_stats["grad_logpsi"]
+        if self.validity_key is not None:
+            valid = walker_stats["loss_valid"]
+            loss = jnp.where(valid, loss, jnp.nan)
+            grad_logpsi = jax.tree.map(
+                lambda x: jnp.where(match_first_axis_of(valid, x), x, jnp.nan),
+                grad_logpsi,
+            )
+        clipped_loss = clip_observable(loss, self.clip_method, scale=self.clip_scale)
         grad_logpsi_and_loss = jax.tree.map(
             lambda x: jnp.real(jnp.conj(x) * match_first_axis_of(clipped_loss, x)),
-            walker_stats["grad_logpsi"],
+            grad_logpsi,
         )
         return mean_reduce(
             {
                 "grad_logpsi_and_loss": grad_logpsi_and_loss,
-                "loss": walker_stats["loss"],
+                "loss": loss,
                 "clipped_loss": clipped_loss,
-                "grad_logpsi": walker_stats["grad_logpsi"],
+                "grad_logpsi": grad_logpsi,
             }
         )
 
@@ -123,6 +134,10 @@ class LossAndGrad(PerWalkerEstimator):
         loss = batch_mean(batch_stats["loss"])
         grads = optax.tree.add(
             grad_logpsi_and_loss,
-            optax.tree.real(optax.tree.scale(-clipped_loss, grad_logpsi)),
+            optax.tree.real(
+                optax.tree.scale(
+                    -clipped_loss, jax.tree.map(jnp.conj, grad_logpsi)
+                )
+            ),
         )
         return {"loss": loss, "grads": optax.tree.scale(2, grads)}

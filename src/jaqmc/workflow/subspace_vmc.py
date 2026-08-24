@@ -20,6 +20,7 @@ from jaqmc.sampler.determinant import DeterminantMCMCSampler
 from jaqmc.utils.config import ConfigManager, configurable_dataclass
 from jaqmc.utils.wiring import wire
 from jaqmc.wavefunction.determinant_state import (
+    CheckpointStateBundle,
     DeterminantStateWavefunction,
     SubspaceSpec,
 )
@@ -35,6 +36,8 @@ class SubspaceConfig:
     condition_warning: float = 1e10
     solve_residual_warning: float = 1e-6
     max_imag_eigenvalue_warning: float = 1e-6
+    condition_hard_limit: float = 1e14
+    min_valid_fraction: float = 0.99
 
     def __post_init__(self):
         if self.n_states < 1:
@@ -139,8 +142,22 @@ class SubspaceVMCWorkflow(VMCWorkflow):
             max_imag_eigenvalue_warning=cfg.get(
                 "subspace.diagnostics.max_imag_eigenvalue_warning", 1e-6
             ),
+            condition_hard_limit=cfg.get(
+                "subspace.diagnostics.condition_hard_limit", 1e14
+            ),
+            min_valid_fraction=cfg.get(
+                "subspace.diagnostics.min_valid_fraction", 0.99
+            ),
         )
         self.spec = SubspaceSpec(self.subspace.n_states)
+        self.initialization_mode = cfg.get("subspace.initialization.mode", "random")
+        self.initialization_checkpoints = cfg.get(
+            "subspace.initialization.checkpoints", []
+        )
+        if self.initialization_mode not in ("random", "checkpoints"):
+            raise ValueError(
+                "subspace.initialization.mode must be 'random' or 'checkpoints'"
+            )
 
     def configure_subspace(
         self,
@@ -152,7 +169,14 @@ class SubspaceVMCWorkflow(VMCWorkflow):
     ) -> None:
         """Assemble the native VMC stage around app-provided physical pieces."""
         self.base_wavefunction = base_wavefunction
-        self.wf = DeterminantStateWavefunction(base_wavefunction, self.spec)
+        state_bundle = None
+        if self.initialization_mode == "checkpoints":
+            state_bundle = CheckpointStateBundle(
+                base_wavefunction, self.spec, self.initialization_checkpoints
+            )
+        self.wf = DeterminantStateWavefunction(
+            base_wavefunction, self.spec, state_bundle=state_bundle
+        )
         self.data_init = make_subspace_data_init(physical_data_init, self.spec)
 
         sampler_default = DeterminantMCMCSampler(
@@ -174,6 +198,8 @@ class SubspaceVMCWorkflow(VMCWorkflow):
         rayleigh.max_imag_eigenvalue_warning = (
             self.subspace.max_imag_eigenvalue_warning
         )
+        rayleigh.condition_hard_limit = self.subspace.condition_hard_limit
+        rayleigh.min_valid_fraction = self.subspace.min_valid_fraction
         cross_energy = CrossLocalEnergyEvaluator(
             physical_energy_estimators,
             self.spec,
@@ -190,9 +216,45 @@ class SubspaceVMCWorkflow(VMCWorkflow):
         train.configure_optimizer(default=KFACOptimizer, f_log_psi=self.wf.logpsi)
         train.configure_estimators(rayleigh=rayleigh)
         train.configure_loss_grads(
-            LossAndGrad(loss_key="subspace_energy"), f_log_psi=self.wf.logpsi
+            LossAndGrad(
+                loss_key="subspace_local_energy", validity_key="rayleigh_valid"
+            ),
+            f_log_psi=self.wf.logpsi,
         )
-        self.train_stage = train.build()
+        native_stage = train.build()
+        self.train_stage = SubspaceVMCWorkStage(
+            config=native_stage.config,
+            name=native_stage.name,
+            wavefunction=native_stage.wavefunction,
+            sample_plan=native_stage.sample_plan,
+            estimators=native_stage.estimators,
+            writers=native_stage.writers,
+            optimizer=native_stage.optimizer,
+        )
+
+
+class SubspaceVMCWorkStage(VMCWorkStage):
+    """Native VMC stage with rollback-before-abort for invalid subspace steps."""
+
+    def compute_step(self, state, rngs):
+        updated, stats = super().compute_step(state, rngs)
+        valid = stats.get("training_step_valid", jnp.array(True))
+        params = jax.tree.map(
+            lambda new, old: jnp.where(valid, new, old), updated.params, state.params
+        )
+        opt_state = jax.tree.map(
+            lambda new, old: jnp.where(valid, new, old),
+            updated.opt_state,
+            state.opt_state,
+        )
+        return replace(updated, params=params, opt_state=opt_state), stats
+
+    def _has_nan(self, stats: dict[str, Any]) -> bool:
+        if "training_step_valid" in stats and not bool(
+            jnp.asarray(stats["training_step_valid"])
+        ):
+            return True
+        return super()._has_nan(stats)
 
 
 def energy_estimators_only(
