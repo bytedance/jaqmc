@@ -30,6 +30,15 @@ For architecture-specific options (FermiNet, LapNet, Psiformer, and system-speci
 .. autoclass:: jaqmc.wavefunction.base.LogPsiWFOutput
 ```
 
+## Variational subspace adapters
+
+```{eval-rst}
+.. autoclass:: jaqmc.wavefunction.DeterminantStateWavefunction
+   :members:
+.. autoclass:: jaqmc.wavefunction.IndependentStateBundle
+   :members:
+```
+
 ### Log-determinant output (used by FermiNet / LapNet / Psiformer)
 
 ```{eval-rst}

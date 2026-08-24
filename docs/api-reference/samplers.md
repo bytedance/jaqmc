@@ -36,4 +36,8 @@ For sampler config keys, see the configuration reference: [Molecule](#train-samp
    :special-members: __call__
 
 .. autoclass:: jaqmc.sampler.mcmc.MCMCState
+
+.. autoclass:: jaqmc.sampler.DeterminantMCMCSampler
+   :members:
+   :inherited-members:
 ```

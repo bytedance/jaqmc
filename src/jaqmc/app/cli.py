@@ -79,6 +79,14 @@ def molecule_evaluate(cfg: ConfigManager, dry_run: bool):
     MoleculeEvalWorkflow(cfg)(dry_run)
 
 
+@molecule.add_command
+@make_cli(name="subspace-train", help="Train a molecular low-energy subspace.")
+def molecule_subspace_train(cfg: ConfigManager, dry_run: bool):
+    from .molecule import MoleculeSubspaceTrainWorkflow
+
+    MoleculeSubspaceTrainWorkflow(cfg)(dry_run)
+
+
 # --- solid ---
 
 

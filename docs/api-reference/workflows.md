@@ -13,6 +13,9 @@ Use the built-in {class}`~jaqmc.workflow.vmc.VMCWorkflow` and {class}`~jaqmc.wor
 
 .. autoclass:: jaqmc.workflow.evaluation.EvaluationWorkflow
    :members: run
+
+.. autoclass:: jaqmc.workflow.SubspaceVMCWorkflow
+   :members:
 ```
 
 ## Workflow configuration

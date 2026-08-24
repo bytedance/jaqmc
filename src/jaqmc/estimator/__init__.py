@@ -9,6 +9,7 @@ from .base import (
     FunctionEstimator,
     PerWalkerEstimator,
 )
+from .rayleigh import CrossLocalEnergyEvaluator, RayleighMatrixEstimator
 
 __all__ = [
     "EstimateFn",
@@ -17,4 +18,6 @@ __all__ = [
     "EstimatorPipeline",
     "FunctionEstimator",
     "PerWalkerEstimator",
+    "CrossLocalEnergyEvaluator",
+    "RayleighMatrixEstimator",
 ]
