@@ -1,0 +1,73 @@
+# Minimal single-GPU determinant-subspace smoke test for a periodic H chain.
+# This intentionally uses the subspace namespaces rather than ground-state
+# pretrain/sampler/grads configuration.
+
+logging:
+  level: info
+  stream: stdout
+
+jax:
+  enable_x64: true
+
+workflow:
+  seed: 20260820
+  batch_size: 32
+  save_path: runs/subspace_smoke
+
+system:
+  module: two_atom_chain
+  symbol: H
+  bond_length: 2.0
+  unit: bohr
+  supercell: 1
+  vacuum_separation: 20.0
+  s_z: 0
+  electron_init_width: 0.8
+
+wf:
+  hidden_dims_single: [64, 64]
+  hidden_dims_double: [16, 16]
+  ndets: 1
+  distance_type: nu
+  envelope_type: abs_isotropic
+  full_det: true
+
+reference:
+  basis: sto-3g
+  sample_fraction: 1.0
+  verbose: 0
+  method: KUHF
+
+subspace:
+  n_states: 2
+  initialization:
+    mode: random
+  sampling:
+    steps: 2
+    initial_width: 0.02
+    adapt_frequency: 100
+    pmove_range: [0.5, 0.55]
+  evaluation:
+    pair_chunk_size: 1
+    matrix_dtype: complex128
+  diagnostics:
+    condition_warning: 1.0e10
+    solve_residual_warning: 1.0e-8
+    max_imag_eigenvalue_warning: 1.0e-6
+
+train:
+  run:
+    iterations: 2
+    burn_in: 2
+    save_step_interval: 1
+    stop_on_nan: loss
+  optim:
+    module: jaqmc.optimizer.optax:adam
+    learning_rate: 0.0001
+
+estimators:
+  energy:
+    kinetic:
+      vmap_chunk_size: 8
+      mode: forward_laplacian
+      sparse: true
