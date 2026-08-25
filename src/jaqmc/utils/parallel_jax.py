@@ -115,6 +115,23 @@ def pmean[ValueT](x: ValueT) -> ValueT:
         return x
 
 
+def pnanmean(x):
+    """Compute a NaN-aware mean over the leading batch axis and all devices.
+
+    The leading axis of ``x`` must be partitioned across
+    :data:`BATCH_AXIS_NAME`.  This reduces that local axis, then weights each
+    device's contribution by its number of non-NaN values.  As with
+    :func:`jax.numpy.nanmean`, an all-NaN slice produces NaN.
+
+    Returns:
+        The mean over the leading batch axis and all devices.
+    """
+    valid = ~jax.numpy.isnan(x)
+    local_sum = jax.numpy.sum(jax.numpy.where(valid, x, 0), axis=0)
+    local_count = jax.numpy.sum(valid, axis=0)
+    return pmean(local_sum) / pmean(local_count)
+
+
 def all_gather(x):
     """Gather ``x`` from every device along the batch axis and tile the result.
 
