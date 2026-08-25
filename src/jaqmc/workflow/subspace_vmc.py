@@ -15,7 +15,7 @@ from jaqmc.data import BatchedData
 from jaqmc.estimator import CrossLocalEnergyEvaluator, EstimatorLike
 from jaqmc.estimator.loss_grad import LossAndGrad
 from jaqmc.estimator.rayleigh import RayleighMatrixEstimator
-from jaqmc.optimizer.kfac import KFACOptimizer
+from jaqmc.optimizer.optax import adam
 from jaqmc.sampler.determinant import DeterminantMCMCSampler
 from jaqmc.utils.config import ConfigManager, configurable_dataclass
 from jaqmc.utils.wiring import wire
@@ -36,8 +36,6 @@ class SubspaceConfig:
     condition_warning: float = 1e10
     solve_residual_warning: float = 1e-6
     max_imag_eigenvalue_warning: float = 1e-6
-    condition_hard_limit: float = 1e14
-    min_valid_fraction: float = 0.99
 
     def __post_init__(self):
         if self.n_states < 1:
@@ -117,7 +115,11 @@ class SubspaceVMCWorkflow(VMCWorkflow):
     def default_preset(cls) -> dict[str, Any]:
         fields = (
             "pmove:.2f,energy=subspace_energy:.4f,"
-            "variance=subspace_energy_var:.4f,max_imag=max_ritz_imag:.2e"
+            "variance=subspace_energy_var:.4f,imag=subspace_energy_imag:.2e,"
+            "sigma_min=amplitude_sigma_min:.2e,"
+            "condition=amplitude_condition:.2e,"
+            "residual=rayleigh_solve_residual:.2e,"
+            "max_imag=max_ritz_imag:.2e"
         )
         return {
             "train": {
@@ -141,12 +143,6 @@ class SubspaceVMCWorkflow(VMCWorkflow):
             ),
             max_imag_eigenvalue_warning=cfg.get(
                 "subspace.diagnostics.max_imag_eigenvalue_warning", 1e-6
-            ),
-            condition_hard_limit=cfg.get(
-                "subspace.diagnostics.condition_hard_limit", 1e14
-            ),
-            min_valid_fraction=cfg.get(
-                "subspace.diagnostics.min_valid_fraction", 0.99
             ),
         )
         self.spec = SubspaceSpec(self.subspace.n_states)
@@ -198,8 +194,6 @@ class SubspaceVMCWorkflow(VMCWorkflow):
         rayleigh.max_imag_eigenvalue_warning = (
             self.subspace.max_imag_eigenvalue_warning
         )
-        rayleigh.condition_hard_limit = self.subspace.condition_hard_limit
-        rayleigh.min_valid_fraction = self.subspace.min_valid_fraction
         cross_energy = CrossLocalEnergyEvaluator(
             physical_energy_estimators,
             self.spec,
@@ -213,12 +207,10 @@ class SubspaceVMCWorkflow(VMCWorkflow):
 
         train = VMCWorkStage.builder(self.cfg.scoped("train"), self.wf)
         train.configure_sample_plan(self.wf.logpsi, {"electrons": sampler})
-        train.configure_optimizer(default=KFACOptimizer, f_log_psi=self.wf.logpsi)
+        train.configure_optimizer(default=adam, f_log_psi=self.wf.logpsi)
         train.configure_estimators(rayleigh=rayleigh)
         train.configure_loss_grads(
-            LossAndGrad(
-                loss_key="subspace_local_energy", validity_key="rayleigh_valid"
-            ),
+            LossAndGrad(loss_key="subspace_local_energy"),
             f_log_psi=self.wf.logpsi,
         )
         native_stage = train.build()

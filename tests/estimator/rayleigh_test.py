@@ -133,7 +133,7 @@ def test_cross_local_energy_dynamic_pair_indexing_scales(n_states, chunk_size):
     np.testing.assert_allclose(actual, expected)
 
 
-def test_reduce_uses_one_whole_walker_mask_for_every_matrix_element():
+def test_numerical_failure_invalidates_the_whole_step_without_filtering():
     estimator = RayleighMatrixEstimator(matrix_dtype="complex64")
     matrices = jnp.array(
         [
@@ -152,12 +152,56 @@ def test_reduce_uses_one_whole_walker_mask_for_every_matrix_element():
 
     reduced = estimator.reduce(stats)
 
-    np.testing.assert_allclose(
-        reduced["rayleigh_mean"], (matrices[0] + matrices[2]) / 2
-    )
+    assert jnp.isnan(reduced["rayleigh_mean"]).any()
     np.testing.assert_allclose(reduced["rayleigh_valid_fraction"], 2 / 3)
     np.testing.assert_allclose(reduced["rayleigh_invalid_count"], 1)
     assert not reduced["training_step_valid"]
+
+
+def test_subspace_energy_variance_uses_all_walkers():
+    estimator = RayleighMatrixEstimator(matrix_dtype="complex64")
+    matrices = jnp.array(
+        [
+            [[1.0, 2.0], [3.0, 4.0]],
+            [[5.0, 6.0], [7.0, 8.0]],
+        ],
+        dtype=jnp.complex64,
+    )
+    stats = {
+        "local_rayleigh": matrices,
+        "subspace_local_energy": jnp.array([5.0, 13.0], dtype=jnp.complex64),
+        "subspace_energy": jnp.array([5.0, 13.0]),
+        "rayleigh_valid": jnp.array([True, True]),
+    }
+
+    reduced = estimator.reduce(stats)
+
+    np.testing.assert_allclose(reduced["subspace_energy"], 9.0)
+    np.testing.assert_allclose(reduced["subspace_energy_var"], 16.0)
+    assert reduced["training_step_valid"]
+
+
+def test_ill_conditioned_finite_solve_remains_a_valid_sample():
+    phi = jnp.array(
+        [[1.0, 1.0], [1.0, 1.0001]], dtype=jnp.complex64
+    )
+    local_energy = jnp.array(
+        [[1.0, 2.0], [3.0, 4.0]], dtype=jnp.complex64
+    )
+    estimator = RayleighMatrixEstimator(
+        matrix_dtype="complex64",
+        condition_warning=1e3,
+        f_component_logpsi_matrix=lambda params, data: jnp.log(phi),
+        f_cross_local_energy=lambda params, data, rngs: local_energy,
+    )
+
+    stats, _ = estimator.evaluate_single_walker(
+        {}, ToyData(electrons=jnp.zeros((2, 1, 1))), {}, None, jax.random.key(0)
+    )
+
+    assert stats["amplitude_condition_warning"]
+    assert stats["rayleigh_valid"]
+    assert jnp.isfinite(stats["rayleigh_solve_residual"])
 
 
 def test_near_singular_amplitude_matrix_triggers_diagnostic():

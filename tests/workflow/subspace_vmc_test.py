@@ -122,9 +122,11 @@ def test_workflow_accepts_documented_nested_subspace_config():
     workflow.prepare(dry_run=True)
 
     sampler = workflow.train_stage.sample_plan.samplers[("electrons",)]
+    optimizer = workflow.train_stage.optimizer
     assert sampler.n_states == 2
     assert sampler.steps == 3
     assert sampler.initial_width == 0.04
+    assert type(optimizer).__name__ == "adam"
 
     data = init_batched_data(workflow.data_init, 4, jax.random.key(2))
     state = workflow.train_stage.create_state(jax.random.key(3), batched_data=data)
@@ -142,6 +144,7 @@ def test_workflow_accepts_documented_nested_subspace_config():
     updated, stats = compute(state, rngs)
 
     assert jnp.isfinite(stats["subspace_energy"])
+    assert jnp.isfinite(stats["subspace_energy_var"])
     assert all(
         np.isfinite(np.asarray(x)).all() for x in jax.tree.leaves(updated.params)
     )

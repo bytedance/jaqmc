@@ -400,6 +400,29 @@ def test_cli_command_dry_run(
     assert result.exit_code == 0, f"command: {case.command}\noutput:\n{result.output}"
 
 
+def test_solid_subspace_train_help_is_exposed() -> None:
+    result = CliRunner().invoke(cli, ["solid", "subspace-train", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "solid-state low-energy subspace" in result.output
+
+
+def test_solid_subspace_smoke_yaml_dry_run() -> None:
+    smoke_config = (
+        Path(__file__).resolve().parents[1]
+        / "examples"
+        / "solid"
+        / "hchain_subspace_smoke.yml"
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        ["solid", "subspace-train", "--yml", str(smoke_config), "--dry-run"],
+    )
+
+    assert result.exit_code == 0, result.output
+
+
 def test_cli_verbose_config_dotlist(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level("INFO", logger="jaqmc.utils.config")
 

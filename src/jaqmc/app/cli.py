@@ -111,6 +111,14 @@ def solid_evaluate(cfg: ConfigManager, dry_run: bool):
     SolidEvalWorkflow(cfg)(dry_run)
 
 
+@solid.add_command
+@make_cli(name="subspace-train", help="Train a solid-state low-energy subspace.")
+def solid_subspace_train(cfg: ConfigManager, dry_run: bool):
+    from .solid import SolidSubspaceTrainWorkflow
+
+    SolidSubspaceTrainWorkflow(cfg)(dry_run)
+
+
 # --- electron_gas ---
 
 

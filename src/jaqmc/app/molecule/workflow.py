@@ -74,12 +74,15 @@ class MoleculeTrainWorkflow(VMCWorkflow):
         sampler = cfg.get("sampler", MCMCSampler)
 
         pretrain_loss = make_pretrain_loss(
-            orbitals_fn=wf.orbitals, scf=self.scf, nspins=nspins, full_det=wf.full_det
+            orbitals_fn=wf.orbitals,
+            orbital_ref=self.scf,
+            nspins=nspins,
+            full_det=wf.full_det,
         )
         pretrain_f_log_amplitude = make_pretrain_log_amplitude(
             wf.logpsi,
             lambda data: self.scf.eval_slater(data.electrons, nspins)[1],
-            scf_fraction=pretrain_config.sample_fraction,
+            ref_fraction=pretrain_config.sample_fraction,
         )
 
         pretrain = VMCWorkStage.builder(cfg.scoped("pretrain"), wf)

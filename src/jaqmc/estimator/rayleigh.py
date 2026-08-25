@@ -175,8 +175,6 @@ class RayleighMatrixEstimator(PerWalkerEstimator):
     matrix_dtype: str = "complex128"
     pair_chunk_size: int | None = None
     condition_warning: float = 1e10
-    condition_hard_limit: float = 1e14
-    min_valid_fraction: float = 0.99
     solve_residual_warning: float = 1e-6
     max_imag_eigenvalue_warning: float = 1e-6
     f_component_logpsi_matrix: Any = runtime_dep()
@@ -202,20 +200,29 @@ class RayleighMatrixEstimator(PerWalkerEstimator):
         phi = phi.astype(dtype)
         local_energy = self.f_cross_local_energy(params, data, rngs).astype(dtype)
         phi_h = phi * local_energy
-        sigma_min, sigma_max, condition = singular_value_diagnostics(phi)
-        matrix_finite = jnp.all(jnp.isfinite(phi)) & jnp.all(jnp.isfinite(phi_h))
-        condition_ok = jnp.isfinite(condition) & (
-            condition < self.condition_hard_limit
+        phi_finite = jnp.all(jnp.isfinite(phi))
+        # Derive the sentinel from ``phi`` so it inherits the same varying-axis
+        # annotation inside shard_map as the SVD branch outputs.
+        nan_real = jnp.real(phi[0, 0]) * 0 + jnp.nan
+        sigma_min, sigma_max, condition = jax.lax.cond(
+            phi_finite,
+            lambda _: singular_value_diagnostics(phi),
+            lambda _: (nan_real, nan_real, nan_real),
+            operand=None,
         )
-        solve_input_valid = matrix_finite & condition_ok
+        matrix_finite = jnp.all(jnp.isfinite(phi)) & jnp.all(jnp.isfinite(phi_h))
         rayleigh = jax.lax.cond(
-            solve_input_valid,
+            matrix_finite,
             lambda _: rayleigh_solve(phi, phi_h),
-            lambda _: jnp.zeros_like(phi_h),
+            lambda _: jnp.full_like(phi_h, jnp.nan),
             operand=None,
         )
         residual = solve_residual(phi, rayleigh, phi_h)
-        rayleigh_valid = solve_input_valid & jnp.all(jnp.isfinite(rayleigh))
+        rayleigh_valid = (
+            matrix_finite
+            & jnp.all(jnp.isfinite(rayleigh))
+            & jnp.isfinite(residual)
+        )
         trace = jnp.trace(rayleigh)
         return {
             "local_rayleigh": rayleigh,
@@ -241,18 +248,17 @@ class RayleighMatrixEstimator(PerWalkerEstimator):
         valid = walker_stats["rayleigh_valid"] & jnp.all(
             jnp.isfinite(local_rayleigh), axis=(-2, -1)
         )
-        mask = valid[:, None, None]
-        safe = jnp.where(mask, local_rayleigh, 0)
         local_count = jnp.sum(valid)
         global_count = parallel_jax.psum(local_count)
-        safe_count = jnp.maximum(global_count, 1)
-        rayleigh_mean = parallel_jax.psum(jnp.sum(safe, axis=0)) / safe_count
+        global_total = parallel_jax.psum(jnp.asarray(valid.shape[0]))
+        rayleigh_mean = (
+            parallel_jax.psum(jnp.sum(local_rayleigh, axis=0)) / global_total
+        )
         second_moment = (
-            parallel_jax.psum(jnp.sum(jnp.where(mask, jnp.abs(safe) ** 2, 0), axis=0))
-            / safe_count
+            parallel_jax.psum(jnp.sum(jnp.abs(local_rayleigh) ** 2, axis=0))
+            / global_total
         )
         rayleigh_var = jnp.maximum(second_moment - jnp.abs(rayleigh_mean) ** 2, 0)
-        global_total = parallel_jax.psum(jnp.asarray(valid.shape[0]))
         valid_fraction = global_count / global_total
         invalid_count = global_total - global_count
 
@@ -260,10 +266,19 @@ class RayleighMatrixEstimator(PerWalkerEstimator):
         for key, value in walker_stats.items():
             if key == "local_rayleigh":
                 continue
-            value_mask = valid.reshape((valid.shape[0],) + (1,) * (value.ndim - 1))
-            masked = jnp.where(value_mask, value, jnp.nan)
-            reduced[key] = parallel_jax.pmean(jnp.nanmean(masked, axis=0))
-        eigenvalues, eigenvectors = jnp.linalg.eig(rayleigh_mean)
+            reduced[key] = (
+                parallel_jax.psum(jnp.sum(value, axis=0)) / global_total
+            )
+        subspace_energy = walker_stats["subspace_energy"]
+        energy_second_moment = (
+            parallel_jax.psum(jnp.sum(subspace_energy**2, axis=0)) / global_total
+        )
+        reduced["subspace_energy_var"] = jnp.maximum(
+            energy_second_moment - reduced["subspace_energy"] ** 2, 0
+        )
+        step_valid = global_count == global_total
+        eig_input = jnp.where(step_valid, rayleigh_mean, jnp.zeros_like(rayleigh_mean))
+        eigenvalues, eigenvectors = jnp.linalg.eig(eig_input)
         order = jnp.argsort(jnp.real(eigenvalues))
         eigenvalues = eigenvalues[order]
         eigenvectors = eigenvectors[:, order]
@@ -274,8 +289,7 @@ class RayleighMatrixEstimator(PerWalkerEstimator):
             "local_rayleigh_variance": rayleigh_var,
             "rayleigh_valid_fraction": valid_fraction,
             "rayleigh_invalid_count": invalid_count,
-            "training_step_valid": (global_count > 0)
-            & (valid_fraction >= self.min_valid_fraction),
+            "training_step_valid": step_valid,
             "ritz_energies": jnp.real(eigenvalues),
             "ritz_energies_imag": jnp.imag(eigenvalues),
             "ritz_vectors": eigenvectors,

@@ -23,9 +23,9 @@ initializer.
 
 ## Configuration
 
-The optimizer stays under the native `train.optim` namespace.  KFAC remains the
-production default; SR and Optax can be selected in the same way as for normal
-VMC training.
+The optimizer stays under the native `train.optim` namespace. Adam is the
+correctness-first subspace default; KFAC can be selected explicitly after the
+determinant-state curvature path has been validated for the target network.
 
 ```yaml
 subspace:
@@ -46,14 +46,13 @@ subspace:
 
   diagnostics:
     condition_warning: 1.0e10
-    condition_hard_limit: 1.0e14
-    min_valid_fraction: 0.99
     solve_residual_warning: 1.0e-6
     max_imag_eigenvalue_warning: 1.0e-6
 
 train:
   optim:
-    module: jaqmc.optimizer.kfac:KFACOptimizer
+    module: jaqmc.optimizer.optax:adam
+    learning_rate: 0.0001
 ```
 
 `pair_chunk_size` limits peak memory in the $M^2$ cross-local-energy
@@ -86,11 +85,17 @@ gradient uses the full complex $\operatorname{Tr}R_L$ through the existing
 
 Monitor `amplitude_sigma_min`, `amplitude_condition`,
 `rayleigh_solve_residual`, `max_ritz_imag`, and their warning fields.  A large
-condition number indicates nearly dependent component states.  Non-finite
-Rayleigh matrices are reported explicitly rather than silently hidden. All
-matrix elements, diagnostics, and gradients use one whole-walker validity
-mask. A step below `min_valid_fraction` is rolled back and aborts through the
-native checkpoint recovery path before invalid optimizer state is retained.
+condition number indicates nearly dependent component states, but is diagnostic
+only and does not remove a sample from the Monte Carlo measure. Every finite
+input attempts the Rayleigh solve. `rayleigh_valid` becomes false only for a
+catastrophic numerical failure such as non-finite input, solution, or residual;
+then the entire optimizer step is rolled back and aborted through the native
+checkpoint path. Normal gradients use every determinant sample without masked
+averaging.
+
+For a first periodic smoke test, use
+[`examples/solid/hchain_subspace_smoke.yml`](../../examples/solid/hchain_subspace_smoke.yml)
+with `jax.enable_x64: true`, a small batch, $M=2$, and Adam.
 
 The current sampler is the correctness-first full-recompute implementation: one
 replica row moves per proposal while the determinant is reevaluated through the
