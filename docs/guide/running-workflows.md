@@ -118,6 +118,17 @@ jaqmc <app> evaluate ... \
   run.iterations=1000
 ```
 
+Evaluation enables no configurable writer adapters by default. It does not emit per-step
+estimator statistics. Users who need per-step evaluation logging can enable writer
+adapters with `writers.*` command-line configuration overrides
+For example, with the energy estimator enabled:
+
+```bash
+jaqmc <app> evaluate ... \
+  writers.console.module=jaqmc.writer.console \
+  writers.console.fields="energy=total_energy"
+```
+
 If you want multiple evaluation variants, give each one its own `workflow.save_path` and
 reuse the same `workflow.source_path`.
 

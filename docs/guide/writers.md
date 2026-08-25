@@ -83,7 +83,7 @@ By default, their output paths come from the templates `{stage}_stats.csv` and `
 
 ```bash
 train.writers.csv.path_template=logs/{stage}_metrics.csv
-evaluation.writers.hdf5.path_template=artifacts/{stage}/stats.h5
+train.writers.hdf5.path_template=artifacts/{stage}/stats.h5
 ```
 
 See <project:training-stats.md> for how to work with these files.

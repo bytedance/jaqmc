@@ -51,6 +51,7 @@ cuda13 = ["jax[cuda13]>=0.7.0"]
 cuda13_local = ["jax[cuda13_local]>=0.7.0"]
 
 [tool.uv]
+override-dependencies = ["setuptools==80.9.0"]
 conflicts = [
     [
         { extra = "cuda12" },

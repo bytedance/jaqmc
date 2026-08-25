@@ -1,6 +1,7 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from contextlib import ExitStack, contextmanager
@@ -8,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from upath import UPath
+
+logger = logging.getLogger(__name__)
 
 
 class Writer(ABC):
@@ -133,6 +136,12 @@ class Writers:
                     stack.enter_context(
                         writer.open(working_dir, stage_name, initial_step=initial_step)
                     )
+                active_writers = ", ".join(
+                    type(writer).__name__ for writer in self._writers
+                )
+                logging.LoggerAdapter(logger, extra={"category": stage_name}).info(
+                    "Active writers: %s.", active_writers or "none"
+                )
             yield
 
     def write(self, step: int, stats: Mapping[str, Any]) -> None:
