@@ -13,8 +13,11 @@ from jax import numpy as jnp
 
 from jaqmc.array_types import PRNGKey
 from jaqmc.data import BatchedData
-from jaqmc.estimator import CrossLocalEnergyEvaluator, EstimatorLike
-from jaqmc.estimator.loss_grad import StreamingLossAndGrad
+from jaqmc.estimator import (
+    CrossLocalEnergyEvaluator,
+    EstimatorLike,
+    StreamingLossAndGrad,
+)
 from jaqmc.estimator.rayleigh import RayleighMatrixEstimator
 from jaqmc.optimizer.optax import adam
 from jaqmc.sampler.determinant import DeterminantMCMCSampler
@@ -122,7 +125,8 @@ class SubspaceVMCWorkflow(VMCWorkflow):
             "sigma_min=amplitude_sigma_min:.2e,"
             "condition=amplitude_condition:.2e,"
             "residual=rayleigh_solve_residual:.2e,"
-            "max_imag=max_ritz_imag:.2e"
+            "max_imag=max_ritz_imag:.2e,"
+            "grad_norm=grad_norm:.2e,update_norm=update_norm:.2e"
         )
         return {
             "train": {
@@ -217,12 +221,17 @@ class SubspaceVMCWorkflow(VMCWorkflow):
             raise TypeError("train.grads estimator must expose a loss_key field")
         grads.loss_key = "subspace_local_energy"
         train.configure_loss_grads(grads, f_log_psi=self.wf.logpsi)
+        device_count = jax.device_count()
+        local_batch = self.config.batch_size // device_count
         logger.info(
-            "Subspace chunking: n_states=%s, determinant_batch=%s, "
+            "Subspace chunking: n_states=%s, global_batch=%s, "
+            "local_batch=%s, devices=%s, "
             "rayleigh_walkers=%s, cross_pairs=%s, gradient_walkers=%s, "
             "matrix_dtype=%s, optimizer=%s, objective=%s",
             self.spec.n_states,
             self.config.batch_size,
+            local_batch,
+            device_count,
             rayleigh.vmap_chunk_size,
             rayleigh.pair_chunk_size,
             getattr(grads, "vmap_chunk_size", None),

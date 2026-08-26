@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from jaqmc.data import BatchedData, Data
-from jaqmc.estimator.loss_grad import StreamingLossAndGrad
+from jaqmc.estimator import StreamingLossAndGrad
 from jaqmc.utils import parallel_jax
 from jaqmc.utils.config import ConfigManager
 from jaqmc.wavefunction.determinant_state import SubspaceSpec, take_replica
@@ -142,6 +142,12 @@ def test_workflow_accepts_documented_nested_subspace_config():
     assert grads.clip_scale == 7.0
     assert grads.loss_key == "subspace_local_energy"
 
+    console_fields = workflow.default_preset()["train"]["writers"]["console"][
+        "fields"
+    ]
+    assert "grad_norm=grad_norm" in console_fields
+    assert "update_norm=update_norm" in console_fields
+
     data = init_batched_data(workflow.data_init, 4, jax.random.key(2))
     state = workflow.train_stage.create_state(jax.random.key(3), batched_data=data)
     partition = state.partition()
@@ -214,4 +220,5 @@ def test_invalid_subspace_step_skips_optimizer_update():
     np.testing.assert_array_equal(
         updated.opt_state["count"], original.opt_state["count"]
     )
+    np.testing.assert_array_equal(stats["update_norm"], 0)
     assert stage._has_nan(stats)

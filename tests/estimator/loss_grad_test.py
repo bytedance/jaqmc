@@ -10,7 +10,7 @@ from jax import numpy as jnp
 
 from jaqmc.app.hall import HallTrainWorkflow
 from jaqmc.data import BatchedData, Data
-from jaqmc.estimator.loss_grad import LossAndGrad, StreamingLossAndGrad
+from jaqmc.estimator import LossAndGrad, StreamingLossAndGrad
 from jaqmc.utils.clip import clip_observable
 from jaqmc.utils.config import ConfigManager
 
@@ -86,14 +86,24 @@ class GradientData(Data):
 
 @pytest.mark.parametrize("clip_method", ["none", "mad", "iqr"])
 @pytest.mark.parametrize("complex_output", [False, True])
+@pytest.mark.parametrize("chunk_size", [1, 2, 4, 6])
 def test_streaming_loss_grad_matches_reference(
-    monkeypatch, clip_method, complex_output
+    monkeypatch, clip_method, complex_output, chunk_size
 ):
     _mock_all_gather_identity(monkeypatch)
-    data = BatchedData(GradientData(x=jnp.array([0.2, -0.4, 0.7, 1.1, -0.8])), ["x"])
+    data = BatchedData(
+        GradientData(x=jnp.array([0.2, -0.4, 0.7, 1.1, -0.8, 0.3])), ["x"]
+    )
     params = {"a": jnp.array(0.6), "b": jnp.array(-0.3)}
     local_energy = jnp.array(
-        [1.0 + 0.2j, -0.5 + 0.7j, 2.0 - 0.3j, 0.1 + 0.9j, 1.3 - 0.4j]
+        [
+            1.0 + 0.2j,
+            -0.5 + 0.7j,
+            2.0 - 0.3j,
+            0.1 + 0.9j,
+            1.3 - 0.4j,
+            -0.2 + 0.1j,
+        ]
     )
 
     def logpsi(p, one_data):
@@ -105,7 +115,7 @@ def test_streaming_loss_grad_matches_reference(
     )
     streaming = StreamingLossAndGrad(
         loss_key="energy",
-        vmap_chunk_size=2,
+        vmap_chunk_size=chunk_size,
         clip_method=clip_method,
         f_log_psi=logpsi,
     )

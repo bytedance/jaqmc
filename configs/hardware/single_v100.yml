@@ -1,0 +1,20 @@
+# One V100, four local determinant walkers.
+jax:
+  enable_x64: true
+
+workflow:
+  batch_size: 4
+
+subspace:
+  evaluation:
+    vmap_chunk_size: 1
+    pair_chunk_size: 1
+
+train:
+  grads:
+    vmap_chunk_size: 1
+
+estimators:
+  energy:
+    kinetic:
+      vmap_chunk_size: 1

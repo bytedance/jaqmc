@@ -1,0 +1,24 @@
+# Physical H24 definition shared by ground- and excited-state workflows.
+system:
+  module: two_atom_chain
+  symbol: H
+  bond_length: 2.0
+  unit: bohr
+  supercell: 12
+  vacuum_separation: 20.0
+  s_z: 0
+  electron_init_width: 0.8
+
+wf:
+  hidden_dims_single: [256, 256, 256, 256]
+  hidden_dims_double: [32, 32, 32, 32]
+  ndets: 1
+  distance_type: nu
+  envelope_type: abs_isotropic
+  full_det: true
+
+reference:
+  basis: sto-3g
+  sample_fraction: 1.0
+  verbose: 0
+  method: KUHF

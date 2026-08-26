@@ -257,6 +257,7 @@ class VMCWorkStage(SamplingWorkStage):
         grads = final_stats.pop("grads", None)
         if grads is None:
             raise ValueError("None of the estimators provides `grads` stats.")
+        final_stats["grad_norm"] = optax.tree.norm(grads)
         apply_update = self.should_apply_update(final_stats)
 
         def update(_):
@@ -267,17 +268,26 @@ class VMCWorkStage(SamplingWorkStage):
                 batched_data=data,
                 rngs=opt_rngs,
             )
-            return optax.apply_updates(state.params, updates), opt_state
+            return (
+                optax.apply_updates(state.params, updates),
+                opt_state,
+                optax.tree.norm(updates),
+            )
 
         if apply_update is None:
-            params, opt_state = update(None)
+            params, opt_state, update_norm = update(None)
         else:
-            params, opt_state = jax.lax.cond(
+            params, opt_state, update_norm = jax.lax.cond(
                 apply_update,
                 update,
-                lambda _: (state.params, state.opt_state),
+                lambda _: (
+                    state.params,
+                    state.opt_state,
+                    jnp.zeros_like(final_stats["grad_norm"]),
+                ),
                 operand=None,
             )
+        final_stats["update_norm"] = update_norm
         new_state = replace(
             state,
             params=params,

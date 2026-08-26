@@ -1,0 +1,49 @@
+# Correctness-only subspace workflow. Memory sizing belongs to hardware overlays.
+logging:
+  level: info
+  stream: stdout
+
+workflow:
+  seed: 20260820
+  save_path: runs/h24_subspace_smoke
+
+subspace:
+  n_states: 2
+  initialization:
+    mode: random
+  sampling:
+    steps: 2
+    initial_width: 0.02
+    adapt_frequency: 100
+    pmove_range: [0.5, 0.55]
+  evaluation:
+    matrix_dtype: complex128
+  diagnostics:
+    condition_warning: 1.0e10
+    solve_residual_warning: 1.0e-8
+    max_imag_eigenvalue_warning: 1.0e-6
+
+train:
+  run:
+    iterations: 3
+    burn_in: 2
+    save_time_interval: 0
+    save_step_interval: 1
+    timing_warmup_steps: 1
+    stop_on_nan: loss
+  optim:
+    module: jaqmc.optimizer.optax:adam
+    learning_rate: 1.0e-4
+  grads:
+    module: jaqmc.estimator.streaming_loss_grad:StreamingLossAndGrad
+    clip_method: mad
+    clip_scale: 5.0
+
+estimators:
+  energy:
+    kinetic:
+      mode: forward_laplacian
+      sparse: true
+  enabled:
+    spin: false
+    density: false

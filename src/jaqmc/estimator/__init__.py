@@ -9,12 +9,13 @@ from .base import (
     FunctionEstimator,
     PerWalkerEstimator,
 )
-from .loss_grad import LossAndGrad, StreamingLossAndGrad
+from .loss_grad import LossAndGrad
 from .rayleigh import (
     CrossLocalEnergyEvaluator,
     PhysicalEnergyPlan,
     RayleighMatrixEstimator,
 )
+from .streaming_loss_grad import StreamingLossAndGrad
 
 __all__ = [
     "EstimateFn",

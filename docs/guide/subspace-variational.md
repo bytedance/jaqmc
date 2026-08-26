@@ -76,6 +76,11 @@ PyTree sufficient statistics instead of reconstructing a
 evaluated $M$ times and reused across state columns. Walker sharding remains
 the existing JaQMC behavior; every device keeps the complete state axis.
 
+This is intentionally walker-axis data parallelism. With a global determinant
+batch of $B$ and $N$ devices, each device receives approximately $B/N$ walkers
+while retaining all $M$ component states. Pair and gradient chunk sizes control
+single-device concurrency and memory; they do not shard the state axis.
+
 With `initialization.mode: checkpoints`, provide exactly `n_states` native
 JaQMC checkpoint files or directories. Parameter PyTree structure and leaf
 shapes are checked before the states are stacked.
@@ -105,9 +110,11 @@ condition number indicates nearly dependent component states, but is diagnostic
 only and does not remove a sample from the Monte Carlo measure. Every finite
 input attempts the Rayleigh solve. `rayleigh_valid` becomes false only for a
 catastrophic numerical failure such as non-finite input, solution, or residual;
-then the entire optimizer step is rolled back and aborted through the native
-checkpoint path. Normal gradients use every determinant sample without masked
-averaging.
+then the optimizer update is skipped before it can change parameters or
+optimizer state, and training aborts through the native checkpoint path. Normal
+gradients use every determinant sample without masked averaging. Training logs
+also include `grad_norm` and `update_norm`; an invalid gated step reports a zero
+update norm.
 
 For a first periodic smoke test, use
 [`examples/solid/hchain_subspace_smoke.yml`](../../examples/solid/hchain_subspace_smoke.yml)
@@ -115,6 +122,23 @@ with `jax.enable_x64: true`, a small batch, $M=2$, and Adam.
 For the memory-conservative H24 test, use
 [`examples/solid/h24_subspace_smoke.yml`](../../examples/solid/h24_subspace_smoke.yml)
 starting at four determinant walkers.
+
+For repeatable H24 server runs, use the layered configurations in `configs/`
+in fixed base → workflow → hardware order:
+
+```console
+jaqmc solid subspace-train \
+  --yml configs/systems/h24_base.yml \
+  --yml configs/workflows/subspace_smoke.yml \
+  --yml configs/hardware/single_v100.yml
+```
+
+Replace the final file with `multi_v100_2gpu.yml` or
+`multi_v100_4gpu.yml`; these keep four local walkers per device and $M=2$.
+The parameterized launcher `configs/run_subspace_smoke.sbatch` records the Git,
+Python, JAX, device, and CUDA environment before starting. JaQMC writes the
+resolved configuration into the run directory through its native workflow
+checkpoint/configuration path.
 
 The current sampler is the correctness-first full-recompute implementation: one
 replica row moves per proposal while the determinant is reevaluated through the

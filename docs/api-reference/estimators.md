@@ -93,7 +93,7 @@ API reference for built-in estimators. For background, formulas, and configurati
 
 ```{eval-rst}
 .. autoclass:: jaqmc.estimator.loss_grad.LossAndGrad
-.. autoclass:: jaqmc.estimator.loss_grad.StreamingLossAndGrad
+.. autoclass:: jaqmc.estimator.streaming_loss_grad.StreamingLossAndGrad
 ```
 
 ### Variational subspace Rayleigh matrix

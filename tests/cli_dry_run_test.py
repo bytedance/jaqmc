@@ -426,6 +426,31 @@ def test_solid_subspace_smoke_yaml_dry_run(config_name: str) -> None:
     assert result.exit_code == 0, result.output
 
 
+@pytest.mark.parametrize(
+    "hardware_name",
+    ["single_v100.yml", "multi_v100_2gpu.yml", "multi_v100_4gpu.yml"],
+)
+def test_solid_subspace_h24_overlay_dry_run(hardware_name: str) -> None:
+    root = Path(__file__).resolve().parents[1]
+    configs = root / "configs"
+    result = CliRunner().invoke(
+        cli,
+        [
+            "solid",
+            "subspace-train",
+            "--yml",
+            str(configs / "systems" / "h24_base.yml"),
+            "--yml",
+            str(configs / "workflows" / "subspace_smoke.yml"),
+            "--yml",
+            str(configs / "hardware" / hardware_name),
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+
+
 def test_cli_verbose_config_dotlist(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level("INFO", logger="jaqmc.utils.config")
 
