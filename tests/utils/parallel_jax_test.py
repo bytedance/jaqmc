@@ -82,6 +82,35 @@ def test_pvary_outside_shard_map_is_identity_in_jitted_scan():
     np.testing.assert_array_equal(scan_sum(values), jnp.sum(values))
 
 
+def test_pnanmean_weights_finite_values_across_devices():
+    """Test pnanmean weights each device by its valid values."""
+    import jax
+    from jax import numpy as jnp
+
+    from jaqmc.utils import parallel_jax
+
+    if jax.device_count() < 2:
+        pytest.skip("requires at least two JAX devices")
+
+    values = np.full((jax.device_count() * 2, 3), np.nan)
+    values[:4] = [
+        [1.0, np.nan, np.nan],
+        [np.nan, 5.0, np.nan],
+        [3.0, 7.0, np.nan],
+        [np.nan, 9.0, np.nan],
+    ]
+    sharding = parallel_jax.make_sharding(parallel_jax.DATA_PARTITION)
+    reduce_fn = parallel_jax.jit_sharded(
+        parallel_jax.pnanmean,
+        in_specs=parallel_jax.DATA_PARTITION,
+        out_specs=parallel_jax.SHARE_PARTITION,
+    )
+
+    result = reduce_fn(jax.device_put(jnp.asarray(values), sharding))
+
+    np.testing.assert_allclose(result, np.nanmean(values, axis=0), equal_nan=True)
+
+
 def test_process_allgather_single_process():
     """Test process_allgather in single-process multi-device setting.
 
