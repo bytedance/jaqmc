@@ -1,6 +1,5 @@
-# Minimal single-GPU determinant-subspace smoke test for a periodic H chain.
-# This intentionally uses the subspace namespaces rather than ground-state
-# pretrain/sampler/grads configuration.
+# Memory-conservative H24, M=2 server smoke test. Increase batch size only
+# after recording stable peak memory and step time at each smaller size.
 
 logging:
   level: info
@@ -11,22 +10,22 @@ jax:
 
 workflow:
   seed: 20260820
-  batch_size: 32
-  save_path: runs/subspace_smoke
+  batch_size: 4
+  save_path: runs/h24_subspace_m2_smoke
 
 system:
   module: two_atom_chain
   symbol: H
   bond_length: 2.0
   unit: bohr
-  supercell: 1
+  supercell: 12
   vacuum_separation: 20.0
   s_z: 0
   electron_init_width: 0.8
 
 wf:
-  hidden_dims_single: [64, 64]
-  hidden_dims_double: [16, 16]
+  hidden_dims_single: [256, 256, 256, 256]
+  hidden_dims_double: [32, 32, 32, 32]
   ndets: 1
   distance_type: nu
   envelope_type: abs_isotropic
@@ -58,13 +57,15 @@ subspace:
 
 train:
   run:
-    iterations: 2
+    iterations: 3
     burn_in: 2
+    save_time_interval: 0
     save_step_interval: 1
+    timing_warmup_steps: 1
     stop_on_nan: loss
   optim:
     module: jaqmc.optimizer.optax:adam
-    learning_rate: 0.0001
+    learning_rate: 1.0e-4
   grads:
     vmap_chunk_size: 1
     clip_method: mad
@@ -73,6 +74,9 @@ train:
 estimators:
   energy:
     kinetic:
-      vmap_chunk_size: 8
+      vmap_chunk_size: 1
       mode: forward_laplacian
       sparse: true
+  enabled:
+    spin: false
+    density: false

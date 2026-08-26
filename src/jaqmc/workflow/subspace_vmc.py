@@ -3,6 +3,7 @@
 
 """JaQMC-native assembly of determinant-state variational training."""
 
+import logging
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from typing import Any
@@ -13,7 +14,7 @@ from jax import numpy as jnp
 from jaqmc.array_types import PRNGKey
 from jaqmc.data import BatchedData
 from jaqmc.estimator import CrossLocalEnergyEvaluator, EstimatorLike
-from jaqmc.estimator.loss_grad import LossAndGrad
+from jaqmc.estimator.loss_grad import StreamingLossAndGrad
 from jaqmc.estimator.rayleigh import RayleighMatrixEstimator
 from jaqmc.optimizer.optax import adam
 from jaqmc.sampler.determinant import DeterminantMCMCSampler
@@ -26,6 +27,8 @@ from jaqmc.wavefunction.determinant_state import (
 )
 from jaqmc.workflow.stage.vmc import VMCWorkStage
 from jaqmc.workflow.vmc import VMCWorkflow
+
+logger = logging.getLogger(__name__)
 
 
 @configurable_dataclass
@@ -209,9 +212,23 @@ class SubspaceVMCWorkflow(VMCWorkflow):
         train.configure_sample_plan(self.wf.logpsi, {"electrons": sampler})
         train.configure_optimizer(default=adam, f_log_psi=self.wf.logpsi)
         train.configure_estimators(rayleigh=rayleigh)
-        train.configure_loss_grads(
-            LossAndGrad(loss_key="subspace_local_energy"),
-            f_log_psi=self.wf.logpsi,
+        grads = train.cfg.get("grads", StreamingLossAndGrad)
+        if not hasattr(grads, "loss_key"):
+            raise TypeError("train.grads estimator must expose a loss_key field")
+        grads.loss_key = "subspace_local_energy"
+        train.configure_loss_grads(grads, f_log_psi=self.wf.logpsi)
+        logger.info(
+            "Subspace chunking: n_states=%s, determinant_batch=%s, "
+            "rayleigh_walkers=%s, cross_pairs=%s, gradient_walkers=%s, "
+            "matrix_dtype=%s, optimizer=%s, objective=%s",
+            self.spec.n_states,
+            self.config.batch_size,
+            rayleigh.vmap_chunk_size,
+            rayleigh.pair_chunk_size,
+            getattr(grads, "vmap_chunk_size", None),
+            rayleigh.matrix_dtype,
+            type(train.optimizer).__name__,
+            grads.loss_key,
         )
         native_stage = train.build()
         self.train_stage = SubspaceVMCWorkStage(
@@ -226,20 +243,10 @@ class SubspaceVMCWorkflow(VMCWorkflow):
 
 
 class SubspaceVMCWorkStage(VMCWorkStage):
-    """Native VMC stage with rollback-before-abort for invalid subspace steps."""
+    """Native VMC stage that skips updates for invalid Rayleigh steps."""
 
-    def compute_step(self, state, rngs):
-        updated, stats = super().compute_step(state, rngs)
-        valid = stats.get("training_step_valid", jnp.array(True))
-        params = jax.tree.map(
-            lambda new, old: jnp.where(valid, new, old), updated.params, state.params
-        )
-        opt_state = jax.tree.map(
-            lambda new, old: jnp.where(valid, new, old),
-            updated.opt_state,
-            state.opt_state,
-        )
-        return replace(updated, params=params, opt_state=opt_state), stats
+    def should_apply_update(self, final_stats: dict[str, Any]) -> jax.Array:
+        return jnp.asarray(final_stats.get("training_step_valid", True))
 
     def _has_nan(self, stats: dict[str, Any]) -> bool:
         if "training_step_valid" in stats and not bool(

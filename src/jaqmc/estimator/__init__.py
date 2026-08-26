@@ -9,6 +9,7 @@ from .base import (
     FunctionEstimator,
     PerWalkerEstimator,
 )
+from .loss_grad import LossAndGrad, StreamingLossAndGrad
 from .rayleigh import (
     CrossLocalEnergyEvaluator,
     PhysicalEnergyPlan,
@@ -22,6 +23,8 @@ __all__ = [
     "EstimatorPipeline",
     "FunctionEstimator",
     "PerWalkerEstimator",
+    "LossAndGrad",
+    "StreamingLossAndGrad",
     "CrossLocalEnergyEvaluator",
     "PhysicalEnergyPlan",
     "RayleighMatrixEstimator",

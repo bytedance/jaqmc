@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from jaqmc.data import BatchedData, Data
+from jaqmc.estimator.loss_grad import StreamingLossAndGrad
 from jaqmc.utils import parallel_jax
 from jaqmc.utils.config import ConfigManager
 from jaqmc.wavefunction.determinant_state import SubspaceSpec, take_replica
@@ -18,7 +19,6 @@ from jaqmc.workflow.subspace_vmc import (
     make_subspace_data_init,
     replicate_walker_replicas,
 )
-from jaqmc.workflow.stage.vmc import VMCWorkStage
 
 
 class ToyData(Data):
@@ -96,6 +96,14 @@ def test_workflow_accepts_documented_nested_subspace_config():
                     "max_imag_eigenvalue_warning": 1e-4,
                 },
             },
+            "train": {
+                "grads": {
+                    "vmap_chunk_size": 3,
+                    "clip_method": "none",
+                    "clip_scale": 7.0,
+                    "loss_key": "must_be_overridden",
+                }
+            },
         }
     )
 
@@ -123,10 +131,16 @@ def test_workflow_accepts_documented_nested_subspace_config():
 
     sampler = workflow.train_stage.sample_plan.samplers[("electrons",)]
     optimizer = workflow.train_stage.optimizer
+    grads = workflow.train_stage.estimators.estimators["grads"]
     assert sampler.n_states == 2
     assert sampler.steps == 3
     assert sampler.initial_width == 0.04
     assert type(optimizer).__name__ == "adam"
+    assert isinstance(grads, StreamingLossAndGrad)
+    assert grads.vmap_chunk_size == 3
+    assert grads.clip_method == "none"
+    assert grads.clip_scale == 7.0
+    assert grads.loss_key == "subspace_local_energy"
 
     data = init_batched_data(workflow.data_init, 4, jax.random.key(2))
     state = workflow.train_stage.create_state(jax.random.key(3), batched_data=data)
@@ -150,28 +164,49 @@ def test_workflow_accepts_documented_nested_subspace_config():
     )
 
 
-def test_invalid_subspace_step_rolls_back_params_and_optimizer(monkeypatch):
+def test_invalid_subspace_step_skips_optimizer_update():
     @dataclass
     class ToyState:
         params: dict
+        batched_data: object
+        sampler_state: object
+        estimator_state: object
         opt_state: dict
 
     original = ToyState(
-        params={"w": jnp.array(1.0)}, opt_state={"count": jnp.array(2)}
+        params={"w": jnp.array(1.0)},
+        batched_data=object(),
+        sampler_state=None,
+        estimator_state=None,
+        opt_state={"count": jnp.array(2)},
     )
 
-    def invalid_update(self, state, rngs):
-        del self, rngs
-        return (
-            ToyState(
-                params={"w": jnp.array(jnp.nan)},
-                opt_state={"count": jnp.array(3)},
-            ),
-            {"training_step_valid": jnp.array(False)},
-        )
+    class SamplePlan:
+        def step(self, params, data, sampler_state, rngs):
+            del params, rngs
+            return data, {}, sampler_state
 
-    monkeypatch.setattr(VMCWorkStage, "compute_step", invalid_update)
+    class Estimators:
+        def evaluate(self, params, data, estimator_state, rngs):
+            del params, data, rngs
+            return {}, estimator_state
+
+        def finalize_stats(self, stats, estimator_state):
+            del stats, estimator_state
+            return {
+                "grads": {"w": jnp.array(jnp.nan)},
+                "training_step_valid": jnp.array(False),
+            }
+
+    class Optimizer:
+        def update(self, grads, opt_state, **kwargs):
+            del grads, kwargs
+            return {"w": jnp.array(jnp.nan)}, {"count": opt_state["count"] + 1}
+
     stage = object.__new__(SubspaceVMCWorkStage)
+    stage.sample_plan = SamplePlan()
+    stage.estimators = Estimators()
+    stage.optimizer = Optimizer()
 
     updated, stats = stage.compute_step(original, jax.random.key(0))
 

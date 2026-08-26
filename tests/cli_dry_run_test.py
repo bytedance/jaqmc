@@ -407,12 +407,15 @@ def test_solid_subspace_train_help_is_exposed() -> None:
     assert "solid-state low-energy subspace" in result.output
 
 
-def test_solid_subspace_smoke_yaml_dry_run() -> None:
+@pytest.mark.parametrize(
+    "config_name", ["hchain_subspace_smoke.yml", "h24_subspace_smoke.yml"]
+)
+def test_solid_subspace_smoke_yaml_dry_run(config_name: str) -> None:
     smoke_config = (
         Path(__file__).resolve().parents[1]
         / "examples"
         / "solid"
-        / "hchain_subspace_smoke.yml"
+        / config_name
     )
 
     result = CliRunner().invoke(

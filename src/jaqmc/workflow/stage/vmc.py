@@ -257,14 +257,27 @@ class VMCWorkStage(SamplingWorkStage):
         grads = final_stats.pop("grads", None)
         if grads is None:
             raise ValueError("None of the estimators provides `grads` stats.")
-        updates, opt_state = self.optimizer.update(
-            grads,
-            state.opt_state,
-            params=state.params,
-            batched_data=data,
-            rngs=opt_rngs,
-        )
-        params = optax.apply_updates(state.params, updates)
+        apply_update = self.should_apply_update(final_stats)
+
+        def update(_):
+            updates, opt_state = self.optimizer.update(
+                grads,
+                state.opt_state,
+                params=state.params,
+                batched_data=data,
+                rngs=opt_rngs,
+            )
+            return optax.apply_updates(state.params, updates), opt_state
+
+        if apply_update is None:
+            params, opt_state = update(None)
+        else:
+            params, opt_state = jax.lax.cond(
+                apply_update,
+                update,
+                lambda _: (state.params, state.opt_state),
+                operand=None,
+            )
         new_state = replace(
             state,
             params=params,
@@ -274,6 +287,17 @@ class VMCWorkStage(SamplingWorkStage):
             opt_state=opt_state,
         )
         return new_state, {**final_stats, **sampler_stats}
+
+    def should_apply_update(
+        self, final_stats: dict[str, Any]
+    ) -> jax.Array | None:
+        """Return an optional runtime gate for the optimizer update.
+
+        ``None`` preserves the native unconditional update path. Subclasses
+        may return a scalar boolean array to gate the update with ``lax.cond``.
+        """
+        del final_stats
+        return None
 
     def _has_nan(self, stats: dict[str, Any]) -> bool:
         if not self.config.stop_on_nan:

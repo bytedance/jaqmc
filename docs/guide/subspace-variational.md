@@ -41,6 +41,7 @@ subspace:
     update_mode: full
 
   evaluation:
+    vmap_chunk_size: 1
     pair_chunk_size: 4
     matrix_dtype: complex128
 
@@ -53,14 +54,27 @@ train:
   optim:
     module: jaqmc.optimizer.optax:adam
     learning_rate: 0.0001
+  grads:
+    vmap_chunk_size: 1
+    clip_method: mad
+    clip_scale: 5.0
 ```
 
-`pair_chunk_size` limits peak memory in the $M^2$ cross-local-energy
-evaluation. Parameters and replica data remain in their original $M$-sized
-containers and are selected dynamically inside each chunk. State-independent
-potential energy is evaluated $M$ times and reused across state columns.
-Walker sharding remains the existing JaQMC behavior; every device keeps the
-complete state axis.
+The three chunk controls apply to different axes:
+
+- `subspace.evaluation.vmap_chunk_size` controls determinant walkers entering
+  the Rayleigh/local-energy estimator concurrently.
+- `subspace.evaluation.pair_chunk_size` controls concurrent $(r,s)$ energy
+  pairs inside one determinant walker.
+- `train.grads.vmap_chunk_size` controls determinant walkers entering the
+  streaming log-determinant gradient calculation.
+
+Parameters and replica data remain in their original $M$-sized containers.
+The streaming gradient estimator reduces each chunk immediately to parameter
+PyTree sufficient statistics instead of reconstructing a
+`[walkers, ...parameters]` tree. State-independent potential energy is
+evaluated $M$ times and reused across state columns. Walker sharding remains
+the existing JaQMC behavior; every device keeps the complete state axis.
 
 With `initialization.mode: checkpoints`, provide exactly `n_states` native
 JaQMC checkpoint files or directories. Parameter PyTree structure and leaf
@@ -78,8 +92,10 @@ R_L=\operatorname{solve}(\Phi,\Phi^{(H)}).
 $$
 
 The reported scalar energy is $\operatorname{Re}\operatorname{Tr}R_L$; the
-gradient uses the full complex $\operatorname{Tr}R_L$ through the existing
-`LossAndGrad`. No NetKet runtime or second Hamiltonian implementation is used.
+gradient uses the full complex $\operatorname{Tr}R_L$ through
+`StreamingLossAndGrad`. The workflow forces this loss key while preserving
+`train.grads` configuration for chunking and clipping. No NetKet runtime or
+second Hamiltonian implementation is used.
 
 ## Diagnostics
 
@@ -96,6 +112,9 @@ averaging.
 For a first periodic smoke test, use
 [`examples/solid/hchain_subspace_smoke.yml`](../../examples/solid/hchain_subspace_smoke.yml)
 with `jax.enable_x64: true`, a small batch, $M=2$, and Adam.
+For the memory-conservative H24 test, use
+[`examples/solid/h24_subspace_smoke.yml`](../../examples/solid/h24_subspace_smoke.yml)
+starting at four determinant walkers.
 
 The current sampler is the correctness-first full-recompute implementation: one
 replica row moves per proposal while the determinant is reevaluated through the
