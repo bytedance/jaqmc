@@ -65,6 +65,7 @@ getting-started/concepts.md
 systems/index.md
 guide/index.md
 extending/index.md
+contrib/index.md
 roadmap.md
 citing.md
 api-reference/index.md

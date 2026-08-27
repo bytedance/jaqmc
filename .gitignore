@@ -21,6 +21,7 @@ coverage.xml
 # Sphinx output
 docs/_build/
 docs/apidocs/
+docs/contrib/packages/
 
 # JaQMC run results
 /runs/

@@ -12,6 +12,7 @@ Write custom workflows, wavefunctions, and configurable components. If you are c
 - Use {mod}`jaqmc.laplacian` directly in an estimator → <project:forward-laplacian/index.md>
 - Add custom Forward Laplacian rules, extend the transform itself, or debug primitive dispatch / sparse fallback → <project:forward-laplacian/index.md>
 - Contribute changes back to the project → <project:contributing.md>
+- Add or maintain a contributed workspace package → <project:../contrib/index.md>
 
 If you are starting from scratch, the usual reading order is
 <project:runtime-data-conventions.md> -> <project:writing-workflows.md> ->

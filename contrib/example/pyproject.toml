@@ -1,0 +1,29 @@
+[project]
+name = "jaqmc-contrib-example"
+version = "0.1.0"
+description = "Reference JaQMC contribution demonstrating workspace packaging and lazy CLI discovery"
+license = "Apache-2.0"
+readme = "README.md"
+requires-python = ">=3.12"
+maintainers = [
+    { name = "ByteDance Seed" }
+]
+dependencies = [
+    "click",
+    "jaqmc",
+]
+
+[project.entry-points."jaqmc.apps"]
+example-contrib = "jaqmc_contrib_example.cli:cli"
+
+[tool.uv.sources]
+jaqmc = { workspace = true }
+
+[dependency-groups]
+test = [
+    "pytest>=9.0.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.0,<0.12.0"]
+build-backend = "uv_build"

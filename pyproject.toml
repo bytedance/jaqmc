@@ -50,6 +50,9 @@ cuda12_local = ["jax[cuda12_local]>=0.4.36"]
 cuda13 = ["jax[cuda13]>=0.7.0"]
 cuda13_local = ["jax[cuda13_local]>=0.7.0"]
 
+[tool.uv.workspace]
+members = ["contrib/*"]
+
 [tool.uv]
 override-dependencies = ["setuptools==80.9.0"]
 conflicts = [
@@ -99,6 +102,7 @@ docs = [
     "sphinx-llm>=0.4.1",
     "sphinx-notfound-page>=1.1.0",
     "sphinx-reredirects>=1.1.0",
+    "sphinx-collections>=0.3.2",
     "types-docutils>=0.22.3.20251115",
 ]
 types = [
@@ -127,6 +131,7 @@ exclude = [
     "tests/legacy",
     "src/jaqmc_legacy",
     "legacy_examples",
+    "contrib",
 ]
 
 [[tool.mypy.overrides]]
