@@ -14,6 +14,7 @@ import os
 import sys
 import warnings
 from importlib.metadata import version as get_version
+from pathlib import Path
 
 from docutils import nodes
 from sphinx.application import Sphinx
@@ -46,6 +47,7 @@ extensions = [
     "sphinx_design",
     "sphinx_autodoc_typehints",
     "sphinx_copybutton",
+    "sphinx_collections",
 ]
 if os.environ.get("READTHEDOCS"):
     extensions.extend(
@@ -66,6 +68,18 @@ exclude_patterns = [
     ".jupyter_cache",
     "jupyter_execute",
 ]
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CONTRIB_ROOT = REPO_ROOT / "contrib"
+collections_target = "contrib/packages"
+collections = {}
+for docs_dir in sorted(CONTRIB_ROOT.glob("*/docs")):
+    package_name = docs_dir.parent.name
+    collections[f"contrib_{package_name}"] = {
+        "driver": "copy_folder",
+        "source": str(docs_dir),
+        "target": package_name,
+    }
 
 
 # -- Options for HTML output -------------------------------------------------
@@ -143,6 +157,29 @@ nb_execution_timeout = 360
 llms_txt_suffix_mode = "replace"
 
 
+def _remap_contrib_source_buttons(
+    app: Sphinx, pagename: str, templatename, context, doctree
+) -> None:
+    """Point collected-page source buttons to package-owned documentation."""
+    prefix = "contrib/packages/"
+    if not pagename.startswith(prefix):
+        return
+
+    package_name, _, relative_docname = pagename.removeprefix(prefix).partition("/")
+    source_suffix = context.get("page_source_suffix", "")
+    generated_path = f"/docs/{pagename}{source_suffix}"
+    source_path = f"/contrib/{package_name}/docs/{relative_docname}{source_suffix}"
+
+    def remap(button):
+        if button.get("label") in {"source-file-button", "source-edit-button"}:
+            button["url"] = button["url"].replace(generated_path, source_path)
+        for child in button.get("buttons", []):
+            remap(child)
+
+    for button in context["header_buttons"]:
+        remap(button)
+
+
 class GitHubSourceRole(SphinxRole):
     """Inline role that links a source path to its GitHub location.
 
@@ -169,3 +206,4 @@ def setup(app: Sphinx):
             app.config.nb_execution_mode = "off"
 
     app.connect("builder-inited", configure_for_builder)
+    app.connect("html-page-context", _remap_contrib_source_buttons, priority=502)
