@@ -23,6 +23,10 @@ class HistogramEstimator(Estimator):
       :func:`jnp.histogramdd`.
     - :meth:`extract` — return values to histogram, shape ``(..., ndim)``.
 
+    Weighted histograms additionally override :meth:`_weights`, which
+    returns per-sample weights matching the leading shape of the
+    :meth:`extract` output.
+
     The histogram and its Kahan compensation array are stored in the
     estimator state with a leading device dimension so that each device
     maintains a full independent histogram.  No per-step statistics are
@@ -73,6 +77,39 @@ class HistogramEstimator(Estimator):
         """
         raise NotImplementedError
 
+    def _weights(self, values: jnp.ndarray, data: Data) -> jnp.ndarray | None:
+        """Return per-sample weights for the extracted values.
+
+        The returned array must have shape ``values.shape[:-1]``.
+        ``values`` is the :meth:`extract` output and ``data`` the batch
+        it was extracted from, so weights can be derived without
+        recomputing coordinates.  Return ``None`` for uniform weights;
+        a constant folded into the weights scales the histogram by the
+        same constant.
+        """
+        del values, data
+        return None
+
+    def _get_histogram_counts(self, batched_data: BatchedData) -> jnp.ndarray:
+        """Compute the histogram counts for one evaluation step.
+
+        The default implementation bins the :meth:`extract` output
+        with :func:`jnp.histogramdd`, applying :meth:`_weights` when
+        provided.
+
+        Returns:
+            Histogram counts array of shape ``self._histogram_shape()``.
+        """
+        bins, ranges = self._histogram_spec()
+        data = batched_data.data
+        values = self.extract(data)
+        weights = self._weights(values, data)
+        ndim = len(ranges)
+        values = values.reshape(-1, ndim)
+        if weights is not None:
+            weights = weights.reshape(-1)
+        return jnp.histogramdd(values, bins, ranges, weights=weights)[0]
+
     def _histogram_shape(self) -> tuple[int, ...]:
         bins, ranges = self._histogram_spec()
         if isinstance(bins, int):
@@ -96,11 +133,7 @@ class HistogramEstimator(Estimator):
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], dict[str, jnp.ndarray]]:
         del params, prev_walker_stats, rngs
-        bins, ranges = self._histogram_spec()
-        values = self.extract(batched_data.data)
-        ndim = len(ranges)
-        values = values.reshape(-1, ndim)
-        counts = jnp.histogramdd(values, bins, ranges)[0]
+        counts = self._get_histogram_counts(batched_data)
         # Kahan summation (state arrays have a leading device dim that
         # broadcasts naturally with the per-device counts).
         adjusted = counts - state["compensation"]
