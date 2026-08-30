@@ -60,6 +60,20 @@ def _varying_owner_local1(owner: OwnerRole) -> LapTuple:
             id="sparse_leading_broadcast",
         ),
         pytest.param(lambda value: jnp.reshape(value, (1, 2, 3)), id="reshape"),
+        pytest.param(
+            lambda value: jnp.concatenate(
+                [jnp.zeros((2, 1, 2), dtype=value.dtype), value],
+                axis=2,
+            ),
+            id="concatenate_plain_segment",
+        ),
+        pytest.param(
+            lambda value: jnp.concatenate(
+                [jnp.zeros((3, 1, 3), dtype=value.dtype), value],
+                axis=0,
+            ),
+            id="concatenate_plain_leading_axis",
+        ),
     ),
 )
 def test_constant_owner_local1_shape_operations(fn):
@@ -93,6 +107,20 @@ def test_constant_owner_local1_shape_operations(fn):
                 axis=2,
             ),
             id="concatenate_plain_segment",
+        ),
+        pytest.param(
+            lambda value: jnp.concatenate(
+                [jnp.zeros((2, 4, 3), dtype=value.dtype), value],
+                axis=0,
+            ),
+            id="concatenate_plain_owner_axis",
+        ),
+        pytest.param(
+            lambda value: jnp.concatenate(
+                [value, jnp.zeros((4, 2, 3), dtype=value.dtype)],
+                axis=1,
+            ),
+            id="concatenate_plain_second_owner_axis",
         ),
     ),
 )
@@ -207,6 +235,21 @@ def test_broadcast_filled_local1_shape_operations(fn):
         broadcast_blocks=True,
     )
     check_sparse_jacobian(fn, seed, expected_jacobian=Local1Jacobian)
+
+
+def test_concatenate_sliced_local1_with_plain_segment():
+    seed = make_laplacian_input(
+        jnp.ones((4, 2), dtype=jnp.float32),
+        sparse_axis=0,
+    )
+
+    def fn(value):
+        reduced = jnp.sum(value * value, axis=1)
+        return jnp.concatenate([reduced[:3], jnp.zeros((2,), dtype=value.dtype)])
+
+    actual = forward_laplacian(fn)(seed)
+    assert isinstance(actual.jacobian, Local1Jacobian)
+    check_with_brute_force(fn, seed, actual_result=actual)
 
 
 @pytest.mark.parametrize(
