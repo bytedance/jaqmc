@@ -489,11 +489,10 @@ def _concatenate_sparse_jacobians(
     owners = []
     for jacobian, shape in zip(jacobians, shapes, strict=True):
         if jacobian is None:
-            # Plain-array segments contribute zero derivatives, but can still
-            # participate in a sparse concatenation if the owner metadata of the
-            # sparse segments remains consistent after inserting zeros. This is
-            # concatenate-specific shape construction, not broadcast: the plain
-            # segment can be smaller or larger only along the concatenation axis.
+            # Plain-array segments contribute zero derivatives. Build zero
+            # blocks at the plain shape and collapse concat-axis owner roles to
+            # a constant dummy so they fill to that segment length. Off-axis
+            # roles stay as in the sparse template.
             blocks.append(
                 jnp.zeros_like(
                     template.blocks,
@@ -501,7 +500,13 @@ def _concatenate_sparse_jacobians(
                     dtype=template.blocks.dtype,
                 )
             )
-            owners.append(template.owners)
+            plain_owners = OwnerRoles(
+                *(
+                    OwnerRole(None, owner.values[:1]) if owner.axis == axis else owner
+                    for owner in template.owners
+                )
+            )
+            owners.append(plain_owners)
             continue
         if type(jacobian) is not type(template):
             raise ValueError("Incompatible sparse Jacobian families for concatenation.")
