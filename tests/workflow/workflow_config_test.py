@@ -59,7 +59,7 @@ def _make_workflow(
 def test_workflow_config_path_uses_namespace():
     cfg = ConfigManager({"workflow": {"save_path": "/tmp/run"}})
     workflow = NamespacedWorkflow(cfg)
-    assert str(workflow.config_path()) == "/tmp/run/custom_config.yaml"
+    assert workflow.config_path() == workflow.save_path / "custom_config.yaml"
 
 
 def test_prepare_skips_identical_backup_and_suffixes_same_second_collisions(
@@ -136,3 +136,45 @@ def test_prepare_tracks_evaluation_config_and_consumed_run_section(
     backup_yaml = backup_path.read_text()
     assert "source_path: train-source" in backup_yaml
     assert "iterations: 2" in backup_yaml
+
+
+def test_prepare_validates_save_path_only_on_master(tmp_path, monkeypatch):
+    import jaqmc.workflow.base as workflow_base
+
+    save_path = tmp_path / "save"
+    save_path.touch()
+    workflow = NamespacedWorkflow(
+        ConfigManager({"workflow": {"save_path": str(save_path)}})
+    )
+    monkeypatch.setattr(workflow_base.jax, "process_index", lambda: 1)
+
+    workflow.prepare()
+    monkeypatch.setattr(workflow_base.jax, "process_index", lambda: 0)
+
+    with pytest.raises(ValueError, match="Save path is not a directory"):
+        workflow.prepare()
+
+
+def test_prepare_rejects_non_empty_cross_directory_resume_destination(tmp_path):
+    source_path = tmp_path / "source"
+    save_path = tmp_path / "save"
+    source_path.mkdir()
+    save_path.mkdir()
+    (save_path / "existing.txt").touch()
+
+    workflow = NamespacedWorkflow(
+        ConfigManager(
+            {
+                "workflow": {
+                    "save_path": str(save_path),
+                    "restore_path": str(source_path),
+                }
+            }
+        )
+    )
+
+    with pytest.raises(
+        ValueError, match="Save path is not empty during cross-directory resume"
+    ):
+        workflow.prepare()
+    assert not (save_path / "custom_config.yaml").exists()

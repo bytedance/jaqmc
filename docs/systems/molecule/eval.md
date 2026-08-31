@@ -52,10 +52,9 @@ all-electron Gaussian proposal.
 
 ## Writers (`writers.*`)
 
-No external writers are enabled by default. If you enable them manually, the
-root-level writer keys below control their configuration. The evaluation stage
-always writes per-step statistics to an internal HDF5 file for digest
-computation; this is independent of the writers configured here.
+The evaluation HDF5 writer is always enabled because its per-step statistics
+are required for digest computation. It writes to `evaluation_stats.h5`; other
+root-level writer keys enable additional outputs.
 
 ### Console writer (`writers.console.*`)
 
@@ -69,13 +68,6 @@ computation; this is independent of the writers configured here.
 ```{eval-rst}
 .. config-defaults:: jaqmc.writer.csv.CSVWriter
    :prefix: writers.csv
-```
-
-### HDF5 writer (`writers.hdf5.*`)
-
-```{eval-rst}
-.. config-defaults:: jaqmc.writer.hdf5.HDF5Writer
-   :prefix: writers.hdf5
 ```
 
 (molecule-estimators)=

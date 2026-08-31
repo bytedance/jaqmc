@@ -164,7 +164,13 @@ class WorkStage[StateT: StageState](ABC):
 
         try:
             with self.writers.open(
-                save_dir, prefix, is_master=is_master, initial_step=initial_step
+                save_dir,
+                prefix,
+                is_master=is_master,
+                initial_step=initial_step,
+                restore_dir=ckpt.restore_path.parent
+                if ckpt.restore_path.is_file()
+                else ckpt.restore_path,
             ):
                 tracker.start()
                 for step, state in self.loop(state, initial_step, rngs):

@@ -47,10 +47,11 @@ class WorkflowConfig:
         seed: Fixed random seed. If not provided, current time will be used.
         batch_size: Number of walkers (samples) to use in each iteration.
         save_path: Path to save checkpoints and logs. Can be any path
-            supported by fsspec/universal_pathlib.
-        restore_path: Path to restore checkpoints from. When set, checkpoints
-            are restored from this path instead of ``save_path``. Can be a
-            directory or a specific checkpoint file.
+            supported by fsspec/universal_pathlib. If empty, defaults to a
+            timestamped directory under ``runs/``.
+        restore_path: Path to restore checkpoints from. If ``None``,
+            ``save_path`` is used. Can be a directory or a specific checkpoint
+            file.
         config: Controls config validation behavior (extra-key warnings,
             verbose output).
     """
@@ -58,7 +59,7 @@ class WorkflowConfig:
     seed: int | None = None
     batch_size: int = 4096
     save_path: str = ""
-    restore_path: str = ""
+    restore_path: str | None = None
     config: ConfigCheck = field(default_factory=ConfigCheck)
 
     def __post_init__(self):
@@ -70,8 +71,6 @@ class WorkflowConfig:
                 self.save_path = str(project_root / "runs" / dirname)
             else:
                 self.save_path = str(Path("runs") / dirname)
-        if not self.restore_path:
-            self.restore_path = self.save_path
 
 
 class Workflow:
@@ -105,9 +104,9 @@ class Workflow:
         cfg.use_preset(type(self).default_preset())
         self.cfg = cfg
         self.config = cfg.get("workflow", self.config_class)
-        self.save_path = UPath(self.config.save_path)
+        self.save_path = UPath(self.config.save_path).resolve()
         self.restore_path = (
-            UPath(self.config.restore_path)
+            UPath(self.config.restore_path).resolve()
             if self.config.restore_path is not None
             else self.save_path
         )
@@ -136,7 +135,7 @@ class Workflow:
         filename = "config.yaml"
         if self.config_namespace:
             filename = f"{self.config_namespace}_config.yaml"
-        return UPath(self.config.save_path) / filename
+        return self.save_path / filename
 
     def config_backup_path(self) -> UPath:
         """Return an unused backup path for the current config snapshot."""
@@ -159,6 +158,7 @@ class Workflow:
         """
         # Only write config and compare on the master process
         if jax.process_index() == 0:
+            self._validate_paths()
             config_path = self.config_path()
             previous_yaml = config_path.read_text() if config_path.exists() else None
             self.cfg.finalize(
@@ -184,6 +184,31 @@ class Workflow:
             jax.local_device_count(),
             jax.process_count(),
         )
+
+    def _validate_paths(self) -> None:
+        """Reject a restore path that does not exist or an unusable ``save_path``.
+
+        ``restore_path`` must exists unless it's the same as ``save_path`` (the case of
+        fresh runs). If ``save_path`` differs from the restore directory, it should be
+        empty, otherwise the files there can be overwritten and cause data loss.
+
+        Raises:
+            FileNotFoundError: Restore path does not exist.
+            ValueError: Save path is not a directory, or is not empty
+                during cross-directory resume.
+        """
+        save_path = self.save_path
+        restore_path = self.restore_path
+        if restore_path != save_path and not restore_path.exists():
+            raise FileNotFoundError(f"Restore path {restore_path} does not exist")
+        if save_path.exists() and not save_path.is_dir():
+            raise ValueError(f"Save path is not a directory: {save_path}")
+
+        restore_dir = restore_path.parent if restore_path.is_file() else restore_path
+        if save_path != restore_dir and save_path.exists() and any(save_path.iterdir()):
+            raise ValueError(
+                f"Save path is not empty during cross-directory resume: {save_path}"
+            )
 
 
 def init_batched_data(

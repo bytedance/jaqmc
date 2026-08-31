@@ -72,6 +72,9 @@ def test_evaluation_writes_per_step_stats_and_digest(tmp_path):
                 "source_path": str(train_dir),
             },
             "run": {"iterations": 5},
+            "writers": {
+                "csv": {"module": "jaqmc.writer.csv:CSVWriter"},
+            },
         }
     )
     hydrogen_atom_eval_workflow(eval_cfg)()
@@ -80,6 +83,10 @@ def test_evaluation_writes_per_step_stats_and_digest(tmp_path):
     with h5py.File(eval_dir / "evaluation_stats.h5", "r") as f:
         assert "total_energy" in f
         assert f["total_energy"].shape[0] == 5
+        expected_energy = np.nanmean(f["total_energy"], axis=0)
+
+    with (eval_dir / "evaluation_stats.csv").open(encoding="utf8") as f:
+        assert len(f.readlines()) == 6
 
     # Digest produced after evaluation — values should be scalars
     digest_path = eval_dir / "evaluation_digest.npz"
@@ -87,6 +94,7 @@ def test_evaluation_writes_per_step_stats_and_digest(tmp_path):
     digest = np.load(digest_path)
     assert "total_energy" in digest
     assert digest["total_energy"].ndim == 0
+    assert np.isclose(digest["total_energy"], expected_energy)
     assert "energy:kinetic" in digest
     assert digest["energy:kinetic"].ndim == 0
 

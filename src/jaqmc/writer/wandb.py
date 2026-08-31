@@ -45,13 +45,7 @@ class WandbWriter(Writer):
         self._run: Any | None = None
 
     @contextmanager
-    def open(
-        self,
-        working_dir: UPath | Path,
-        stage_name: str,
-        initial_step: int = 0,
-    ):
-        del initial_step
+    def open(self, working_dir: UPath, stage_name: str):
         wandb = self._import_wandb()
         active_run = getattr(wandb, "run", None)
 

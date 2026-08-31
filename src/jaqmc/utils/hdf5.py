@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections.abc import Mapping
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from typing import Any
 
 import h5py
@@ -53,9 +53,8 @@ class HDF5ReadWrite:
             left by a previous interrupted run. If None, rows are kept.
     """
 
-    def __init__(self, stats_path: UPath, truncate_to: int | None = None) -> None:
+    def __init__(self, stats_path: UPath) -> None:
         self.stats_path = stats_path
-        self.truncate_to = truncate_to
         self._h5_file: CachedHDF5 | None = None
 
     @contextmanager
@@ -64,18 +63,23 @@ class HDF5ReadWrite:
         open_mode = "r+b" if self.stats_path.exists() else "w+b"
         with self.stats_path.open(open_mode) as raw, CachedHDF5(raw, "a") as h5:
             self._h5_file = h5
-            self._truncate()
-            yield
-            self.close()
+            try:
+                yield h5
+            finally:
+                self.close()
 
-    def _truncate(self) -> None:
+    def truncate(self, steps: int) -> None:
         """Truncate all datasets to ``truncate_to`` rows, if set."""
-        if self.truncate_to is None or not self._h5_file:
-            return
-        for name in list(self._h5_file):
-            dataset = self._h5_file[name]
-            if dataset.shape[0] > self.truncate_to:
-                dataset.resize(self.truncate_to, axis=0)
+        with ExitStack() as stack:
+            h5_file = (
+                self._h5_file
+                if self._h5_file is not None
+                else stack.enter_context(self.open())
+            )
+            for name in list(h5_file):
+                dataset = h5_file[name]
+                if dataset.shape[0] > steps:
+                    dataset.resize(steps, axis=0)
 
     def read(self) -> dict[str, np.ndarray]:
         """Read all accumulated stats from the open HDF5 file.

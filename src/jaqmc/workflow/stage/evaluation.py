@@ -7,7 +7,6 @@ Accumulates per-step statistics in an HDF5 file owned by the stage and produces 
 ``digest.npz`` summary after all steps. Optionally logs preview digests.
 """
 
-from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar
 
@@ -17,8 +16,8 @@ import numpy as np
 from jaqmc.array_types import PRNGKey
 from jaqmc.utils import parallel_jax
 from jaqmc.utils.config import configurable_dataclass
-from jaqmc.utils.hdf5 import HDF5ReadWrite
 from jaqmc.writer import Writers
+from jaqmc.writer.hdf5 import HDF5Writer
 
 from .base import RunContext, WorkStageConfig
 from .sampling import SamplingStageBuilder, SamplingState, SamplingWorkStage
@@ -48,20 +47,22 @@ class EvalStageBuilder(SamplingStageBuilder):
     config: EvaluationWorkStageConfig
 
     def configure_writers(self, writers: Writers | None = None) -> None:
-        """Configure writers. If no argument, loads defaults from config.
+        """Configure optional writers and add evaluation statistics storage.
 
         Args:
             writers: Pre-built writers, or None to load from config.
         """
-        if writers is not None:
-            self.writers = writers
-        else:
+        if writers is None:
             writers_map = self.cfg.get_collection(
                 "writers",
                 defaults={},
                 context={"config": self.config, "name": self.name},
             )
-            self.writers = Writers(list(writers_map.values()))
+            optional_writers = list(writers_map.values())
+        else:
+            optional_writers = list(writers)
+        self.stats_writer = HDF5Writer()
+        self.writers = Writers([self.stats_writer, *optional_writers])
 
     def build(self) -> "EvaluationWorkStage":
         """Build a fully-configured :class:`EvaluationWorkStage`.
@@ -77,6 +78,7 @@ class EvalStageBuilder(SamplingStageBuilder):
             sample_plan=self.sample_plan,
             estimators=self.estimators,
             writers=self.writers,
+            stats_writer=self.stats_writer,
         )
 
 
@@ -100,19 +102,15 @@ class EvaluationWorkStage(SamplingWorkStage):
     config: EvaluationWorkStageConfig
     name: str
     writers: Writers
+    stats_writer: HDF5Writer
 
     builder: ClassVar[type[EvalStageBuilder]] = EvalStageBuilder
 
     def run(self, state: Any, context: RunContext, rngs: PRNGKey) -> Any:
         save_dir, prefix, _ = self._resolve_paths(context)
-        is_master = jax.process_index() == 0
         self._save_dir = save_dir
         self._prefix = prefix
 
-        prefix_str = f"{prefix}_" if prefix else ""
-        self.hdf5 = HDF5ReadWrite(
-            save_dir / f"{prefix_str}stats.h5", truncate_to=self.config.iterations
-        )
         if self.config.digest_step_interval == 0:
             self.logger.info(
                 "Evaluation digest will only be printed at the last step. Set "
@@ -124,11 +122,7 @@ class EvaluationWorkStage(SamplingWorkStage):
                 "Evaluation digest will be logged every %d steps.",
                 self.config.digest_step_interval,
             )
-        with self.hdf5.open() if is_master else nullcontext():
-            state = super().run(state, context, rngs)
-            if is_master:
-                self.write_digest(state)
-        return state
+        return super().run(state, context, rngs)
 
     def compute_step(
         self, state: SamplingState, rngs: PRNGKey
@@ -158,7 +152,7 @@ class EvaluationWorkStage(SamplingWorkStage):
         if not self.estimators._reduce_keys:
             return
 
-        stacked = self.hdf5.read()
+        stacked = self.stats_writer.read()
         digest = self.estimators.digest(
             stacked, state.estimator_state, n_steps=self.config.iterations
         )
@@ -172,7 +166,7 @@ class EvaluationWorkStage(SamplingWorkStage):
 
     def log_preview_digest(self, step: int, state: SamplingState) -> None:
         """Log a preview digest from the stats accumulated so far."""
-        stacked = self.hdf5.read()
+        stacked = self.stats_writer.read()
         if not stacked:
             return
         preview = self.estimators.finalize_stats(stacked, state.estimator_state)
@@ -184,10 +178,7 @@ class EvaluationWorkStage(SamplingWorkStage):
                     self.logger.info("Digest step %d for %s:\n%s", step, k, v)
 
     def loop(self, state: SamplingState, initial_step: int, rngs):
-        """Yield ``(step, state)`` for each evaluation iteration.
-
-        Accumulates per-step statistics in the stage-owned HDF5 file.
-        """
+        """Yield ``(step, state)`` for each evaluation iteration."""
         is_master = jax.process_index() == 0
         partition = state.partition()
         split_rngs = parallel_jax.jit_sharded(
@@ -214,7 +205,6 @@ class EvaluationWorkStage(SamplingWorkStage):
             state, step_stats = compute(state, sub_rngs)
 
             if is_master:
-                self.hdf5.write(step_stats)
                 self.writers.write(step, step_stats)
                 if digest_step_interval and (step + 1) % digest_step_interval == 0:
                     self.log_preview_digest(step, state)
@@ -225,3 +215,5 @@ class EvaluationWorkStage(SamplingWorkStage):
             digest_step_interval == 0 or (step + 1) % digest_step_interval != 0
         ):
             self.log_preview_digest(step, state)
+        if is_master:
+            self.write_digest(state)
