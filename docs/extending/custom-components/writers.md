@@ -14,7 +14,7 @@ The stage drives writers in this order on the master process:
 
 4. **`open()` cleanup** runs when the stage ends (after `yield`). Close file handles, flush buffers, disconnect.
 
-The user-facing resume and branch recipes that produce a different `working_dir` are in <project:/guide/running-workflows.md#recipe-resume-evaluate>.
+The user-facing resume and branch recipes that produce a different `working_dir` are in {ref}`recipe-resume-evaluate`.
 
 ## Building a Writer
 

@@ -93,7 +93,7 @@ already active before JaQMC starts the stage, the writer reuses that run.
 CSV and HDF5 writers produce files in the `workflow.save_path` directory. CSV captures scalar statistics; HDF5 captures all statistics including array-valued fields. Their output files are named `{stage}_stats.csv` and `{stage}_stats.h5`.
 
 For resume and branch behavior, see
-<project:running-workflows.md#recipe-resume-evaluate>. For reading the files,
+{ref}`recipe-resume-evaluate`. For reading the files,
 see <project:training-stats.md>.
 
 ## See Also
