@@ -98,8 +98,12 @@ jaqmc <app> train ... \
   train.run.iterations=<larger_value>
 ```
 
+JaQMC restores the latest checkpoint in that directory, drops any statistics written
+after that checkpoint, and appends new steps to the same `*_stats.*` files.
+
 Branch from an existing run into a new output directory by setting both save and restore
-paths:
+paths. JaQMC creates `workflow.save_path` if needed; that directory must not already
+contain files:
 
 ```bash
 jaqmc <app> train ... \
@@ -107,6 +111,11 @@ jaqmc <app> train ... \
   workflow.restore_path=./runs/<name>-prod \
   train.run.iterations=<larger_value>
 ```
+
+The new directory starts with the resumed stage's stats files (`train_stats.h5` and
+`train_stats.csv` by default), truncated to the restored checkpoint. New checkpoints and
+the resolved config are written as the run continues. Outputs from other stages, such as
+`pretrain_*`, stay in the original directory.
 
 For a trained wavefunction, run evaluation in a separate directory by pointing
 `workflow.source_path` at the training run you want to evaluate:
@@ -118,10 +127,10 @@ jaqmc <app> evaluate ... \
   run.iterations=1000
 ```
 
-Evaluation enables no configurable writer adapters by default. It does not emit per-step
-estimator statistics. Users who need per-step evaluation logging can enable writer
-adapters with `writers.*` command-line configuration overrides
-For example, with the energy estimator enabled:
+Evaluation always writes per-step statistics to `evaluation_stats.h5` in
+`workflow.save_path`. Use that file for uncertainty analysis. Console and CSV writers
+are disabled by default; see <project:writers.md> to enable them. For example, to print
+the total energy when the energy estimator is enabled:
 
 ```bash
 jaqmc <app> evaluate ... \
@@ -137,24 +146,22 @@ These three path settings do different jobs:
 
 - `workflow.save_path`: where the current command writes outputs
 - `workflow.restore_path`: where the current command looks for its own checkpoints; if
-  unset, it defaults to `workflow.save_path`
+  unset, it defaults to `workflow.save_path`. May be a directory or a specific checkpoint
+  file. When the checkpoint lives in a different directory, `workflow.save_path` must be
+  empty.
 - `workflow.source_path`: training run or checkpoint used by `evaluate` to load trained
   parameters, walkers, and sampler state. It is required when the wavefunction has
   trainable parameters. Analytic wavefunctions with no parameters can instead start
   evaluation from freshly initialized walkers; system pages document those workflows.
 ```
 
-When you rerun a command with the same `workflow.save_path`, JaQMC resumes from the
-latest checkpoint already in that directory. Use `workflow.restore_path` only when you
-want to start writing into a different output directory while restoring state from
-somewhere else.
-
 ### Reporting checklist
 
 Use this checklist before sharing final numbers:
 
 1. Prefer evaluation outputs over in-training values for final reported observables.
-2. Estimate uncertainty from per-step evaluation data, not from a single digest value.
+2. Estimate uncertainty from per-step evaluation data in `evaluation_stats.h5`, not from
+   a single digest value.
 3. Keep the resolved config and run provenance with the result.
 4. Record any non-default estimator, optimizer, or wavefunction settings.
 5. Make sure comparisons across runs use the same observable definitions and units.

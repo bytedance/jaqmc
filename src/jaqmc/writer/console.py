@@ -96,7 +96,8 @@ class ConsoleWriter(Writer):
         self._warned_missing_fields: set[str] = set()
 
     @contextmanager
-    def open(self, working_dir, stage_name, initial_step: int = 0):
+    def open(self, working_dir, stage_name):
+        del working_dir
         self.logger = logging.LoggerAdapter(logger, extra={"category": stage_name})
         yield
 

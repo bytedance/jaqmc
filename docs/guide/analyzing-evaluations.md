@@ -169,7 +169,7 @@ show_tree(WORKING_DIR / "eval")
 
 **Key files:**
 - **`evaluation_digest.npz`** — Final observables averaged over all evaluation steps. This is the main result.
-- **`evaluation_stats.h5`** — Per-step statistics written by the internal HDF5 writer. Used for digest computation and for the block analysis shown below.
+- **`evaluation_stats.h5`** — Per-step statistics written by the mandatory HDF5 writer. Used for digest computation and for the block analysis shown below.
 - **`evaluation_ckpt_*.npz`** — Checkpoint for resuming an interrupted evaluation.
 - **`config.yaml`** — The resolved configuration.
 

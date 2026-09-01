@@ -1,24 +1,37 @@
 # Writers
 
-Writers record statistics produced during training. The built-in writers are:
+Writers record per-step statistics. The built-in writers are:
 
 - **Console** — Prints selected fields to the terminal.
 - **CSV** — Appends scalar statistics to a CSV file (e.g., `train_stats.csv`) in the output directory.
 - **HDF5** — Appends all statistics (including array-valued fields) to an HDF5 file (e.g., `train_stats.h5`) in the output directory.
 - **W&B** — Sends scalar statistics to Weights & Biases.
 
-Which writers are active depends on the workflow. Use `--dry-run` to see the resolved config — the `writers` section shows what is enabled. To disable a writer, set it to `null`; to re-enable one that isn't active, set its module path:
+Which configurable writers are active depends on the workflow. Use `--dry-run`
+to see them in the resolved `writers` section. To disable a configurable writer,
+set it to `null`; to re-enable one that isn't active, set its module path.
+
+Evaluation writes `evaluation_stats.h5` as a required analysis file, not through
+the configurable HDF5 writer. Console and CSV stay off during evaluation unless
+you enable them at the config root (`writers.console.*`, `writers.csv.*`), not
+under `train.writers.*`.
 
 ```bash
-train.writers.hdf5=null                              # disable HDF5 for train
-train.writers.csv.module=jaqmc.writer.csv:CSVWriter   # enable CSV for train
-train.writers.wandb.module=jaqmc.writer.wandb:WandbWriter  # enable W&B for train
+train.writers.hdf5=null                               # disable HDF5 for train
+train.writers.csv.module=jaqmc.writer.csv             # enable CSV for train
+train.writers.wandb.module=jaqmc.writer.wandb         # enable W&B for train
 pretrain.writers.console.interval=10                  # configure pretrain's console writer
+writers.console.module=jaqmc.writer.console           # enable console during evaluate
+writers.csv.module=jaqmc.writer.csv                   # enable CSV during evaluate
 ```
 
 ## Console Output
 
-The console writer prints a configurable set of fields every `interval` steps (default: every step). The field spec format is `[alias=]key[:format]`, separated by commas:
+The console writer prints a configurable set of fields every `interval` steps
+(default: every step). The field spec format is `[alias=]key[:format]`,
+separated by commas. The examples below use the training prefix; for
+`jaqmc <app> evaluate`, use `writers.console.*` instead of
+`train.writers.console.*`.
 
 ```bash
 # Customize precision for energy and variance
@@ -77,16 +90,11 @@ already active before JaQMC starts the stage, the writer reuses that run.
 
 ## Output Files
 
-CSV and HDF5 writers produce files in the `workflow.save_path` directory. CSV captures scalar statistics; HDF5 captures all statistics including array-valued fields (e.g., histograms). When resuming from a checkpoint, both formats automatically truncate stale data from interrupted runs.
+CSV and HDF5 writers produce files in the `workflow.save_path` directory. CSV captures scalar statistics; HDF5 captures all statistics including array-valued fields. Their output files are named `{stage}_stats.csv` and `{stage}_stats.h5`.
 
-By default, their output paths come from the templates `{stage}_stats.csv` and `{stage}_stats.h5`. You can customize these with `path_template`; the only supported template field is `{stage}`:
-
-```bash
-train.writers.csv.path_template=logs/{stage}_metrics.csv
-train.writers.hdf5.path_template=artifacts/{stage}/stats.h5
-```
-
-See <project:training-stats.md> for how to work with these files.
+For resume and branch behavior, see
+{ref}`recipe-resume-evaluate`. For reading the files,
+see <project:training-stats.md>.
 
 ## See Also
 

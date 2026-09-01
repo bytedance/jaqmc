@@ -5,12 +5,9 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-import h5py
-import pytest
 from jax import numpy as jnp
+from upath import UPath
 
-from jaqmc.writer.csv import CSVWriter
-from jaqmc.writer.hdf5 import HDF5Writer
 from jaqmc.writer.wandb import WandbWriter
 
 
@@ -38,42 +35,13 @@ class FakeWandb(ModuleType):
         return self.run
 
 
-def test_csv_writer_path_template(tmp_path: Path):
-    writer = CSVWriter(path_template="metrics/{stage}_stats.csv")
-
-    with writer.open(tmp_path, "train"):
-        writer.write(0, {"loss": 1.0})
-
-    assert (tmp_path / "metrics" / "train_stats.csv").exists()
-
-
-def test_hdf5_writer_path_template(tmp_path: Path):
-    writer = HDF5Writer(path_template="{stage}/stats.h5")
-
-    with writer.open(tmp_path, "evaluation"):
-        writer.write(0, {})
-
-    with h5py.File(tmp_path / "evaluation" / "stats.h5", "r"):
-        pass
-
-
-def test_csv_writer_rejects_unknown_template_field(tmp_path: Path):
-    writer = CSVWriter(path_template="{name}_stats.csv")
-
-    with (
-        pytest.raises(ValueError, match="Only '\\{stage\\}' is supported"),
-        writer.open(tmp_path, "train"),
-    ):
-        pass
-
-
 def test_wandb_writer_logs_only_scalars(tmp_path: Path, monkeypatch):
     fake_wandb = FakeWandb()
     monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
 
     writer = WandbWriter(project="project", run_name="run")
 
-    with writer.open(tmp_path, "train"):
+    with writer.open(UPath(tmp_path), "train"):
         writer.write(3, {"loss": 1.5, "vector": jnp.ones(2), "acceptance": 0.25})
 
     assert fake_wandb.init_kwargs == {
@@ -94,7 +62,7 @@ def test_wandb_writer_reuses_active_run(tmp_path: Path, monkeypatch):
 
     writer = WandbWriter(project="unused")
 
-    with writer.open(tmp_path, "train"):
+    with writer.open(UPath(tmp_path), "train"):
         writer.write(2, {"loss": 1.0})
 
     assert fake_wandb.init_kwargs is None

@@ -3,7 +3,7 @@
 
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any
@@ -30,42 +30,6 @@ class Writer(ABC):
             return val.item()
         return val
 
-    @staticmethod
-    def resolve_path_template(
-        working_dir: UPath | Path, path_template: str, stage_name: str
-    ) -> UPath:
-        """Resolve a writer path template against the working directory.
-
-        The template may contain ``{stage}``, which is replaced with the
-        current stage name before the path is resolved.
-
-        Args:
-            working_dir: Base directory for relative paths.
-            path_template: Absolute path or path relative to ``working_dir``.
-            stage_name: Name of the current stage.
-
-        Returns:
-            The resolved output path.
-
-        Raises:
-            ValueError: If ``stage_name`` is empty or the template uses
-                unsupported fields.
-        """
-        if not stage_name:
-            raise ValueError("File-backed writers require a non-empty stage name.")
-        try:
-            rendered = path_template.format(stage=stage_name)
-        except KeyError as e:
-            raise ValueError(
-                f"Unsupported path template field '{e.args[0]}'. "
-                "Only '{stage}' is supported."
-            ) from None
-
-        save_path = UPath(rendered)
-        if save_path.is_absolute():
-            return save_path
-        return UPath(working_dir) / save_path
-
     @abstractmethod
     def write(self, step: int, stats: Mapping[str, Any]) -> None:
         """Write statistics for the current step.
@@ -75,38 +39,59 @@ class Writer(ABC):
             stats: Dictionary of statistics to write.
         """
 
+    def sync_history(
+        self, source_dir: UPath, working_dir: UPath, stage_name: str, steps: int
+    ) -> None:
+        """Inherit persisted history before opening the writer.
+
+        Called on the master process before :meth:`open`. File-based writers
+        should copy their artifacts from ``source_dir`` into ``working_dir``
+        when those directories differ, then discard records for step
+        ``steps`` and later so a resume does not keep stale rows from an
+        interrupted run. Writers that do not persist files can leave the
+        default no-op.
+
+        Args:
+            source_dir: Directory that contains the checkpoint being restored.
+                Same as ``working_dir`` for in-place resume.
+            working_dir: Directory where this run writes outputs.
+            stage_name: Name of the current stage, used to locate
+                stage-specific files.
+            steps: Step at which the stage will resume. Keep history for
+                steps ``0 .. steps-1``.
+        """
+        del source_dir, working_dir, stage_name, steps
+
     @contextmanager
-    def open(self, working_dir: UPath | Path, stage_name: str, initial_step: int = 0):
+    def open(self, working_dir: UPath, stage_name: str):
         """Context manager for resource handling.
 
         This method manages resource lifecycle and side effects, such as
-        initializing files or other I/O operations.
-
-        When restoring from a checkpoint, ``initial_step`` indicates where
-        training will resume. Writers that persist to files should truncate
-        any data beyond this point so that stale entries from a previous
-        (interrupted) run are discarded.
+        initializing files or other I/O operations. Do file creation and
+        handle opening here, not in ``__init__``.
 
         Args:
             working_dir: The directory where artifacts should be stored.
-            stage_name: Name of the current training stage. File-backed
-                writers may use it when resolving their output path template.
-            initial_step: The step from which training will resume. Data
-                written for steps >= ``initial_step`` should be discarded.
+            stage_name: Name of the current training stage.
         """
+        del working_dir, stage_name
         yield
 
 
 class Writers:
     """A collection of writers with master-process guarding.
 
-    Wraps multiple :class:`Writer` instances and ensures that ``open`` and ``write``
-    only execute on the master process in distributed settings.
+    Wraps multiple :class:`Writer` instances and ensures that
+    ``sync_history``, ``open``, and ``write`` only execute on the master
+    process in distributed settings.
     """
 
     def __init__(self, writers: Sequence[Writer] = ()):
         self._writers = list(writers)
         self._is_master = False
+
+    def __iter__(self) -> Iterator[Writer]:
+        return iter(self._writers)
 
     @contextmanager
     def open(
@@ -114,6 +99,7 @@ class Writers:
         working_dir: UPath | Path,
         stage_name: str,
         *,
+        restore_dir: UPath | Path,
         is_master: bool = True,
         initial_step: int = 0,
     ):
@@ -122,6 +108,8 @@ class Writers:
         Args:
             working_dir: Directory where artifacts should be stored.
             stage_name: Name of the current training stage.
+            restore_dir: Directory containing history to inherit before
+                opening writers. Same as ``working_dir`` for in-place resume.
             is_master: Whether this is the master process.
             initial_step: The step from which training will resume. Data
                 written for steps >= ``initial_step`` should be discarded.
@@ -130,12 +118,16 @@ class Writers:
             None.
         """
         self._is_master = is_master
+        working_dir = UPath(working_dir)
+        restore_dir = UPath(restore_dir)
         with ExitStack() as stack:
             if self._is_master:
                 for writer in self._writers:
-                    stack.enter_context(
-                        writer.open(working_dir, stage_name, initial_step=initial_step)
+                    writer.sync_history(
+                        restore_dir, working_dir, stage_name, initial_step
                     )
+                for writer in self._writers:
+                    stack.enter_context(writer.open(working_dir, stage_name))
                 active_writers = ", ".join(
                     type(writer).__name__ for writer in self._writers
                 )
