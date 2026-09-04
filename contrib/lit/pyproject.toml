@@ -1,0 +1,45 @@
+[project]
+name = "jaqmc-contrib-lit"
+version = "0.1.0"
+description = "Optional Lorentz integral transform workflows for JaQMC"
+license = "Apache-2.0"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.3.1",
+    "jaqmc",
+]
+
+[project.optional-dependencies]
+reproduction = ["matplotlib>=3.10.8"]
+
+[project.entry-points."jaqmc.apps"]
+lit = "jaqmc_contrib_lit.cli:lit"
+
+[tool.uv.sources]
+jaqmc = { workspace = true }
+
+[dependency-groups]
+test = [
+    "pytest>=9.0.1",
+    "pytest-cov>=7.0.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.0,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "jaqmc_contrib_lit"
+source-include = ["docs/**", "examples/**", "tests/**"]
+
+[tool.pytest]
+addopts = [
+    "--cov=jaqmc_contrib_lit",
+    "--cov-branch",
+    "--cov-report=term-missing",
+    "--cov-fail-under=60",
+]
+markers = [
+    "multi_device: requires at least two local JAX devices",
+]
