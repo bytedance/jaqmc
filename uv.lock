@@ -23,6 +23,7 @@ conflicts = [[
 members = [
     "jaqmc",
     "jaqmc-contrib-example",
+    "jaqmc-contrib-lit",
 ]
 overrides = [{ name = "setuptools", specifier = "==80.9.0" }]
 
@@ -1138,6 +1139,40 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 test = [{ name = "pytest", specifier = ">=9.0.1" }]
+
+[[package]]
+name = "jaqmc-contrib-lit"
+version = "0.1.0"
+source = { editable = "contrib/lit" }
+dependencies = [
+    { name = "click" },
+    { name = "jaqmc" },
+]
+
+[package.optional-dependencies]
+reproduction = [
+    { name = "matplotlib" },
+]
+
+[package.dev-dependencies]
+test = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.3.1" },
+    { name = "jaqmc", editable = "." },
+    { name = "matplotlib", marker = "extra == 'reproduction'", specifier = ">=3.10.8" },
+]
+provides-extras = ["reproduction"]
+
+[package.metadata.requires-dev]
+test = [
+    { name = "pytest", specifier = ">=9.0.1" },
+    { name = "pytest-cov", specifier = ">=7.0.0" },
+]
 
 [[package]]
 name = "jax"

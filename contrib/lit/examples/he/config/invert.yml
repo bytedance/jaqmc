@@ -1,0 +1,14 @@
+logging:
+  level: info
+
+inversion:
+  input_paths:
+    - runs/he_lit/lit/lit_spectrum.npz
+  output_path: runs/he_lit/post/fit.npz
+  require_determined: true
+  pole_count: 1
+  background_order: 0
+  fit_omega_min: 0.750
+  fit_omega_max: 0.830
+  pole_search_energy_min: 0.750
+  pole_search_energy_max: 0.830

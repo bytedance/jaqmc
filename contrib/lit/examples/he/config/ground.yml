@@ -1,0 +1,64 @@
+logging:
+  level: info
+
+workflow:
+  seed: 1234
+  batch_size: 4096
+  config:
+    ignore_extra: false
+    verbose: false
+
+system:
+  module: atom
+  symbol: He
+  electron_init_width: 0.7
+
+wf:
+  module: jaqmc.app.molecule.wavefunction.ferminet
+  ndets: 16
+  hidden_dims_single: [64, 64, 64, 64]
+  hidden_dims_double: [16, 16, 16, 16]
+  use_last_layer: false
+  envelope: abs_isotropic
+  orbitals_spin_split: true
+  full_det: true
+
+sampler:
+  steps: 20
+  initial_width: 0.25
+  adapt_frequency: 100
+
+pretrain:
+  reference:
+    basis: aug-cc-pVTZ
+  run:
+    burn_in: 200
+    iterations: 2000
+    save_step_interval: 1000
+    save_time_interval: 600
+  optim:
+    learning_rate:
+      module: jaqmc.optimizer.schedule:Standard
+      rate: 0.0003
+      delay: 2000
+      decay: 1.0
+
+train:
+  run:
+    burn_in: 500
+    iterations: 50000
+    save_step_interval: 1000
+    save_time_interval: 600
+  optim:
+    learning_rate:
+      module: jaqmc.optimizer.schedule:Standard
+      rate: 0.02
+      delay: 10000
+      decay: 1.0
+    damping: 0.001
+    norm_constraint: 0.001
+    curvature_ema: 0.95
+    inverse_update_period: 1
+  writers:
+    console:
+      fields: pmove:.3f,energy=total_energy:.8f,variance=total_energy_var:.6f

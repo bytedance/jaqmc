@@ -1,0 +1,112 @@
+logging:
+  level: info
+
+workflow:
+  seed: 1234
+  batch_size: 4096
+  config:
+    ignore_extra: false
+    verbose: false
+
+system:
+  module: atom
+  symbol: He
+  electron_init_width: 0.7
+
+wf:
+  module: jaqmc.app.molecule.wavefunction.ferminet
+  ndets: 16
+  hidden_dims_single: [64, 64, 64, 64]
+  hidden_dims_double: [16, 16, 16, 16]
+  use_last_layer: false
+  envelope: abs_isotropic
+  orbitals_spin_split: true
+  full_det: true
+
+sampler:
+  steps: 20
+  initial_width: 0.25
+  adapt_frequency: 100
+
+lit:
+  eta: 0.003
+  axes: z
+  output_filename: lit_spectrum.npz
+
+  omega:
+    # Broad bound-state window below the first-principles He+ threshold.
+    minimum: 0.750
+    maximum: 0.900
+    points: 601
+
+  ground:
+    checkpoint_path: runs/he_lit/ground
+    allow_untrained: false
+    energy: null
+    energy_steps: 32
+    burn_in: 150
+
+  source:
+    center_steps: 64
+    # Centered He has zero dipole expectation; fixing the center prevents a
+    # noisy Monte Carlo estimate from mixing an even component into the source.
+    center_override: [0.0, 0.0, 0.0]
+    norm_override: null
+    burn_in: 150
+    floor: 0.0001
+    train_pool_batches: 512
+    eval_pool_batches: 64
+    pool_stride: 4
+    pool_dir: ""
+    reuse_pool: true
+    save_pool: true
+    distillation_iterations: 3000
+
+  parallel:
+    # On eight 80-GiB A100 devices this gives a global batch of 8192 walkers.
+    mode: local_devices
+    train_batch_size: 0
+    eval_batch_size: 0
+    train_batch_size_per_device: 1024
+    eval_batch_size_per_device: 1024
+
+  solver:
+    iterations: 6000
+    learning_rate: 0.002
+    reverse_kl_weight: 1.0
+    spring_epsilon: 0.001
+    spring_decay: 0.99
+    spring_damping_floor: 1.0e-12
+    sr_max_norm: 0.02
+    sr_score_epsilon: 1.0e-10
+    warm_start_omega: -3.674932217565499
+    warm_start_iterations: 1500
+    plateau_start_iteration: 1500
+    plateau_patience_iterations: 1000
+    plateau_min_delta: 1.0e-5
+    selection_interval: 100
+    log_interval: 100
+
+  continuation:
+    iterations: 6000
+    step_fraction: 0.2
+    step_growth_factor: 1.25
+    fidelity_retention: 0.95
+    ess_fraction_minimum: 0.05
+    allow_minimum_step_recovery: true
+    # null selects the smaller of 0.2 * eta and the spectrum spacing.
+    minimum_step: null
+    maximum_points: 1000
+    restore_path: ""
+
+  ansatz:
+    determinants: 16
+    hidden_dims_single: [64, 64, 64, 64]
+    hidden_dims_double: [16, 16, 16, 16]
+    use_last_layer: false
+    envelope: abs_isotropic
+    orbitals_spin_split: true
+    parity_eval_batch_size: 256
+    sector_tolerance: 1.0e-5
+    atomic_source_parity_max_loss: 1.0e-3
+    atomic_ground_parity_max_loss: 1.0e-3
