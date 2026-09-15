@@ -5,6 +5,7 @@ from pathlib import Path
 
 from upath import UPath
 
+from jaqmc.writer import Writers
 from jaqmc.writer.csv import CSVWriter
 
 
@@ -50,3 +51,10 @@ def test_cross_dir_copies_without_mutating_source(tmp_path: Path) -> None:
     dest_rows = _data_rows(dest)
     assert dest_rows[:3] == source_rows[:3]
     assert [int(row.split(",")[0]) for row in dest_rows] == [0, 1, 2, 3]
+
+
+def test_none_restore_dir_skips_history_sync(tmp_path: Path) -> None:
+    writers = Writers([CSVWriter()])
+    with writers.open(tmp_path, "train", restore_dir=None):
+        writers.write(0, {"loss": 1.0})
+    assert _data_rows(UPath(tmp_path)) == ["0,1.0"]

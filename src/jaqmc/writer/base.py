@@ -99,7 +99,7 @@ class Writers:
         working_dir: UPath | Path,
         stage_name: str,
         *,
-        restore_dir: UPath | Path,
+        restore_dir: UPath | Path | None,
         is_master: bool = True,
         initial_step: int = 0,
     ):
@@ -119,13 +119,13 @@ class Writers:
         """
         self._is_master = is_master
         working_dir = UPath(working_dir)
-        restore_dir = UPath(restore_dir)
         with ExitStack() as stack:
             if self._is_master:
-                for writer in self._writers:
-                    writer.sync_history(
-                        restore_dir, working_dir, stage_name, initial_step
-                    )
+                if restore_dir is not None:
+                    for writer in self._writers:
+                        writer.sync_history(
+                            UPath(restore_dir), working_dir, stage_name, initial_step
+                        )
                 for writer in self._writers:
                     stack.enter_context(writer.open(working_dir, stage_name))
                 active_writers = ", ".join(
