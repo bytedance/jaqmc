@@ -29,12 +29,13 @@ class RunContext:
 
     Args:
         save_path: Directory where the stage writes checkpoints and outputs.
-        restore_path: Checkpoint file or directory used to resume the stage.
+        restore_path: Checkpoint file or directory used to resume the stage,
+            or ``None`` to start the stage fresh.
         signal_handler: Handler used to detect graceful termination requests.
     """
 
     save_path: UPath | Path
-    restore_path: UPath | Path
+    restore_path: UPath | Path | None
     signal_handler: GracefulKiller
 
 
@@ -111,7 +112,9 @@ class WorkStage[StateT: StageState](ABC):
             Tuple of (save_dir, prefix, checkpoint_manager).
         """
         save_dir = UPath(context.save_path)
-        restore_path = UPath(context.restore_path)
+        restore_path = (
+            UPath(context.restore_path) if context.restore_path is not None else None
+        )
         prefix = self.name
         return (
             save_dir,
@@ -141,7 +144,16 @@ class WorkStage[StateT: StageState](ABC):
         save_dir, prefix, ckpt = self._resolve_paths(context)
 
         partition = state.partition()
-        initial_step, restored = ckpt.restore(state)
+        if context.restore_path is None:
+            initial_step, restored = 0, state
+            restore_dir = None
+        else:
+            initial_step, restored = ckpt.restore(state)
+            restore_dir = (
+                ckpt.restore_path.parent
+                if ckpt.restore_path.is_file()
+                else ckpt.restore_path
+            )
         state = jax.device_put(restored, parallel_jax.make_sharding(partition))
         if self.config.iterations <= initial_step:
             return state
@@ -168,9 +180,7 @@ class WorkStage[StateT: StageState](ABC):
                 prefix,
                 is_master=is_master,
                 initial_step=initial_step,
-                restore_dir=ckpt.restore_path.parent
-                if ckpt.restore_path.is_file()
-                else ckpt.restore_path,
+                restore_dir=restore_dir,
             ):
                 tracker.start()
                 for step, state in self.loop(state, initial_step, rngs):

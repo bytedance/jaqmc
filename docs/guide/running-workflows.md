@@ -99,11 +99,23 @@ jaqmc <app> train ... \
 ```
 
 JaQMC restores the latest checkpoint in that directory, drops any statistics written
-after that checkpoint, and appends new steps to the same `*_stats.*` files.
+after that checkpoint, and appends new steps to the same `*_stats.*` files. Iteration
+budgets count total steps, not additional ones.
+
+To resume from a specific checkpoint rather than the latest one, set
+`workflow.restore_path` to the checkpoint file:
+
+```bash
+jaqmc <app> train ... \
+  workflow.save_path=./runs/<name>-prod \
+  workflow.restore_path=./runs/<name>-prod/train_ckpt_001000.npz \
+  train.run.iterations=<larger_value>
+```
 
 Branch from an existing run into a new output directory by setting both save and restore
-paths. JaQMC creates `workflow.save_path` if needed; that directory must not already
-contain files:
+paths, and the restore path may be the run's directory or a single checkpoint file. JaQMC
+creates `workflow.save_path` if needed; if it already exists, it must be completely
+empty to avoid accidental overwrites:
 
 ```bash
 jaqmc <app> train ... \
@@ -113,7 +125,7 @@ jaqmc <app> train ... \
 ```
 
 The new directory starts with the resumed stage's stats files (`train_stats.h5` and
-`train_stats.csv` by default), truncated to the restored checkpoint. New checkpoints and
+`train_stats.csv` by default), truncated at the restored step. New checkpoints and
 the resolved config are written as the run continues. Outputs from other stages, such as
 `pretrain_*`, stay in the original directory.
 

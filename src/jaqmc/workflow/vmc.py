@@ -105,7 +105,8 @@ class VMCWorkflow(Workflow):
         batched_data = init_batched_data(
             self.data_init, self.config.batch_size, data_rngs
         )
-        if self.pretrain_stage is not None:
+        stage_to_run_first = self.stage_to_run_first()
+        if self.pretrain_stage is not None and stage_to_run_first == "pretrain":
             rngs, state_rngs, run_rngs = jax.random.split(rngs, 3)
             pretrain_state = self.pretrain_stage.create_state(
                 state_rngs, batched_data=batched_data
@@ -118,12 +119,20 @@ class VMCWorkflow(Workflow):
                 if _samplers_compatible(self.pretrain_stage, self.train_stage)
                 else None,
             }
+            # Train stage should not attempt to restore any more after we done pretrain.
+            context.restore_path = None
         else:
             train_inherited_state = {"batched_data": batched_data}
 
         rngs, state_rngs, run_rngs = jax.random.split(rngs, 3)
         train_state = self.train_stage.create_state(state_rngs, **train_inherited_state)
         train_state = self.train_stage.run(train_state, context, run_rngs)
+
+    def stage_to_run_first(self) -> Literal["train", "pretrain"]:
+        restore_path = self.restore_path
+        if restore_path.is_file():
+            return "train" if restore_path.name.startswith("train") else "pretrain"
+        return "train" if any(restore_path.glob("train_ckpt_*.npz")) else "pretrain"
 
     def restore_checkpoint(
         self,
