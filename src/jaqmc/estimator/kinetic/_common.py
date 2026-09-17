@@ -3,11 +3,14 @@
 
 """Shared utilities for kinetic energy estimators."""
 
+from collections.abc import Callable
 from enum import StrEnum
 
+import jax
 from jax import numpy as jnp
 
 from jaqmc.data import Data
+from jaqmc.utils import parallel_jax
 
 
 class LaplacianMode(StrEnum):
@@ -34,7 +37,54 @@ class LaplacianMode(StrEnum):
         return str(self)
 
 
-def _flatten_positions(
+def default_laplacian_mode() -> LaplacianMode:
+    return (
+        LaplacianMode.scan
+        if jax.__version_info__ < (0, 7, 1)
+        else LaplacianMode.forward_laplacian
+    )
+
+
+def require_forward_laplacian(mode: LaplacianMode) -> None:
+    if mode == LaplacianMode.forward_laplacian and jax.__version_info__ < (0, 7, 1):
+        raise RuntimeError(
+            "JAX version too old to run jaqmc.laplacian. "
+            "Please upgrade to JAX 0.7.1 or later."
+        )
+
+
+def hessian_diagonal_laplacian(
+    jvp: Callable[[jnp.ndarray], jnp.ndarray],
+    n: int,
+    mode: LaplacianMode,
+    weights: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Sum Hessian diagonal entries against a coordinate basis.
+
+    ``weights`` is ``None`` for the unweighted Euclidean Laplacian.
+
+    Returns:
+        The (optionally weighted) sum of Hessian diagonal entries.
+
+    Raises:
+        ValueError: If ``mode`` is not a Hessian-diagonal mode.
+    """
+    eye = parallel_jax.pvary(jnp.eye(n))
+    if weights is None:
+        weights = jnp.ones(n)
+    if mode == LaplacianMode.scan:
+        _, diagonal = jax.lax.scan(
+            lambda i, _: (i + 1, jvp(eye[i])[i]), 0, None, length=n
+        )
+        return jnp.sum(weights * diagonal)
+    if mode == LaplacianMode.fori_loop:
+        return jax.lax.fori_loop(
+            0, n, lambda i, val: val + weights[i] * jvp(eye[i])[i], 0.0
+        )
+    raise ValueError(f"Unsupported Hessian-diagonal Laplacian mode {mode}.")
+
+
+def flatten_positions(
     data: Data, data_field: str
 ) -> tuple[jnp.ndarray, tuple[int, ...]]:
     """Validate and flatten position data for kinetic energy computation.
@@ -58,7 +108,7 @@ def _flatten_positions(
     return positions.flatten(), positions.shape
 
 
-def _apply_kinetic_formula(
+def apply_kinetic_formula(
     laplacian: jnp.ndarray, grad_squared: jnp.ndarray
 ) -> jnp.ndarray:
     """Apply kinetic energy formula: KE = -0.5 * (Laplacian + |grad|^2).

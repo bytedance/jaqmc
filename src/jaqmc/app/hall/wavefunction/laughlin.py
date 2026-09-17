@@ -7,15 +7,30 @@ from collections.abc import Callable
 
 from jax import numpy as jnp
 
-from jaqmc.app.hall.data import HallData
-from jaqmc.array_types import Params
 from jaqmc.utils.wiring import runtime_dep
-from jaqmc.wavefunction.base import ComplexWFOutput, Wavefunction
+
+from .base import HallWavefunction, lll_monopole_harmonics
 
 __all__ = ["Laughlin"]
 
 
-class Laughlin(Wavefunction[HallData, ComplexWFOutput]):
+def _jastrow_factor(u: jnp.ndarray, v: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """CF-Jastrow pair elements and per-electron row products.
+
+    Args:
+        u: First spinor coordinate for every electron.
+        v: Second spinor coordinate for every electron.
+
+    Returns:
+        ``(element, jastrow)`` where ``element[i, j] = u_i v_j - u_j v_i``
+        with unit diagonal, and ``jastrow[i] = prod_j element[i, j]`` with
+        shape ``(n_elec, 1)``.
+    """
+    element = u[:, None] * v[None, :] - u[None, :] * v[:, None] + jnp.eye(u.shape[0])
+    return element, jnp.prod(element, axis=-1, keepdims=True)
+
+
+class Laughlin(HallWavefunction):
     """Laughlin wavefunction for ground and quasiparticle/quasihole states.
 
     Constructs the Laughlin state as a Slater determinant of composite
@@ -78,52 +93,47 @@ class Laughlin(Wavefunction[HallData, ComplexWFOutput]):
                 f"Impossible excitation_lz={self.excitation_lz} for Q1={self.Q1}."
             )
 
-    def __call__(self, data: HallData) -> ComplexWFOutput:
-        electrons = data.electrons
-        theta, phi = electrons[..., 0], electrons[..., 1]
-        u = (jnp.cos(theta / 2) * jnp.exp(0.5j * phi))[..., None]
-        v = (jnp.sin(theta / 2) * jnp.exp(-0.5j * phi))[..., None]
-
+    def _logpsi_from_spinor(self, u: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
         orbitals = self._cf_orbitals(u, v)
         signs, logdets = jnp.linalg.slogdet(orbitals)
         logmax = jnp.max(logdets)
-        logpsi = jnp.log(jnp.sum(signs * jnp.exp(logdets - logmax))) + logmax
-        return ComplexWFOutput(logpsi=logpsi)
+        return jnp.log(jnp.sum(signs * jnp.exp(logdets - logmax))) + logmax
 
     def _full_orbitals(self, u: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
-        Q = self.Q1
-        m = jnp.arange(-Q, Q + 1)
-        element = u * v[:, 0] - u[:, 0] * v + jnp.eye(u.shape[0])
-        jastrow = jnp.prod(element, axis=-1, keepdims=True)
-        return u ** (Q + m) * v ** (Q - m) * jastrow
+        harmonics = lll_monopole_harmonics(u, v, self.Q1)
+        _, jastrow = _jastrow_factor(u, v)
+        return harmonics * jastrow
 
     def _quasihole_orbitals(self, u: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
-        Q = self.Q1
-        m = jnp.concat(
-            [
-                jnp.arange(-Q, -self.excitation_lz),
-                jnp.arange(Q, -self.excitation_lz, -1),
-            ]
+        # Drop the m = -excitation_lz column (index Q - excitation_lz).
+        # Column order affects only the determinant's global sign.
+        full = lll_monopole_harmonics(u, v, self.Q1)
+        excluded = round(self.Q1 - self.excitation_lz)
+        harmonics = jnp.concatenate(
+            [full[..., :excluded], full[..., excluded + 1 :]], axis=-1
         )
-        element = u * v[:, 0] - u[:, 0] * v + jnp.eye(u.shape[0])
-        jastrow = jnp.prod(element, axis=-1, keepdims=True)
-        return u ** (Q + m) * v ** (Q - m) * jastrow
+        _, jastrow = _jastrow_factor(u, v)
+        return harmonics * jastrow
 
     def _quasiparticle_orbitals(self, u: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
         Q = self.Q1
-        m = jnp.arange(-Q, Q + 1)
-        orbitals = u ** (Q + m) * v ** (Q - m)
+        harmonics = lll_monopole_harmonics(u, v, Q)
 
-        element = u * v[:, 0] - u[:, 0] * v + jnp.eye(u.shape[0])
-        jastrow = jnp.prod(element, axis=-1, keepdims=True)
-        jastrow_dv = jastrow * (jnp.sum(-u[:, 0] / element, axis=-1, keepdims=True) + u)
-        jastrow_du = jastrow * (jnp.sum(v[:, 0] / element, axis=-1, keepdims=True) - v)
+        element, jastrow = _jastrow_factor(u, v)
+        jastrow_flat = jastrow[:, 0]
+        d_log_jastrow_dv = jnp.sum(-u / element, axis=-1) + u
+        d_log_jastrow_du = jnp.sum(v / element, axis=-1) - v
 
         m1 = self.excitation_lz
-        excited = (u ** (Q + m1) * v ** (Q - m1)) * (
-            (Q + 1 + m1) * v * jastrow_dv - (Q + 1 - m1) * u * jastrow_du
-        )
-        return jnp.concat([orbitals * jastrow, excited], axis=-1)
-
-    def logpsi(self, params: Params, data: HallData) -> jnp.ndarray:
-        return self.evaluate(params, data)["logpsi"]
+        a1 = round(Q + m1)
+        b1 = round(Q - m1)
+        prefactor = (u**a1) * (v**b1)
+        excited = (
+            prefactor
+            * jastrow_flat
+            * (
+                (Q + 1 + m1) * v * d_log_jastrow_dv
+                - (Q + 1 - m1) * u * d_log_jastrow_du
+            )
+        )[:, None]
+        return jnp.concatenate([harmonics * jastrow, excited], axis=-1)

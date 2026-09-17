@@ -32,6 +32,12 @@ API reference for built-in estimators. For background, formulas, and configurati
 .. autoclass:: jaqmc.estimator.kinetic.LaplacianMode
 ```
 
+### Angular momentum
+
+```{eval-rst}
+.. autoclass:: jaqmc.estimator.angular_momentum.SphericalAngularMomentum
+```
+
 ### Ewald summation
 
 ```{eval-rst}

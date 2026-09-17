@@ -3,10 +3,9 @@
 
 """Monopole harmonics product orbital (MHPO) wavefunction on the Haldane sphere.
 
-The input features are Cartesian coordinates on the sphere:
-``[cos theta, sin theta cos phi, sin theta sin phi]``.
-These are fed into a PsiformerBackbone (which appends spin encoding),
-followed by monopole harmonic orbital projection and a spherical Jastrow factor.
+Cartesian coordinates on the unit sphere feed a PsiformerBackbone (which
+appends spin encoding), followed by monopole harmonic orbital projection
+and a spherical Jastrow factor.
 """
 
 import numpy as np
@@ -14,13 +13,12 @@ from flax import linen as nn
 from jax import numpy as jnp
 from scipy import special as ss
 
-from jaqmc.app.hall.data import HallData
-from jaqmc.array_types import Params
+from jaqmc.geometry.sphere import cartesian_from_spinor
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.backbone.psiformer import PsiformerBackbone
-from jaqmc.wavefunction.base import ComplexWFOutput, Wavefunction
 from jaqmc.wavefunction.output.orbital import SplitChannelDense
 
+from .base import HallWavefunction, lll_monopole_harmonics
 from .jastrow import SphericalJastrow
 
 __all__ = ["MHPO"]
@@ -44,31 +42,38 @@ class MonopoleOrbitals(nn.Module):
     ndets: int
 
     def setup(self) -> None:
-        m = np.arange(-self.Q, self.Q + 1)
-        self.norm_factor = jnp.array(np.sqrt(ss.comb(2 * self.Q, self.Q - m)))
-        features = [int(self.Q * 2) + 1, sum(self.nspins), self.ndets]
+        n_orb = round(2 * self.Q + 1)
+        self.norm_factor = jnp.array(np.sqrt(ss.comb(2 * self.Q, np.arange(n_orb))))
+        features = [n_orb, sum(self.nspins), self.ndets]
         self.orbitals_real = SplitChannelDense(channels=self.nspins, features=features)
         self.orbitals_imag = SplitChannelDense(channels=self.nspins, features=features)
 
     def __call__(
-        self, h_one: jnp.ndarray, theta: jnp.ndarray, phi: jnp.ndarray
+        self, h_one: jnp.ndarray, u: jnp.ndarray, v: jnp.ndarray
     ) -> jnp.ndarray:
+        """Build orbitals from learned features and monopole spinors.
+
+        Args:
+            h_one: Backbone features for every electron.
+            u: First spinor coordinate for every electron.
+            v: Second spinor coordinate for every electron.
+
+        Returns:
+            Determinant-leading orbital matrices.
+        """
         orbitals = self.orbitals_real(h_one) + 1j * self.orbitals_imag(h_one)
 
-        m = jnp.arange(-self.Q, self.Q + 1)
-        u = (jnp.cos(theta / 2) * jnp.exp(0.5j * phi))[..., None]
-        v = (jnp.sin(theta / 2) * jnp.exp(-0.5j * phi))[..., None]
-        envelope = self.norm_factor * u ** (self.Q + m) * v ** (self.Q - m)
+        envelope = self.norm_factor * lll_monopole_harmonics(u, v, self.Q)
         orbitals = jnp.sum(orbitals * envelope[..., None, None], axis=1)
 
         return jnp.moveaxis(orbitals, -1, 0)  # (ndets, nelec, nelec)
 
 
-class MHPO(Wavefunction[HallData, ComplexWFOutput]):
+class MHPO(HallWavefunction):
     r"""Monopole harmonics product orbital ansatz on the Haldane sphere.
 
     Architecture:
-        1. Input: ``(theta, phi)`` to Cartesian features on the sphere
+        1. Input: ``(theta, phi)`` to a monopole spinor and Cartesian point
         2. Backbone: :class:`~jaqmc.wavefunction.backbone.psiformer.PsiformerBackbone`
         3. Orbitals: Monopole harmonic projection
         4. Jastrow: Spherical chord-distance Jastrow factor
@@ -116,33 +121,20 @@ class MHPO(Wavefunction[HallData, ComplexWFOutput]):
         )
         self.jastrow_layer = SphericalJastrow(nspins=self.nspins)
 
-    def __call__(self, data: HallData) -> ComplexWFOutput:
-        electrons = data.electrons
-        theta, phi = electrons[..., 0], electrons[..., 1]
-
-        # Cartesian features on the sphere
-        h_one = jnp.stack(
-            [
-                jnp.cos(theta),
-                jnp.sin(theta) * jnp.cos(phi),
-                jnp.sin(theta) * jnp.sin(phi),
-            ],
-            axis=-1,
-        )
+    def _logpsi_from_spinor(self, u: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
+        cartesian = cartesian_from_spinor(u, v)
 
         # Backbone (appends spin encoding internally)
-        h_one = self.backbone_layer(h_one)
+        h_one = self.backbone_layer(cartesian)
 
         # Monopole harmonic orbitals: (ndets, nelec, nelec)
-        orbitals = self.orbital_layer(h_one, theta, phi)
+        orbitals = self.orbital_layer(h_one, u, v)
 
         # Jastrow factor
-        jastrow = self.jastrow_layer(electrons)
+        jastrow = self.jastrow_layer(cartesian)
 
         # Composite fermion Jastrow attachment
         if self.flux_per_elec > 0:
-            u = jnp.cos(theta / 2) * jnp.exp(0.5j * phi)
-            v = jnp.sin(theta / 2) * jnp.exp(-0.5j * phi)
             element = u * v[..., None] - u[..., None] * v + jnp.eye(u.shape[0])
             jastrow += jnp.sum(jnp.triu(jnp.log(element), k=1)) * self.flux_per_elec
 
@@ -151,9 +143,4 @@ class MHPO(Wavefunction[HallData, ComplexWFOutput]):
         # Complex slogdet
         signs, logdets = jnp.linalg.slogdet(orbitals)
         logmax = jnp.max(logdets)
-        logpsi = jnp.log(jnp.sum(signs * jnp.exp(logdets - logmax))) + logmax
-
-        return ComplexWFOutput(logpsi=logpsi)
-
-    def logpsi(self, params: Params, data: HallData) -> jnp.ndarray:
-        return self.evaluate(params, data)["logpsi"]
+        return jnp.log(jnp.sum(signs * jnp.exp(logdets - logmax))) + logmax

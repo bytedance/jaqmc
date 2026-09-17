@@ -33,10 +33,26 @@ The effective defaults are identical to the [training system config](#hall-train
 
 ## Wavefunction (`wf.*`)
 
-When evaluating a training checkpoint, these settings must match the training
-run. For direct `laughlin` or `free` evaluation, select the analytic module
-with `wf.module`. The effective defaults and built-in module choices are
-identical to the [training wavefunction config](#hall-train-wf).
+When evaluating a training checkpoint, these settings must match the
+training run. For direct `laughlin` or `free` evaluation, select the
+analytic module with `wf.module`. MHPO options match the
+[training wavefunction config](#hall-train-wf).
+
+### Laughlin options (`wf.*`)
+
+```{eval-rst}
+.. config-defaults:: jaqmc.app.hall.wavefunction.laughlin.Laughlin
+   :prefix: wf
+   :scope: Laughlin
+```
+
+### Free options (`wf.*`)
+
+```{eval-rst}
+.. config-defaults:: jaqmc.app.hall.wavefunction.free.Free
+   :prefix: wf
+   :scope: Free
+```
 
 ## Run Options (`run.*`)
 
@@ -87,17 +103,35 @@ estimators enabled through boolean flags.
 - `TotalEnergy` is added automatically by the workflow and is not configurable
   via a config key.
 - When `system.lz_penalty` or `system.l2_penalty` are nonzero, a
-  `PenalizedLoss` estimator is added automatically.
+  `PenalizedLoss` estimator is added automatically. That requires both energy
+  and angular momentum to be enabled. Reported energy remains `total_energy`.
 - `estimators.enabled.energy` defaults to `true`.
+- `estimators.enabled.angular_momentum` defaults to `true`. Setting it to
+  `false` while an angular-momentum penalty is active raises a configuration
+  error.
 - `estimators.enabled.density` defaults to `false`.
 - `estimators.enabled.pair_correlation` defaults to `false`.
 - `estimators.enabled.one_rdm` defaults to `false`.
 
 ### Kinetic energy (`estimators.energy.kinetic.*`)
 
+Covariant kinetic energy on the Haldane sphere. See
+[Kinetic energy](../../guide/estimators/kinetic.md#spherical-kinetic-energy).
+
 ```{eval-rst}
 .. config-defaults:: jaqmc.estimator.kinetic.SphericalKinetic
    :prefix: estimators.energy.kinetic
+```
+
+### Angular momentum (`estimators.angular_momentum.*`)
+
+Computes `angular_momentum_z`, `angular_momentum_z_square`, and
+`angular_momentum_square` on the Haldane sphere. See
+[Angular momentum](../../guide/estimators/angular-momentum.md).
+
+```{eval-rst}
+.. config-defaults:: jaqmc.estimator.angular_momentum.SphericalAngularMomentum
+   :prefix: estimators.angular_momentum
 ```
 
 ### Coulomb potential (`estimators.energy.potential.*`)
@@ -118,7 +152,9 @@ Accumulates a histogram of the polar angle $\theta$ to measure electron density 
 
 ### Pair correlation (`estimators.pair_correlation.*`)
 
-Computes the pair correlation function $g(\theta)$ on the Haldane sphere.
+Computes the pair correlation function $g(\theta)$ on the Haldane sphere
+from geodesic pair angles, weighted by $1/\sin\theta$. Divide the
+accumulated state by the evaluation step count to get the final $g(\theta)$.
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.hall.estimator.pair_correlation.PairCorrelation
@@ -127,7 +163,9 @@ Computes the pair correlation function $g(\theta)$ on the Haldane sphere.
 
 ### One-body RDM (`estimators.one_rdm.*`)
 
-Computes the one-body reduced density matrix in the monopole harmonic basis.
+Computes the one-body reduced density matrix in the monopole harmonic
+basis. The trace is the number of electrons on the lowest Landau level,
+$N_\text{LLL}$.
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.hall.estimator.one_rdm.OneRDM

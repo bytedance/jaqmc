@@ -21,9 +21,17 @@ class SphericalJastrow(nn.Module):
     nspins: tuple[int, int]
 
     @nn.compact
-    def __call__(self, electrons: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, cartesian: jnp.ndarray) -> jnp.ndarray:
+        """Evaluate the Jastrow factor from Cartesian sphere coordinates.
+
+        Args:
+            cartesian: Unit-sphere Cartesian electron positions.
+
+        Returns:
+            The scalar Jastrow contribution.
+        """
         nspins = self.nspins
-        r_ee = self._chord_distance(electrons)
+        r_ee = self._chord_distance(cartesian)
 
         r_ees = [
             jnp.split(r, nspins[0:1], axis=1)
@@ -54,16 +62,8 @@ class SphericalJastrow(nn.Module):
 
         return jastrow_ee_anti + jastrow_ee_par
 
-    def _chord_distance(self, electrons: jnp.ndarray) -> jnp.ndarray:
-        theta, phi = electrons[..., 0], electrons[..., 1]
-        cart_e = jnp.stack(
-            [
-                jnp.cos(theta),
-                jnp.sin(theta) * jnp.cos(phi),
-                jnp.sin(theta) * jnp.sin(phi),
-            ],
-            axis=-1,
-        )
-        cart_ee = cart_e[None] - cart_e[:, None]
+    def _chord_distance(self, cartesian: jnp.ndarray) -> jnp.ndarray:
+        """Return all pair chord distances from Cartesian sphere coordinates."""
+        cart_ee = cartesian[None] - cartesian[:, None]
         eye = jnp.eye(cart_ee.shape[0])
         return jnp.linalg.norm(cart_ee + eye[..., None], axis=-1) * (1.0 - eye)

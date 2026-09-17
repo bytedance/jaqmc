@@ -20,8 +20,8 @@ jaqmc hall train system.nspins='[3,0]' system.flux=6
 jaqmc hall train ... train.run.iterations=10000
 ```
 
-The default train preset is production-oriented. For shared quick-run workflow mechanics,
-see [shared fast debug run](#recipe-fast-debug-run).
+The default train preset is production-oriented. For a short sanity-check
+run, see {ref}`recipe-fast-debug-run`.
 
 The sphere radius defaults to `sqrt(Q)` where `Q = flux / 2`. Override it with
 `system.radius`. For the contextual defaults used by training, see the
@@ -29,19 +29,24 @@ The sphere radius defaults to `sqrt(Q)` where `Q = flux / 2`. Override it with
 
 ## How It Works
 
-Each electron moves on the sphere surface in spherical coordinates `(theta, phi)`. The wavefunction ansatz is the **Monopole Harmonics Product Orbital (MHPO)** network.
+Each electron is sampled on the sphere as `(theta, phi)`. The default
+trainable ansatz is **MHPO**: a Psiformer backbone on the unit-sphere
+Cartesian point, monopole-harmonic orbitals from the spinor `(u, v)`,
+and a spherical Jastrow. Parameter-free `laughlin` and `free` benchmarks
+share that spinor interface; see [Evaluation](#evaluation).
 
-1. Spherical coordinates are converted to Cartesian features on the unit sphere.
-2. A Psiformer backbone (self-attention layers) processes the features.
-3. Monopole harmonic orbitals project the backbone output into an orbital matrix.
-4. A spherical Jastrow factor captures pairwise correlations.
-5. The complex log-determinant gives `log psi`.
-
-Energy estimators include spherical kinetic energy (covariant Laplacian on the sphere) and Coulomb potential energy (chord distance between electrons). The neural network naturally includes contributions from all Landau levels, going beyond lowest-Landau-level (LLL) exact diagonalization. For the derivations behind these estimators, see <project:../../guide/estimators/index.md>.
+Energy estimators include spherical kinetic energy and Coulomb potential
+energy (chord distance between electrons). Training reports `Lz` and
+`L_square` on the console. For the kinetic formulation, see
+[Kinetic energy](../../guide/estimators/kinetic.md#spherical-kinetic-energy);
+for angular momentum, see
+[Angular momentum](../../guide/estimators/angular-momentum.md);
+for the full estimator guide, see
+<project:../../guide/estimators/index.md>.
 
 ## Interpreting Energy Output
 
-The reported `total_energy` is complex-valued — the real part is the electronic variational energy $E_v$, and the imaginary component is a finite-sampling artifact whose expectation value vanishes. Comparing $E_v$ with literature values requires post-processing corrections for background charge and finite-size effects. See <project:energy-corrections.md> for the formulas.
+The reported `total_energy` is complex-valued — the real part is the electronic variational energy $E_v$, and the imaginary component is a finite-sampling artifact whose expectation value vanishes. Hall training prints that real part as `energy` (`total_energy_real`). Comparing $E_v$ with literature values requires post-processing corrections for background charge and finite-size effects. See <project:energy-corrections.md> for the formulas.
 
 ## Composite Fermions
 
@@ -54,37 +59,41 @@ jaqmc hall train system.flux=10 system.nspins='[4,0]' wf.flux_per_elec=2
 
 ## Angular Momentum Penalties
 
-To target states with specific angular momentum quantum numbers, use the penalty method:
+The $L_z$ penalty targets `system.lz_center`. The $L^2$ penalty
+drives $L^2$ toward zero. The optimizer then minimizes
+
+$$
+E + \lambda_{L_z}(L_z - L_{z,0})^2 + \lambda_{L^2} L^2
+$$
+
+instead of the bare total energy. The strengths $\lambda_{L_z}$ and
+$\lambda_{L^2}$ are `system.lz_penalty` and `system.l2_penalty`. Typical
+values, matching the [paper](https://arxiv.org/abs/2412.14795), are
+$0.01$–$0.02$:
 
 ```bash
-# Target Lz = 0 with penalty strength 10
-jaqmc hall train system.lz_penalty=10 system.lz_center=0
+# Target Lz = 0
+jaqmc hall train system.lz_penalty=0.02 system.lz_center=0
 
-# Also penalize total L^2
-jaqmc hall train system.lz_penalty=10 system.l2_penalty=5
+# Also drive L^2 toward 0
+jaqmc hall train system.lz_penalty=0.02 system.l2_penalty=0.02
 ```
 
-When penalties are active, the optimizer minimizes a penalized loss instead of the bare total energy. The console output includes `Lz` and `L_square` columns to monitor convergence.
+Watch `Lz` against `system.lz_center` and `L_square` toward zero. The
+console `energy` column is the unpenalized variational energy
+(`total_energy_real`); the optimizer minimizes `penalized_loss`. See
+[Angular momentum](../../guide/estimators/angular-momentum.md).
 
 ```{tip}
-We recommend first converging the training **without** penalties ($\beta = 0$), then turning on penalties to select a specific angular momentum sector. We find this two-stage approach produces more stable results than training with penalties from the start.
+Converge first **without** penalties, then resume with penalties on to
+select a sector. That two-stage run is more stable than training with
+penalties from the start. See {ref}`recipe-resume-evaluate`.
 ```
 
 ## Recommended Hyperparameters
 
-The workflow preset defaults to 200,000 training iterations so that `jaqmc hall train`
-starts from a production-scale run length. If that budget fits your target state and
-hardware, you can usually keep the defaults. In practice, though, some states converge
-earlier while others need a longer run.
-
-When you do tune a run, start with these hyperparameters:
-
-The main knob is the optimization budget: choose
-{cfgkey}`train.run.iterations <systems-hall-train-cfg-train-run-iterations>` based on how
-long the target state takes to converge. The paper-derived settings below are a better
-starting point for Hall systems than a generic rule of thumb.
-
-For walkers, {cfgkey}`workflow.batch_size <systems-hall-train-cfg-workflow-batch-size>` controls the
+The workflow preset uses 200,000 training iterations and MHPO
+`wf.num_layers=2`. For walkers, {cfgkey}`workflow.batch_size <systems-hall-train-cfg-workflow-batch-size>` controls the
 variance of each VMC step. The default of 4,096 is usually a good production starting
 point; increase it only if the step-to-step statistics are too noisy, and lower it for
 quick tests. See <project:../../guide/sampling.md> for walker count, mixing, and burn-in
@@ -96,8 +105,10 @@ The sampler defaults are usually reasonable. Reach for
 mixing well or `pmove` looks unhealthy. For optimizer choice, the production default is
 [train.optim.module](#hall-train-optim); use the
 <project:../../guide/optimizers/index.md> guide if you want to compare it with Adam.
-For Hall-specific wavefunction settings under [wf.*](#hall-train-wf), including MHPO,
-Laughlin, and free states, use the training configuration reference.
+For Hall-specific wavefunction settings under [wf.*](#hall-train-wf),
+including MHPO, use the training configuration reference. For the
+analytic `laughlin` and `free` benchmarks, use the
+[evaluation](eval.md) reference.
 
 For authoritative key definitions and effective defaults, see the [training configuration
 reference](train.md) and use `--dry-run workflow.config.verbose=true` to inspect
@@ -114,7 +125,7 @@ We used the following hyperparameters in our [paper](https://arxiv.org/abs/2412.
 | Attention dimension (`wf.heads_dim`) | 64 |
 | Training iterations | 30,000–100,000 |
 
-For quasiparticle/quasihole studies with the penalty method, we used an additional 20,000–40,000 iterations with penalty strengths $\beta$ in the range 0.01–0.02.
+For quasiparticle/quasihole studies with the penalty method, we used an additional 20,000–40,000 iterations with `system.lz_penalty` and `system.l2_penalty` in the range 0.01–0.02.
 
 ## Evaluation
 
@@ -141,47 +152,29 @@ support `laughlin` or `free`.
 
 ### Additional Evaluation Estimators
 
-The hall app includes estimators for observables beyond energy. They are disabled by default and can be enabled via config flags:
-
-- {class}`~jaqmc.estimator.density.SphericalDensity` — Electron density as a function of polar angle $\theta$. Accumulates a histogram over evaluation steps.
-- Pair correlation — Pair correlation function $g(\theta)$ from geodesic pair angles, weighted by $1/\sin\theta$. Divide the accumulated state by the step count to get the final $g(\theta)$.
-- One-body reduced density matrix — One-body reduced density matrix in the monopole harmonic basis. The trace gives the number of electrons on the lowest Landau level, $N_\text{LLL}$.
-
-Enable them via CLI or YAML:
+Density, pair correlation, and the one-body reduced density matrix are
+optional evaluation estimators. Enable them via config; see
+[evaluation estimators](#hall-estimators) for keys and post-processing.
 
 ```bash
-jaqmc hall evaluate estimators.enabled.density=true estimators.enabled.pair_correlation=true
+jaqmc hall evaluate estimators.enabled.density=true \
+  estimators.enabled.pair_correlation=true estimators.enabled.one_rdm=true
 ```
 
-```yaml
-estimators:
-  enabled:
-    density: true
-    pair_correlation: true
-  density:
-    bins_theta: 100  # override default 50
-```
+## Reporting results
 
-## Workflow Notes
-
-For the shared workflow patterns for debug runs, production runs, resuming,
-evaluation, and reporting, see <project:../../guide/running-workflows.md>.
-
-For hall workflows, the main system-specific choices are usually the target state and
-any penalty terms, since those determine how you should choose the production training
-budget and how to interpret the final run. Evaluation also commonly adds observable
-estimators beyond energy, so it is worth being explicit about those when setting up or
-describing a run. When reporting results, record the real part of `total_energy`, any
-post-processing corrections from <project:energy-corrections.md>, and
-whether angular-momentum penalties were used.
+Record the real part of `total_energy`, any post-processing corrections
+from <project:energy-corrections.md>, and whether angular-momentum
+penalties were used. Shared debug, resume, and evaluation recipes are in
+<project:../../guide/running-workflows.md>.
 
 ## Further Reading
 
 - **Energy corrections** — <project:energy-corrections.md>
 - **Configuration reference** — <project:train.md>, <project:eval.md>,
   and their workflow defaults
-- **Estimator physics** — <project:../../guide/estimators/index.md> (includes spherical kinetic energy derivation)
-- **Running evaluations** — [Workflows](#recipe-resume-evaluate)
+- **Estimator physics** — <project:../../guide/estimators/index.md>
+- **Running evaluations** — {ref}`recipe-resume-evaluate`
 
 ```{toctree}
 :hidden:
