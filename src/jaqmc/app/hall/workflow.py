@@ -10,6 +10,7 @@ from typing import Any
 from jax import numpy as jnp
 
 from jaqmc.estimator import EstimatorLike
+from jaqmc.estimator.angular_momentum import SphericalAngularMomentum
 from jaqmc.estimator.density import SphericalDensity
 from jaqmc.estimator.kinetic import SphericalKinetic
 from jaqmc.estimator.loss_grad import LossAndGrad
@@ -27,6 +28,7 @@ from .config import HallConfig
 from .data import data_init
 from .estimator import OneRDM, PairCorrelation, PenalizedLoss
 from .hamiltonian import SpherePotential
+from .wavefunction import HallWavefunction
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +59,7 @@ class HallTrainWorkflow(VMCWorkflow):
 
         self.data_init = partial(data_init, system_config)
 
-        has_penalties = system_config.lz_penalty or system_config.l2_penalty
+        has_penalties = bool(system_config.lz_penalty or system_config.l2_penalty)
         loss_key = "penalized_loss" if has_penalties else "total_energy"
 
         estimators = make_estimators(cfg, wf, system_config, always_enable_energy=True)
@@ -95,7 +97,7 @@ class HallEvalWorkflow(EvaluationWorkflow):
 
 def configure_system(
     cfg: ConfigManagerLike,
-) -> tuple[HallConfig, Any]:
+) -> tuple[HallConfig, HallWavefunction]:
     """Build the shared system objects for quantum Hall workflows.
 
     Returns:
@@ -115,13 +117,24 @@ def configure_system(
 
 def make_estimators(
     cfg: ConfigManagerLike,
-    wf: Any,
+    wf: HallWavefunction,
     system_config: HallConfig,
     always_enable_energy: bool = False,
 ) -> dict[str, EstimatorLike]:
     estimators: dict[str, EstimatorLike] = {}
-    if always_enable_energy or cfg.get("estimators.enabled.energy", True):
-        Q = system_config.flux / 2
+    energy_enabled = always_enable_energy or cfg.get("estimators.enabled.energy", True)
+    has_penalties = bool(system_config.lz_penalty or system_config.l2_penalty)
+    angular_momentum_enabled = cfg.get("estimators.enabled.angular_momentum", True)
+    for enabled, key in (
+        (energy_enabled, "energy"),
+        (angular_momentum_enabled, "angular_momentum"),
+    ):
+        if has_penalties and not enabled:
+            raise ValueError(
+                f"Angular-momentum penalties require estimators.enabled.{key}=true."
+            )
+    Q = system_config.flux / 2
+    if energy_enabled:
         radius = (
             system_config.radius
             if system_config.radius is not None
@@ -133,7 +146,7 @@ def make_estimators(
             SphericalKinetic(
                 monopole_strength=Q,
                 radius=radius,
-                f_log_psi=wf.logpsi,
+                f_log_psi_from_spinor=wf.logpsi_from_spinor,
             ),
         )
         estimators["potential"] = cfg.get(
@@ -147,12 +160,20 @@ def make_estimators(
         )
         estimators["total"] = TotalEnergy()
 
-        if system_config.lz_penalty or system_config.l2_penalty:
-            estimators["penalty"] = PenalizedLoss(
-                lz_center=system_config.lz_center,
-                lz_penalty=system_config.lz_penalty,
-                l2_penalty=system_config.l2_penalty,
-            )
+    if angular_momentum_enabled:
+        estimators["angular_momentum"] = cfg.get(
+            "estimators.angular_momentum",
+            SphericalAngularMomentum(
+                f_log_psi_from_spinor=wf.logpsi_from_spinor,
+            ),
+        )
+
+    if has_penalties:
+        estimators["penalty"] = PenalizedLoss(
+            lz_center=system_config.lz_center,
+            lz_penalty=system_config.lz_penalty,
+            l2_penalty=system_config.l2_penalty,
+        )
 
     if cfg.get("estimators.enabled.density", False):
         estimators["density"] = cfg.get(

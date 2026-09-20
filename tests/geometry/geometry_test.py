@@ -8,11 +8,12 @@ PBC tests: boundary values of scaled_f/g, symmetry, cross-validation
     of diagonal/orthogonal branches against the general branch.
 """
 
+import jax
 import numpy as np
 import pytest
 from jax import numpy as jnp
 
-from jaqmc.geometry import obc, pbc
+from jaqmc.geometry import obc, pbc, sphere
 
 # -- OBC: pair_displacements_within ------------------------------------
 
@@ -212,3 +213,27 @@ def test_general_branch_vs_brute_force():
         ([0.0, 0.0, 0.0], [4.0, 3.5, 4.5]),  # from origin
     ]
     _compare_branch_against_general(lattice, pairs)
+
+
+# -- Sphere: projective spinor conversion ------------------------------
+
+
+def test_cartesian_from_spinor_is_scale_invariant():
+    u = jnp.array([1.0 + 2.0j, -0.5 + 0.25j])
+    v = jnp.array([0.3 - 0.7j, 2.0 + 1.0j])
+    scale = jnp.array([2.0 - 3.0j, -0.2 + 0.4j])
+
+    expected = sphere.cartesian_from_spinor(u, v)
+    actual = sphere.cartesian_from_spinor(scale * u, scale * v)
+
+    np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(jnp.linalg.norm(actual, axis=-1), 1, atol=1e-6)
+
+
+def test_cartesian_from_spinor_has_correct_second_derivative_at_pole():
+    def z_coordinate(v_real):
+        return sphere.cartesian_from_spinor(jnp.asarray(1.0 + 0.0j), v_real + 0.0j)[2]
+
+    second_derivative = jax.grad(jax.grad(z_coordinate))(jnp.asarray(0.0))
+
+    np.testing.assert_allclose(second_derivative, -4.0, atol=1e-6)

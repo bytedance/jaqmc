@@ -7,13 +7,11 @@ import dataclasses
 from collections.abc import Mapping
 from typing import Any, cast
 
-import jax
 from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
 from jaqmc.estimator.base import PerWalkerEstimator
-from jaqmc.utils import parallel_jax
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.func_transform import (
     grad_maybe_complex,
@@ -23,7 +21,14 @@ from jaqmc.utils.func_transform import (
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
 
-from ._common import LaplacianMode, _apply_kinetic_formula, _flatten_positions
+from ._common import (
+    LaplacianMode,
+    apply_kinetic_formula,
+    default_laplacian_mode,
+    flatten_positions,
+    hessian_diagonal_laplacian,
+    require_forward_laplacian,
+)
 
 
 @configurable_dataclass
@@ -58,26 +63,14 @@ class EuclideanKinetic(PerWalkerEstimator):
         data_field: Name of the data field containing positions (runtime dep).
     """
 
-    mode: LaplacianMode = (
-        LaplacianMode.scan
-        if jax.__version_info__ < (0, 7, 1)
-        else LaplacianMode.forward_laplacian
-    )
+    mode: LaplacianMode = default_laplacian_mode()
     prefactor: float | list[float] = 1.0
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
     data_field: str = runtime_dep(default="electrons")
     sparse: bool = True
 
     def __post_init__(self):
-        if self.mode == LaplacianMode.forward_laplacian and jax.__version_info__ < (
-            0,
-            7,
-            1,
-        ):
-            raise RuntimeError(
-                "JAX version too old to run jaqmc.laplacian. "
-                "Please upgrade to JAX 0.7.1 or later."
-            )
+        require_forward_laplacian(self.mode)
 
     def evaluate_single_walker(
         self,
@@ -130,28 +123,17 @@ class EuclideanKinetic(PerWalkerEstimator):
         grad_f = transform_with_data(
             self.f_log_psi, self.data_field, grad_maybe_complex
         )
-        flatten_positions, positions_shape = _flatten_positions(data, self.data_field)
-        n = flatten_positions.size
+        flat_positions, positions_shape = flatten_positions(data, self.data_field)
+        n = flat_positions.size
 
         def grad_f_closure(x):
             return grad_f(
                 params, data.merge({self.data_field: jnp.reshape(x, positions_shape)})
             ).flatten()
 
-        primal, dgrad_f = linearize_maybe_complex(grad_f_closure, flatten_positions)
-
-        eye = parallel_jax.pvary(jnp.eye(n))
-        if self.mode == LaplacianMode.scan:
-            _, diagonal = jax.lax.scan(
-                lambda i, _: (i + 1, dgrad_f(eye[i])[i]), 0, None, length=n
-            )
-            laplacian = jnp.sum(diagonal)
-        else:
-            laplacian = jax.lax.fori_loop(
-                0, n, lambda i, val: val + dgrad_f(eye[i])[i], 0.0
-            )
-
-        result = _apply_kinetic_formula(laplacian, jnp.sum(primal**2))
+        primal, dgrad_f = linearize_maybe_complex(grad_f_closure, flat_positions)
+        laplacian = hessian_diagonal_laplacian(dgrad_f, n, self.mode)
+        result = apply_kinetic_formula(laplacian, jnp.sum(primal**2))
         return {"energy:kinetic": self.prefactor * result}, state
 
     def _evaluate_forward_laplacian(
@@ -159,8 +141,7 @@ class EuclideanKinetic(PerWalkerEstimator):
     ) -> tuple[dict[str, Any], None]:
         from jaqmc.laplacian import forward_laplacian, make_laplacian_input
 
-        if jax.__version_info__ < (0, 7, 1):
-            raise RuntimeError("JAX version too old to run jaqmc.laplacian.")
+        require_forward_laplacian(self.mode)
 
         positions = make_laplacian_input(
             data[self.data_field],
@@ -174,5 +155,5 @@ class EuclideanKinetic(PerWalkerEstimator):
         primal = fwd_result.dense_jacobian
         grad_sq = jnp.sum(primal**2)
 
-        result = _apply_kinetic_formula(laplacian, grad_sq)
+        result = apply_kinetic_formula(laplacian, grad_sq)
         return {"energy:kinetic": self.prefactor * result}, state

@@ -42,12 +42,11 @@ See <project:index.md> for physics background and usage examples.
 
 Selects and configures the neural network ansatz.
 
-- Default module selection: `mhpo`. Effective defaults for the built-in
-  architectures are listed below. Built-in choices are `mhpo`, `laughlin`,
-  and `free`.
+- Default module selection: `mhpo`. Effective defaults for MHPO are
+  listed below.
 
-Built-in `laughlin` and `free` are analytic benchmarks; use
-<project:eval.md> rather than training.
+Analytic `laughlin` and `free` benchmarks are evaluation-only; see
+<project:eval.md>.
 
 See <project:index.md> for background on each architecture.
 
@@ -57,22 +56,6 @@ See <project:index.md> for background on each architecture.
 .. config-defaults:: jaqmc.app.hall.wavefunction.mhpo.MHPO
    :prefix: wf
    :scope: MHPO
-```
-
-### Laughlin options (`wf.*`)
-
-```{eval-rst}
-.. config-defaults:: jaqmc.app.hall.wavefunction.laughlin.Laughlin
-   :prefix: wf
-   :scope: Laughlin
-```
-
-### Free options (`wf.*`)
-
-```{eval-rst}
-.. config-defaults:: jaqmc.app.hall.wavefunction.free.Free
-   :prefix: wf
-   :scope: Free
 ```
 
 (hall-train-sampler)=
@@ -175,6 +158,7 @@ from `train.grads.*`. See [Loss and gradient](../../guide/estimators/loss-grad.m
 
 ---
 
+(hall-train-estimators)=
 ## Estimators (`estimators.*`)
 
 Energy estimators are configured programmatically by the workflow and are not
@@ -183,17 +167,32 @@ typically overridden via config. The same definitions are used by
 <project:../../guide/estimators/index.md>. For the API, see
 [Estimators](../../api-reference/estimators.md).
 
-`TotalEnergy` automatically sums all `energy:`-prefixed components. When
-`system.lz_penalty` or `system.l2_penalty` are nonzero, a `PenalizedLoss`
-estimator is added automatically. Neither is configurable via a config key.
+`TotalEnergy` automatically sums all `energy:`-prefixed components.
+`SphericalAngularMomentum` is enabled by default; set
+`estimators.enabled.angular_momentum=false` to omit it. When
+`system.lz_penalty` or `system.l2_penalty` are nonzero, angular momentum
+is required by `PenalizedLoss`. `TotalEnergy` and `PenalizedLoss` are not
+configurable via config keys.
 
 ### Kinetic energy (`estimators.energy.kinetic.*`)
 
-Kinetic energy estimator on the Haldane sphere using the covariant Laplacian. See [Kinetic energy](../../guide/estimators/kinetic.md) for physics details and Laplacian mode trade-offs.
+Covariant kinetic energy on the Haldane sphere. See
+[Kinetic energy](../../guide/estimators/kinetic.md#spherical-kinetic-energy).
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.estimator.kinetic.SphericalKinetic
    :prefix: estimators.energy.kinetic
+```
+
+### Angular momentum (`estimators.angular_momentum.*`)
+
+Computes `angular_momentum_z`, `angular_momentum_z_square`, and
+`angular_momentum_square` for the Haldane sphere. See
+[Angular momentum](../../guide/estimators/angular-momentum.md).
+
+```{eval-rst}
+.. config-defaults:: jaqmc.estimator.angular_momentum.SphericalAngularMomentum
+   :prefix: estimators.angular_momentum
 ```
 
 ### Coulomb potential (`estimators.energy.potential.*`)

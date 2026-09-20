@@ -112,19 +112,12 @@ $$
 \sum_i a_i \frac{\partial^2}{\partial x_i^2}.
 $$
 This can also be computed efficiently with Forward Laplacian by choosing the Jacobian weights as $w_i^2 = a_i$.
-Take the kinetic energy on spherical geometry as an example. The second-order derivative terms are:
-$$
-\frac{\partial^2 f}{\partial \theta^2} + \frac{1}{r^{2}\sin^2\theta}\frac{\partial^2 f}{\partial \varphi^2},
-$$
-Therefore, we can choose the `weights` to be $(1, \frac{1}{\sin\theta})$:
 ```python
-weights = jnp.stack([jnp.ones_like(theta), 1 / jnp.sin(theta)], axis=-1)
-result = forward_laplacian(log_psi_fn)(make_laplacian_input(electrons, weights=weights))
-grad_logpsi = result.dense_jacobian.reshape(electrons.shape) / weights
+result = forward_laplacian(f)(make_laplacian_input(x, weights=weights))
+grad = result.dense_jacobian.reshape(x.shape) / weights
 ```
 The propagated Laplacian already reflects the weighted operator. Dividing the
-dense Jacobian by `weights` only re-expresses the gradient in the original
-coordinate basis.
+dense Jacobian by `weights` only re-expresses the gradient in the original coordinate basis.
 
 ## Sparsity
 

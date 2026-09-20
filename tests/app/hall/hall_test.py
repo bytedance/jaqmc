@@ -3,13 +3,12 @@
 
 """Tests for the quantum Hall workflow components."""
 
-from typing import Literal
-
 import jax
 import numpy as np
 import pytest
 from jax import numpy as jnp
 
+from jaqmc.app.hall import HallEvalWorkflow, HallTrainWorkflow
 from jaqmc.app.hall.config import HallConfig, InteractionType
 from jaqmc.app.hall.data import HallData, data_init
 from jaqmc.app.hall.estimator.penalized_loss import PenalizedLoss
@@ -18,9 +17,15 @@ from jaqmc.app.hall.wavefunction.free import Free
 from jaqmc.app.hall.wavefunction.jastrow import SphericalJastrow
 from jaqmc.app.hall.wavefunction.laughlin import Laughlin
 from jaqmc.app.hall.wavefunction.mhpo import MHPO
-from jaqmc.estimator.kinetic import SphericalKinetic
-from jaqmc.geometry.sphere import sphere_proposal
+from jaqmc.estimator.angular_momentum import SphericalAngularMomentum
+from jaqmc.estimator.kinetic import LaplacianMode, SphericalKinetic
+from jaqmc.geometry.sphere import (
+    cartesian_from_spinor,
+    sphere_proposal,
+    spinor_coordinates_from_angles,
+)
 from jaqmc.laplacian import forward_laplacian, make_laplacian_input
+from jaqmc.utils.config import ConfigManager
 from jaqmc.utils.wiring import wire
 
 
@@ -31,13 +36,17 @@ def _sample(key, batch, nelec):
     return jnp.stack([theta, phi], axis=-1)
 
 
-def _make_lll(nelec: int, Q: int):
-    def log_psi(_, data):
-        electrons = data["electrons"]
-        theta, phi = electrons[..., 0], electrons[..., 1]
-        u = jnp.cos(theta / 2) * jnp.exp(1j * phi / 2)
-        v = jnp.sin(theta / 2) * jnp.exp(-1j * phi / 2)
-        lll_orb = jnp.stack([u**m * v ** (2 * Q - m) for m in range(nelec)], axis=-1)
+def _cartesian(electrons):
+    u, v = spinor_coordinates_from_angles(electrons)
+    return cartesian_from_spinor(u, v)
+
+
+def _make_lll_from_spinor(nelec: int, Q: int):
+    def log_psi(_, u, v):
+        lll_orb = jnp.stack(
+            [u**m * v ** (2 * Q - m) for m in range(nelec)],
+            axis=-1,
+        )
         sign, logdet = jnp.linalg.slogdet(lll_orb)
         return logdet + jnp.log(sign)
 
@@ -48,6 +57,22 @@ def _eval_single(estimator, data):
     return estimator.evaluate_single_walker({}, data, {}, None, jax.random.PRNGKey(0))[
         0
     ]
+
+
+def _kinetic_near_pole(estimator, params, electrons, theta):
+    """Local kinetic energies with electron 0 at ``theta`` over probe phis."""
+    local_energies = []
+    for phi in (0.0, 1.3, -2.1):
+        near_pole = electrons.at[0].set(jnp.array([theta, phi]))
+        stats, _ = estimator.evaluate_single_walker(
+            params,
+            HallData(electrons=near_pole),
+            {},
+            None,
+            jax.random.PRNGKey(0),
+        )
+        local_energies.append(stats["energy:kinetic"])
+    return np.asarray(local_energies)
 
 
 class TestHallData:
@@ -82,40 +107,41 @@ class TestSphereProposal:
         assert x_new.shape == x.shape
 
 
-def _supports_forward_laplacian() -> bool:
-    return jax.__version_info__ >= (0, 7, 1)
+def _requires_forward_laplacian():
+    return pytest.mark.skipif(
+        jax.__version_info__ < (0, 7, 1),
+        reason="forward_laplacian mode requires JAX >= 0.7.1",
+    )
 
 
-LAPLACIAN_MODES: list[Literal["hessian", "forward_laplacian"]] = ["hessian"]
-if _supports_forward_laplacian():
-    LAPLACIAN_MODES.append("forward_laplacian")
+SPHERICAL_LAPLACIAN_MODES = (
+    LaplacianMode.scan,
+    LaplacianMode.fori_loop,
+    pytest.param(
+        LaplacianMode.forward_laplacian,
+        marks=_requires_forward_laplacian(),
+        id="forward_laplacian",
+    ),
+)
 
 
 class TestSphericalKinetic:
-    @pytest.mark.parametrize("mode", LAPLACIAN_MODES)
-    def test_free_electron(self, mode):
+    @pytest.mark.parametrize("mode", SPHERICAL_LAPLACIAN_MODES)
+    def test_free_electron(self, mode: LaplacianMode):
         """Spherical harmonics Y_1m: 3 electrons, Q=0, expect KE=3."""
 
-        def log_psi(params, data):
-            electrons = data["electrons"]
-            theta, phi = electrons[..., 0], electrons[..., 1]
-            orb = jnp.stack(
-                [
-                    jnp.sin(theta) * jnp.cos(phi),
-                    jnp.cos(theta),
-                    jnp.sin(theta) * jnp.sin(phi),
-                ],
-                axis=-1,
-            )
-            sign, logdet = jnp.linalg.slogdet(orb)
+        def log_psi_from_spinor(_, u, v):
+            # Filled L=1 shell: orbitals are the Cartesian coordinates.
+            cartesian = cartesian_from_spinor(u, v)
+            sign, logdet = jnp.linalg.slogdet(cartesian)
             return logdet + jnp.log(sign)
 
         data_arr = _sample(jax.random.PRNGKey(1898), 2, nelec=3)
         estimator = SphericalKinetic(
-            mode=mode,
             monopole_strength=0.0,
             radius=1.0,
-            f_log_psi=log_psi,
+            mode=mode,
+            f_log_psi_from_spinor=log_psi_from_spinor,
         )
         batch_eval = jax.jit(
             jax.vmap(
@@ -125,23 +151,20 @@ class TestSphericalKinetic:
         )
         stats = batch_eval(data_arr)
         assert jnp.allclose(stats["energy:kinetic"], 3, atol=1e-3)
-        assert jnp.allclose(stats["angular_momentum_square"], 0, atol=1e-3)
 
-    @pytest.mark.parametrize("mode", LAPLACIAN_MODES)
     @pytest.mark.parametrize(
-        "nelec,Q,L_square,L_z",
-        [(1, 1, 2, -1), (3, 1, 0, 0)],
+        "nelec,Q",
+        [(1, 1), (3, 1)],
     )
-    def test_lll_kinetic_and_angular_momentum(
-        self, mode, nelec: int, Q: int, L_square: float, L_z: float
-    ):
+    @pytest.mark.parametrize("mode", SPHERICAL_LAPLACIAN_MODES)
+    def test_lll_kinetic_energy(self, nelec: int, Q: int, mode: LaplacianMode):
         data_arr = _sample(jax.random.PRNGKey(1898), 2, nelec)
-        log_psi = _make_lll(nelec, Q)
+        log_psi_from_spinor = _make_lll_from_spinor(nelec, Q)
         estimator = SphericalKinetic(
-            mode=mode,
             monopole_strength=float(Q),
             radius=float(jnp.sqrt(Q)),
-            f_log_psi=log_psi,
+            mode=mode,
+            f_log_psi_from_spinor=log_psi_from_spinor,
         )
         batch_eval = jax.jit(
             jax.vmap(
@@ -151,40 +174,63 @@ class TestSphericalKinetic:
         )
         stats = batch_eval(data_arr)
         assert jnp.allclose(stats["energy:kinetic"], nelec / 2, atol=1e-3)
-        assert jnp.allclose(stats["angular_momentum_z"], L_z, atol=1e-3)
-        assert jnp.allclose(stats["angular_momentum_z_square"], L_z**2, atol=1e-3)
-        assert jnp.allclose(stats["angular_momentum_square"], L_square, atol=1e-3)
 
-    @pytest.mark.skipif(
-        not _supports_forward_laplacian(),
-        reason="forward_laplacian requires newer JAX",
-    )
-    def test_hessian_and_forward_laplacian_agree_for_laughlin(self):
-        """Cross-check both modes on a Laughlin quasihole with nonzero L."""
-        data_arr = _sample(jax.random.PRNGKey(932), 3, nelec=2)
-        wf = Laughlin(excitation_lz=1)
-        wire(wf, nspins=(2, 0), flux=4)
-        wf.init_params(HallData(electrons=data_arr[0]), jax.random.PRNGKey(1))
 
-        def evaluate(mode):
-            estimator = SphericalKinetic(
-                mode=mode,
-                monopole_strength=2.0,
-                radius=float(jnp.sqrt(2.0)),
-                f_log_psi=wf.logpsi,
-            )
-            return jax.jit(
-                jax.vmap(
-                    lambda d: _eval_single(estimator, HallData(electrons=d)),
-                    in_axes=0,
+class TestHallAngularMomentumRegistration:
+    def test_enabled_by_default(self):
+        workflow = HallTrainWorkflow(ConfigManager({}))
+
+        assert isinstance(
+            workflow.train_stage.estimators.estimators["angular_momentum"],
+            SphericalAngularMomentum,
+        )
+
+    def test_can_disable_without_penalty(self):
+        workflow = HallTrainWorkflow(
+            ConfigManager({"estimators": {"enabled": {"angular_momentum": False}}})
+        )
+
+        assert "angular_momentum" not in workflow.train_stage.estimators.estimators
+
+    def test_eval_can_enable_without_energy(self):
+        workflow = HallEvalWorkflow(
+            ConfigManager({"estimators": {"enabled": {"energy": False}}})
+        )
+
+        estimators = workflow.evaluation_stage.estimators.estimators
+        assert "kinetic" not in estimators
+        assert isinstance(estimators["angular_momentum"], SphericalAngularMomentum)
+
+    @pytest.mark.parametrize("penalty_key", ["lz_penalty", "l2_penalty"])
+    def test_penalty_rejects_disabled_energy(self, penalty_key):
+        with pytest.raises(
+            ValueError,
+            match=r"Angular-momentum penalties require "
+            r"estimators\.enabled\.energy=true",
+        ):
+            HallEvalWorkflow(
+                ConfigManager(
+                    {
+                        "system": {penalty_key: 1.0},
+                        "estimators": {"enabled": {"energy": False}},
+                    }
                 )
-            )(data_arr)
+            )
 
-        hessian_stats = evaluate("hessian")
-        forward_laplacian_stats = evaluate("forward_laplacian")
-        for key, expected in hessian_stats.items():
-            np.testing.assert_allclose(
-                forward_laplacian_stats[key], expected, rtol=2e-4, atol=2e-4
+    @pytest.mark.parametrize("penalty_key", ["lz_penalty", "l2_penalty"])
+    def test_penalty_rejects_disabled_angular_momentum(self, penalty_key):
+        with pytest.raises(
+            ValueError,
+            match=r"Angular-momentum penalties require "
+            r"estimators\.enabled\.angular_momentum=true",
+        ):
+            HallTrainWorkflow(
+                ConfigManager(
+                    {
+                        "system": {penalty_key: 1.0},
+                        "estimators": {"enabled": {"angular_momentum": False}},
+                    }
+                )
             )
 
 
@@ -265,43 +311,46 @@ class TestSphericalJastrow:
     @pytest.mark.x64_modes
     def test_parameters_are_float32(self, x64_mode):
         input_dtype = jnp.float64 if x64_mode else jnp.float32
-        electrons = _sample(jax.random.PRNGKey(0), 1, 3)[0].astype(input_dtype)
-        params = SphericalJastrow(nspins=(2, 1)).init(jax.random.PRNGKey(1), electrons)
+        cartesian = _cartesian(
+            _sample(jax.random.PRNGKey(0), 1, 3)[0].astype(input_dtype)
+        )
+        params = SphericalJastrow(nspins=(2, 1)).init(jax.random.PRNGKey(1), cartesian)
 
         assert all(param.dtype == jnp.float32 for param in jax.tree.leaves(params))
 
     def test_all_same_spin(self):
         """All electrons same spin: parallel pairs only, no antiparallel."""
         jastrow = SphericalJastrow(nspins=(3, 0))
-        electrons = _sample(jax.random.PRNGKey(0), 1, 3)[0]
-        params = jastrow.init(jax.random.PRNGKey(1), electrons)
-        out: jax.Array = jastrow.apply(params, electrons)  # type: ignore[assignment]
+        cartesian = _cartesian(_sample(jax.random.PRNGKey(0), 1, 3)[0])
+        params = jastrow.init(jax.random.PRNGKey(1), cartesian)
+        out: jax.Array = jastrow.apply(params, cartesian)  # type: ignore[assignment]
         assert jnp.isfinite(out)
 
     def test_mixed_spins(self):
         """Mixed spins: both parallel and antiparallel pairs."""
         jastrow = SphericalJastrow(nspins=(2, 1))
-        electrons = _sample(jax.random.PRNGKey(0), 1, 3)[0]
-        params = jastrow.init(jax.random.PRNGKey(1), electrons)
-        out: jax.Array = jastrow.apply(params, electrons)  # type: ignore[assignment]
+        cartesian = _cartesian(_sample(jax.random.PRNGKey(0), 1, 3)[0])
+        params = jastrow.init(jax.random.PRNGKey(1), cartesian)
+        out: jax.Array = jastrow.apply(params, cartesian)  # type: ignore[assignment]
         assert jnp.isfinite(out)
 
     def test_one_per_spin(self):
         """One electron per spin: no parallel pairs, only antiparallel."""
         jastrow = SphericalJastrow(nspins=(1, 1))
-        electrons = _sample(jax.random.PRNGKey(0), 1, 2)[0]
-        params = jastrow.init(jax.random.PRNGKey(1), electrons)
-        out: jax.Array = jastrow.apply(params, electrons)  # type: ignore[assignment]
+        cartesian = _cartesian(_sample(jax.random.PRNGKey(0), 1, 2)[0])
+        params = jastrow.init(jax.random.PRNGKey(1), cartesian)
+        out: jax.Array = jastrow.apply(params, cartesian)  # type: ignore[assignment]
         assert jnp.isfinite(out)
 
     def test_symmetric_under_same_spin_swap(self):
         """Jastrow is symmetric: swapping two same-spin electrons is invariant."""
         jastrow = SphericalJastrow(nspins=(3, 0))
         electrons = _sample(jax.random.PRNGKey(7), 1, 3)[0]
-        params = jastrow.init(jax.random.PRNGKey(1), electrons)
-        original: jax.Array = jastrow.apply(params, electrons)  # type: ignore[assignment]
+        cartesian = _cartesian(electrons)
+        params = jastrow.init(jax.random.PRNGKey(1), cartesian)
+        original: jax.Array = jastrow.apply(params, cartesian)  # type: ignore[assignment]
         e_swap = electrons.at[0].set(electrons[1]).at[1].set(electrons[0])
-        swapped: jax.Array = jastrow.apply(params, e_swap)  # type: ignore[assignment]
+        swapped: jax.Array = jastrow.apply(params, _cartesian(e_swap))  # type: ignore[assignment]
         np.testing.assert_allclose(float(original), float(swapped), atol=1e-5)
 
 
@@ -330,8 +379,8 @@ class TestFreeWavefunction:
         np.testing.assert_allclose(float(jnp.real(ratio)), -1.0, atol=1e-4)
         np.testing.assert_allclose(float(jnp.imag(ratio)), 0.0, atol=1e-4)
 
-    @pytest.mark.parametrize("mode", LAPLACIAN_MODES)
-    def test_lll_kinetic_energy(self, mode):
+    @_requires_forward_laplacian()
+    def test_lll_kinetic_energy(self):
         """Free wf filling LLL: kinetic energy per electron is exactly 1/2."""
         nspins = (3, 0)
         flux = 4
@@ -340,15 +389,10 @@ class TestFreeWavefunction:
         data = HallData(electrons=electrons[0])
         wf.init_params(data, jax.random.PRNGKey(1))
 
-        # Free has no trainable params, so wrap logpsi to pass {}
-        def log_psi_fn(params, data):
-            return wf.logpsi({}, data)
-
         estimator = SphericalKinetic(
-            mode=mode,
             monopole_strength=float(flux / 2),
             radius=float(jnp.sqrt(flux / 2)),
-            f_log_psi=log_psi_fn,
+            f_log_psi_from_spinor=wf.logpsi_from_spinor,
         )
         batch_eval = jax.jit(
             jax.vmap(
@@ -385,24 +429,20 @@ class TestLaughlinWavefunction:
         with pytest.raises(ValueError, match="Unsupported Laughlin filling"):
             wf.init_params(data, jax.random.PRNGKey(1))
 
-    @pytest.mark.parametrize("mode", LAPLACIAN_MODES)
     @pytest.mark.parametrize("nelec,Q", [(3, 3), (4, 4.5)])
-    def test_kinetic_energy(self, mode, nelec, Q):
-        """Laughlin ground state reproduces exact kinetic and angular momentum."""
+    @_requires_forward_laplacian()
+    def test_kinetic_energy(self, nelec, Q):
+        """Laughlin ground state reproduces exact kinetic energy."""
         flux = int(2 * Q)
         wf = self._make_laughlin(nspins=(nelec, 0), flux=flux)
         electrons = _sample(jax.random.PRNGKey(1898), 2, nelec)
         data = HallData(electrons=electrons[0])
         wf.init_params(data, jax.random.PRNGKey(1))
 
-        def log_psi_fn(params, data):
-            return wf.logpsi({}, data)
-
         estimator = SphericalKinetic(
-            mode=mode,
             monopole_strength=float(Q),
             radius=float(jnp.sqrt(Q)),
-            f_log_psi=log_psi_fn,
+            f_log_psi_from_spinor=wf.logpsi_from_spinor,
         )
         batch_eval = jax.jit(
             jax.vmap(
@@ -412,16 +452,35 @@ class TestLaughlinWavefunction:
         )
         stats = batch_eval(electrons)
         np.testing.assert_allclose(stats["energy:kinetic"], nelec / 2, atol=1e-3)
+
+    @pytest.mark.parametrize("nelec,Q", [(3, 3), (4, 4.5)])
+    def test_ground_state_angular_momentum(self, nelec, Q):
+        """Laughlin ground state has zero total angular momentum."""
+        flux = int(2 * Q)
+        wf = self._make_laughlin(nspins=(nelec, 0), flux=flux)
+        electrons = _sample(jax.random.PRNGKey(1898), 2, nelec)
+        data = HallData(electrons=electrons[0])
+        wf.init_params(data, jax.random.PRNGKey(1))
+        estimator = SphericalAngularMomentum(
+            f_log_psi_from_spinor=wf.logpsi_from_spinor,
+        )
+        stats = jax.jit(
+            jax.vmap(
+                lambda d: _eval_single(estimator, HallData(electrons=d)),
+                in_axes=0,
+            )
+        )(electrons)
+
         np.testing.assert_allclose(stats["angular_momentum_z"], 0, atol=1e-3)
         np.testing.assert_allclose(stats["angular_momentum_z_square"], 0, atol=1e-3)
         np.testing.assert_allclose(stats["angular_momentum_square"], 0, atol=1e-3)
 
-    @pytest.mark.parametrize("mode", LAPLACIAN_MODES)
     @pytest.mark.parametrize(
         "nelec,flux,excitation_lz",
         [(4, 10, 2), (6, 14, 1)],
     )
-    def test_excitation_kinetic_energy(self, mode, nelec, flux, excitation_lz):
+    @_requires_forward_laplacian()
+    def test_excitation_kinetic_energy(self, nelec, flux, excitation_lz):
         """Quasihole and quasiparticle Laughlin states have exact kinetic energy."""
         Q = flux / 2
         wf = self._make_laughlin(
@@ -431,14 +490,10 @@ class TestLaughlinWavefunction:
         data = HallData(electrons=electrons[0])
         wf.init_params(data, jax.random.PRNGKey(1))
 
-        def log_psi_fn(params, data):
-            return wf.logpsi({}, data)
-
         estimator = SphericalKinetic(
-            mode=mode,
             monopole_strength=float(Q),
             radius=float(jnp.sqrt(Q)),
-            f_log_psi=log_psi_fn,
+            f_log_psi_from_spinor=wf.logpsi_from_spinor,
         )
         batch_eval = jax.jit(
             jax.vmap(
@@ -448,9 +503,63 @@ class TestLaughlinWavefunction:
         )
         stats = batch_eval(electrons)
         np.testing.assert_allclose(stats["energy:kinetic"], nelec / 2, atol=1e-3)
+
+    @pytest.mark.parametrize(
+        "nelec,flux,excitation_lz",
+        [(4, 10, 2), (6, 14, 1)],
+    )
+    def test_excitation_angular_momentum(self, nelec, flux, excitation_lz):
+        """Laughlin excitations reproduce their specified angular momentum."""
+        wf = self._make_laughlin(
+            nspins=(nelec, 0), flux=flux, excitation_lz=excitation_lz
+        )
+        electrons = _sample(jax.random.PRNGKey(1898), 2, nelec)
+        data = HallData(electrons=electrons[0])
+        wf.init_params(data, jax.random.PRNGKey(1))
+        estimator = SphericalAngularMomentum(
+            f_log_psi_from_spinor=wf.logpsi_from_spinor,
+        )
+        stats = jax.jit(
+            jax.vmap(
+                lambda d: _eval_single(estimator, HallData(electrons=d)),
+                in_axes=0,
+            )
+        )(electrons)
+
         np.testing.assert_allclose(
             stats["angular_momentum_z"], excitation_lz, atol=1e-3
         )
+
+    @_requires_forward_laplacian()
+    def test_kinetic_stable_near_pole(self):
+        """Stereographic kinetic stays on the exact Laughlin value near a pole.
+
+        Float32 measurements for ``nelec=3``, ``Q=3`` keep
+        ``max|E - 1.5|`` around ``1e-6`` down to ``theta=1e-7``; the
+        tolerances below leave a few times headroom on that path.
+        """
+        nelec = 3
+        Q = 3.0
+        exact = nelec / 2
+        wf = self._make_laughlin(nspins=(nelec, 0), flux=int(2 * Q))
+        electrons = _sample(jax.random.PRNGKey(1898), 1, nelec)[0]
+        wf.init_params(HallData(electrons=electrons), jax.random.PRNGKey(1))
+        estimator = SphericalKinetic(
+            monopole_strength=float(Q),
+            radius=float(jnp.sqrt(Q)),
+            f_log_psi_from_spinor=wf.logpsi_from_spinor,
+        )
+
+        for theta in (1e-3, 1e-5, 1e-7):
+            local_energies = _kinetic_near_pole(estimator, {}, electrons, theta)
+            assert np.all(np.isfinite(local_energies))
+            np.testing.assert_allclose(local_energies, exact, rtol=0, atol=5e-6)
+            np.testing.assert_allclose(
+                local_energies,
+                local_energies[0],
+                rtol=0,
+                atol=5e-6,
+            )
 
 
 class TestMHPO:
@@ -517,10 +626,7 @@ class TestMHPO:
         out = wf.evaluate(params, data)
         assert jnp.isfinite(out["logpsi"])
 
-    @pytest.mark.skipif(
-        not _supports_forward_laplacian(),
-        reason="forward_laplacian requires newer JAX",
-    )
+    @_requires_forward_laplacian()
     def test_sparse_forward_laplacian_mhpo_avoids_gather_and_reduce_max_handlers(
         self, monkeypatch
     ):
@@ -546,3 +652,59 @@ class TestMHPO:
             rtol=1e-4,
             atol=1e-4,
         )
+
+
+class TestNeuralHallKineticSmoke:
+    @_requires_forward_laplacian()
+    def test_mhpo_kinetic_regular_near_pole(self):
+        """MHPO local kinetic stays finite and phi-stable near a pole.
+
+        Exactness of the stereographic estimator is covered by Laughlin;
+        this only checks that the neural ansatz remains regular enough
+        for the kinetic to settle near the pole.
+        """
+        nspins = (2, 0)
+        flux = 3
+        wf = MHPO(ndets=1, num_heads=2, heads_dim=8, num_layers=1)
+        wire(wf, nspins=nspins, monopole_strength=flux / 2, flux=flux)
+        electrons = _sample(jax.random.PRNGKey(81), 1, sum(nspins))[0]
+        params = wf.init_params(HallData(electrons=electrons), jax.random.PRNGKey(1))
+        estimator = SphericalKinetic(
+            monopole_strength=float(flux / 2),
+            radius=float(jnp.sqrt(flux / 2)),
+            f_log_psi_from_spinor=wf.logpsi_from_spinor,
+        )
+
+        control = _kinetic_near_pole(estimator, params, electrons, 1e-3)
+        assert np.all(np.isfinite(control))
+        assert np.max(np.abs(control)) < 10
+
+        for theta in (1e-5, 1e-7):
+            local_energies = _kinetic_near_pole(estimator, params, electrons, theta)
+            assert np.all(np.isfinite(local_energies))
+            np.testing.assert_allclose(local_energies, control, rtol=0, atol=5e-2)
+            np.testing.assert_allclose(
+                local_energies,
+                local_energies[0],
+                rtol=0,
+                atol=1e-3,
+            )
+
+    @_requires_forward_laplacian()
+    def test_mhpo_kinetic_smoke(self):
+        nspins = (2, 1)
+        flux = 4
+        electrons = _sample(jax.random.PRNGKey(7), 1, sum(nspins))[0]
+        data = HallData(electrons=electrons)
+        wf = MHPO(ndets=1, num_heads=2, heads_dim=8, num_layers=1)
+        wire(wf, nspins=nspins, monopole_strength=flux / 2, flux=flux)
+        params = wf.init_params(data, jax.random.PRNGKey(1))
+        estimator = SphericalKinetic(
+            monopole_strength=float(flux / 2),
+            radius=float(jnp.sqrt(flux / 2)),
+            f_log_psi_from_spinor=wf.logpsi_from_spinor,
+        )
+        stats, _ = estimator.evaluate_single_walker(
+            params, data, {}, None, jax.random.PRNGKey(0)
+        )
+        assert jnp.isfinite(stats["energy:kinetic"])
