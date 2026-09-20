@@ -72,7 +72,7 @@ Fixing the numerical stability therefore requires addressing both:
 stereographic coordinates replace the singular polar coordinates, and a local
 Wu--Yang gauge removes the phase singularity at the corresponding pole.
 
-#### Regular coordinates and gauge
+### Regular coordinates and gauge
 
 For each electron, the estimator uses the stereographic plane centered on the
 nearer pole:
@@ -102,7 +102,7 @@ $(u_S,v_S)=(0,1)$. These values do not depend on the arbitrary longitude.
 Using coordinates alone would leave the gauge phase singular; using the local
 gauge alone would leave the polar-coordinate factors singular.
 
-#### Converting plane derivatives to sphere derivatives
+### Converting plane derivatives to sphere derivatives
 
 The stereographic plane is only a coordinate map of the sphere. Distances in
 the plane and distances on the unit sphere are related by
