@@ -1,6 +1,6 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-from .workflow import SolidEvalWorkflow, SolidTrainWorkflow
+from .workflow import SolidEvalWorkflow, SolidSubspaceTrainWorkflow, SolidTrainWorkflow
 
-__all__ = ["SolidEvalWorkflow", "SolidTrainWorkflow"]
+__all__ = ["SolidEvalWorkflow", "SolidSubspaceTrainWorkflow", "SolidTrainWorkflow"]

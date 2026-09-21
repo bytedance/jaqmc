@@ -1,0 +1,296 @@
+# Copyright (c) 2026 ByteDance Ltd. and/or its affiliates
+# SPDX-License-Identifier: Apache-2.0
+
+"""JaQMC-native assembly of determinant-state variational training."""
+
+import logging
+from collections.abc import Callable, Mapping
+from dataclasses import replace
+from typing import Any, cast
+
+import jax
+from jax import numpy as jnp
+
+from jaqmc.array_types import PRNGKey
+from jaqmc.data import BatchedData
+from jaqmc.estimator import (
+    CrossLocalEnergyEvaluator,
+    EstimatorLike,
+    StreamingLossAndGrad,
+)
+from jaqmc.estimator.rayleigh import RayleighMatrixEstimator
+from jaqmc.optimizer.optax import adam
+from jaqmc.sampler.determinant import DeterminantMCMCSampler
+from jaqmc.utils.config import ConfigManager, configurable_dataclass
+from jaqmc.utils.wiring import wire
+from jaqmc.wavefunction.base import WavefunctionLike
+from jaqmc.wavefunction.determinant_state import (
+    CheckpointStateBundle,
+    DeterminantStateWavefunction,
+    SubspaceSpec,
+)
+from jaqmc.workflow.stage.vmc import VMCWorkStage
+from jaqmc.workflow.vmc import VMCWorkflow
+
+logger = logging.getLogger(__name__)
+
+
+@configurable_dataclass
+class SubspaceConfig:
+    """Configuration shared by molecule and solid subspace workflows."""
+
+    n_states: int = 2
+    condition_warning: float = 1e10
+    solve_residual_warning: float = 1e-6
+    max_imag_eigenvalue_warning: float = 1e-6
+
+    def __post_init__(self):
+        if self.n_states < 1:
+            raise ValueError("subspace.n_states must be positive")
+
+
+def replicate_walker_replicas(
+    batched_data: BatchedData, spec: SubspaceSpec
+) -> BatchedData:
+    """Repeat batched fields along a new replica axis.
+
+    This shape helper is useful in tests and adapters but must not initialize a
+    determinant chain: identical replica rows produce a singular amplitude
+    matrix.  Use :func:`make_subspace_data_init` for workflow initialization.
+
+    Returns:
+        Batched data with a repeated replica axis.
+
+    Raises:
+        ValueError: If configured replica fields do not carry a batch axis.
+    """
+    missing = set(spec.replica_fields) - set(batched_data.fields_with_batch)
+    if missing:
+        raise ValueError(
+            "Replica fields must already carry the walker batch axis: "
+            f"{sorted(missing)}"
+        )
+    data = replace(
+        batched_data.data,
+        **{
+            name: jax.tree.map(
+                lambda x: jnp.repeat(x[:, None], spec.n_states, axis=1),
+                batched_data.data[name],
+            )
+            for name in spec.replica_fields
+        },
+    )
+    return replace(batched_data, data=data)
+
+
+def make_subspace_data_init(
+    physical_data_init: Callable[[int, PRNGKey], BatchedData], spec: SubspaceSpec
+):
+    """Initialize independent physical configurations and group them by walker.
+
+    Repeating one configuration across replicas makes the initial amplitude
+    matrix singular.  Requesting ``B*M`` native samples keeps initialization
+    owned by the app while introducing only a reshape in this adapter.
+
+    Returns:
+        A data initializer that groups independent samples by walker.
+    """
+
+    def data_init(size: int, rngs: PRNGKey) -> BatchedData:
+        physical = physical_data_init(size * spec.n_states, rngs)
+        physical.check()
+        if extra := set(physical.fields_with_batch) - set(spec.replica_fields):
+            raise ValueError(
+                "All native batched fields must be listed in replica_fields; "
+                f"missing {sorted(extra)}"
+            )
+        data = replace(
+            physical.data,
+            **{
+                name: jax.tree.map(
+                    lambda x: x.reshape(size, spec.n_states, *x.shape[1:]),
+                    physical.data[name],
+                )
+                for name in physical.fields_with_batch
+                if name in spec.replica_fields
+            },
+        )
+        result = replace(physical, data=data)
+        result.check()
+        return result
+
+    return data_init
+
+
+class SubspaceVMCWorkflow(VMCWorkflow):
+    """Base workflow that reuses JaQMC's VMC stage, gradients, and optimizers."""
+
+    config_namespace = "subspace_train"
+
+    @classmethod
+    def default_preset(cls) -> dict[str, Any]:
+        fields = (
+            "pmove:.2f,energy=subspace_energy:.4f,"
+            "variance=subspace_energy_var:.4f,imag=subspace_energy_imag:.2e,"
+            "grass_var=grassmann_hamiltonian_variance:.3e,"
+            "sigma_min=amplitude_sigma_min:.2e,"
+            "condition=amplitude_condition:.2e,"
+            "residual=rayleigh_solve_residual:.2e,"
+            "max_imag=max_ritz_imag:.2e,"
+            "grad_norm=grad_norm:.2e,update_norm=update_norm:.2e"
+        )
+        return {
+            "train": {
+                "run": {"iterations": 200_000},
+                "writers": {"console": {"fields": fields}},
+            }
+        }
+
+    def __init__(self, cfg: ConfigManager) -> None:
+        super().__init__(cfg)
+        # Read leaves separately so the ``subspace`` namespace can also hold
+        # nested sampler/evaluation configuration without dataclass decoding
+        # treating those sections as unknown SubspaceConfig fields.
+        self.subspace = SubspaceConfig(
+            n_states=cfg.get("subspace.n_states", 2),
+            condition_warning=cfg.get("subspace.diagnostics.condition_warning", 1e10),
+            solve_residual_warning=cfg.get(
+                "subspace.diagnostics.solve_residual_warning", 1e-6
+            ),
+            max_imag_eigenvalue_warning=cfg.get(
+                "subspace.diagnostics.max_imag_eigenvalue_warning", 1e-6
+            ),
+        )
+        self.spec = SubspaceSpec(self.subspace.n_states)
+        self.initialization_mode = cfg.get("subspace.initialization.mode", "random")
+        self.initialization_checkpoints: list[str] = cfg.get(
+            "subspace.initialization.checkpoints", []
+        )
+        if self.initialization_mode not in ("random", "checkpoints"):
+            raise ValueError(
+                "subspace.initialization.mode must be 'random' or 'checkpoints'"
+            )
+
+    def configure_subspace(
+        self,
+        *,
+        base_wavefunction,
+        physical_data_init: Callable[[int, PRNGKey], BatchedData],
+        physical_energy_estimators: Mapping[str, EstimatorLike],
+        physical_proposal=None,
+    ) -> None:
+        """Assemble the native VMC stage around app-provided physical pieces.
+
+        Raises:
+            TypeError: If the configured gradient estimator lacks ``loss_key``.
+        """
+        self.base_wavefunction = base_wavefunction
+        state_bundle = None
+        if self.initialization_mode == "checkpoints":
+            state_bundle = CheckpointStateBundle(
+                base_wavefunction, self.spec, self.initialization_checkpoints
+            )
+        self.wf = DeterminantStateWavefunction(
+            base_wavefunction, self.spec, state_bundle=state_bundle
+        )
+        self.data_init = make_subspace_data_init(physical_data_init, self.spec)
+
+        sampler_default = DeterminantMCMCSampler(
+            n_states=self.spec.n_states,
+            initial_width=0.02,
+            **(
+                {"sampling_proposal": physical_proposal}
+                if physical_proposal is not None
+                else {}
+            ),
+        )
+        sampler = self.cfg.get("subspace.sampling", sampler_default)
+        self.subspace_sampler = sampler
+        rayleigh = self.cfg.get_module(
+            "subspace.evaluation",
+            RayleighMatrixEstimator,
+        )
+        rayleigh.condition_warning = self.subspace.condition_warning
+        rayleigh.solve_residual_warning = self.subspace.solve_residual_warning
+        rayleigh.max_imag_eigenvalue_warning = self.subspace.max_imag_eigenvalue_warning
+        cross_energy = CrossLocalEnergyEvaluator(
+            physical_energy_estimators,
+            self.spec,
+            pair_chunk_size=rayleigh.pair_chunk_size,
+        )
+        wire(
+            rayleigh,
+            f_component_logpsi_matrix=self.wf.component_logpsi_matrix,
+            f_cross_local_energy=cross_energy,
+        )
+
+        train = VMCWorkStage.builder(
+            self.cfg.scoped("train"), cast(WavefunctionLike, self.wf)
+        )
+        train.configure_sample_plan(self.wf.logpsi, {"electrons": sampler})
+        train.configure_optimizer(default=adam, f_log_psi=self.wf.logpsi)
+        train.configure_estimators(rayleigh=rayleigh)
+        grads = train.cfg.get("grads", StreamingLossAndGrad)
+        if not hasattr(grads, "loss_key"):
+            raise TypeError("train.grads estimator must expose a loss_key field")
+        grads.loss_key = "subspace_local_energy"
+        train.configure_loss_grads(grads, f_log_psi=self.wf.logpsi)
+        device_count = jax.device_count()
+        local_batch = self.config.batch_size // device_count
+        logger.info(
+            "Subspace chunking: n_states=%s, global_batch=%s, "
+            "local_batch=%s, devices=%s, "
+            "rayleigh_walkers=%s, cross_pairs=%s, gradient_walkers=%s, "
+            "matrix_dtype=%s, optimizer=%s, objective=%s",
+            self.spec.n_states,
+            self.config.batch_size,
+            local_batch,
+            device_count,
+            rayleigh.vmap_chunk_size,
+            rayleigh.pair_chunk_size,
+            getattr(grads, "vmap_chunk_size", None),
+            rayleigh.matrix_dtype,
+            type(train.optimizer).__name__,
+            grads.loss_key,
+        )
+        native_stage = train.build()
+        self.train_stage = SubspaceVMCWorkStage(
+            config=native_stage.config,
+            name=native_stage.name,
+            wavefunction=native_stage.wavefunction,
+            sample_plan=native_stage.sample_plan,
+            estimators=native_stage.estimators,
+            writers=native_stage.writers,
+            optimizer=native_stage.optimizer,
+        )
+
+
+class SubspaceVMCWorkStage(VMCWorkStage):
+    """Native VMC stage that gates invalid Rayleigh steps before optimization."""
+
+    def optimizer_step_valid(self, stats: dict[str, Any]):
+        """Require the Rayleigh estimator to approve the optimizer step.
+
+        Returns:
+            A scalar Boolean array indicating whether to update parameters.
+        """
+        return jnp.asarray(stats.get("training_step_valid", True))
+
+    def _has_nan(self, stats: dict[str, Any]) -> bool:
+        if "training_step_valid" in stats and not bool(
+            jnp.asarray(stats["training_step_valid"])
+        ):
+            return True
+        return super()._has_nan(stats)
+
+
+def energy_estimators_only(
+    estimators: Mapping[str, EstimatorLike],
+) -> dict[str, EstimatorLike]:
+    """Keep the ordered physical energy pipeline and discard other observables.
+
+    Returns:
+        The energy-only estimator mapping in native evaluation order.
+    """
+    names = ("potential", "kinetic", "ecp", "ph", "total")
+    return {name: estimators[name] for name in names if name in estimators}

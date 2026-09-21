@@ -25,6 +25,10 @@ from jaqmc.wavefunction import Wavefunction
 from jaqmc.workflow.evaluation import EvaluationWorkflow
 from jaqmc.workflow.stage.evaluation import EvaluationWorkStage
 from jaqmc.workflow.stage.vmc import VMCWorkStage
+from jaqmc.workflow.subspace_vmc import (
+    SubspaceVMCWorkflow,
+    energy_estimators_only,
+)
 from jaqmc.workflow.vmc import VMCWorkflow
 
 from .config import MoleculeConfig, MoleculePretrainReferenceConfig
@@ -117,6 +121,23 @@ class MoleculeEvalWorkflow(EvaluationWorkflow):
         evaluation.configure_estimators(**eval_estimators)
 
         self.evaluation_stage = evaluation.build()
+
+
+class MoleculeSubspaceTrainWorkflow(SubspaceVMCWorkflow):
+    """Jointly optimize a low-energy molecular variational subspace."""
+
+    def __init__(self, cfg: ConfigManager) -> None:
+        super().__init__(cfg)
+        system_config, wf = configure_system(cfg)
+        physical_data_init = partial(data_init, system_config)
+        physical_estimators = make_estimators(
+            cfg, wf, system_config, always_enable_energy=True
+        )
+        self.configure_subspace(
+            base_wavefunction=wf,
+            physical_data_init=physical_data_init,
+            physical_energy_estimators=energy_estimators_only(physical_estimators),
+        )
 
 
 def configure_system(

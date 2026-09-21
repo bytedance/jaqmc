@@ -132,6 +132,21 @@ def pnanmean(x):
     return pmean(local_sum) / pmean(local_count)
 
 
+def psum[ValueT](x: ValueT) -> ValueT:
+    """Sum ``x`` across devices along the batch axis.
+
+    Outside a ``shard_map`` context this is the identity, matching
+    :func:`pmean`'s convenient single-device behavior.
+
+    Returns:
+        The cross-device sum, or the input outside a shard-map context.
+    """
+    try:
+        return jax.lax.psum(x, axis_name=BATCH_AXIS_NAME)
+    except NameError:
+        return x
+
+
 def all_gather(x):
     """Gather ``x`` from every device along the batch axis and tile the result.
 

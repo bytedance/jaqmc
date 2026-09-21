@@ -99,4 +99,13 @@ API reference for built-in estimators. For background, formulas, and configurati
 
 ```{eval-rst}
 .. autoclass:: jaqmc.estimator.loss_grad.LossAndGrad
+.. autoclass:: jaqmc.estimator.streaming_loss_grad.StreamingLossAndGrad
+```
+
+### Variational subspace Rayleigh matrix
+
+```{eval-rst}
+.. autoclass:: jaqmc.estimator.RayleighMatrixEstimator
+   :members:
+.. autofunction:: jaqmc.estimator.grassmann_hamiltonian_statistics
 ```

@@ -28,6 +28,10 @@ from jaqmc.wavefunction import Wavefunction
 from jaqmc.workflow.evaluation import EvaluationWorkflow
 from jaqmc.workflow.stage.evaluation import EvaluationWorkStage
 from jaqmc.workflow.stage.vmc import VMCWorkStage
+from jaqmc.workflow.subspace_vmc import (
+    SubspaceVMCWorkflow,
+    energy_estimators_only,
+)
 from jaqmc.workflow.vmc import VMCWorkflow
 
 from .config import SolidConfig, SolidPretrainReferenceConfig
@@ -146,6 +150,30 @@ class SolidEvalWorkflow(EvaluationWorkflow):
                 for kpt, alpha, beta in self.scf.get_kpoint_occupancies()
             ),
         )
+        super().run()
+
+
+class SolidSubspaceTrainWorkflow(SubspaceVMCWorkflow):
+    """Jointly optimize a low-energy periodic-solid variational subspace."""
+
+    def __init__(self, cfg: ConfigManager) -> None:
+        super().__init__(cfg)
+        system_config, wf, sampling_proposal = configure_system(cfg)
+        reference_config = cfg.get("reference", SolidPretrainReferenceConfig)
+        self.scf = make_scf(reference_config, system_config)
+        physical_estimators = make_estimators(
+            cfg, wf, system_config, always_enable_energy=True
+        )
+        self.configure_subspace(
+            base_wavefunction=wf,
+            physical_data_init=partial(data_init, system_config),
+            physical_energy_estimators=energy_estimators_only(physical_estimators),
+            physical_proposal=sampling_proposal,
+        )
+
+    def run(self) -> None:
+        self.scf.run()
+        self.base_wavefunction.klist = self.scf.get_orbital_kpoints()
         super().run()
 
 

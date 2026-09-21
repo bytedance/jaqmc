@@ -1,0 +1,67 @@
+# Hydrogen determinant-subspace validation.
+#
+# Use:
+#   jaqmc molecule subspace-train \
+#       --yml examples/atoms/hydrogen_subspace.yml
+#
+# This example targets the five-dimensional low-energy hydrogen subspace:
+# 1s + the fourfold n=2 manifold.
+#
+# Exact Ritz spectrum:
+#   [-0.5, -0.125, -0.125, -0.125, -0.125]
+# Exact Ky-Fan trace:
+#   -1.0 Ha
+#
+# Any orthogonal basis spanning the degenerate n=2 subspace is valid; the four
+# corresponding Ritz vectors need not individually equal 2s/2px/2py/2pz.
+
+logging:
+  level: info
+  stream: stdout
+
+jax:
+  enable_x64: true
+
+workflow:
+  seed: 20260903
+  batch_size: 1024
+
+system:
+  module: atom
+  symbol: H
+  electron_init_width: 1.0
+
+wf:
+  module: ferminet
+
+subspace:
+  n_states: 5
+  initialization:
+    mode: random
+  sampling:
+    steps: 20
+    initial_width: 0.02
+    adapt_frequency: 100
+    pmove_range: [0.5, 0.55]
+  evaluation:
+    vmap_chunk_size: 64
+    pair_chunk_size: 5
+    matrix_dtype: complex128
+
+train:
+  run:
+    iterations: 40000
+    burn_in: 100
+    save_time_interval: 1800
+    save_step_interval: 500
+    timing_warmup_steps: 10
+    stop_on_nan: loss
+  optim:
+    module: jaqmc.optimizer.sr:SROptimizer
+    # JaQMC's native VMC gradient uses the factor-two convention; for a plain
+    # SR comparison, this is approximately GVMC reference learning_rate=0.10.
+    learning_rate: 0.05
+  grads:
+    module: jaqmc.estimator.streaming_loss_grad:StreamingLossAndGrad
+    vmap_chunk_size: 64
+    clip_method: none

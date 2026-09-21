@@ -71,7 +71,7 @@ class SROptimizer:
     learning_rate: Any = module_config(Standard, direct_value_type=float)
     max_norm: Any = module_config(
         "fixed",
-        direct_value_type=float | Literal["fixed"],
+        direct_value_type=float | Literal["fixed"] | None,
         module_import_base="jaqmc.optimizer",
     )
     damping: Any = module_config(
@@ -80,14 +80,18 @@ class SROptimizer:
     max_cond_num: float | None = 1e7
     robust_gamma: Any = module_config(
         "sqrt",
-        direct_value_type=float | Literal["sqrt"],
+        direct_value_type=float | Literal["sqrt"] | None,
         module_import_base="jaqmc.optimizer",
     )
     spring_mu: Any = module_config(
-        0.9, direct_value_type=float, module_import_base="jaqmc.optimizer"
+        0.9,
+        direct_value_type=float | None,
+        module_import_base="jaqmc.optimizer",
     )
     march_beta: Any = module_config(
-        0.995, direct_value_type=float, module_import_base="jaqmc.optimizer"
+        0.995,
+        direct_value_type=float | None,
+        module_import_base="jaqmc.optimizer",
     )
     march_mode: Literal["var", "diff"] = "var"
     eps: float = 1e-8

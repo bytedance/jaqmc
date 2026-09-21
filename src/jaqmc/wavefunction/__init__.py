@@ -8,11 +8,25 @@ from .base import (
     WavefunctionInit,
     WavefunctionLike,
 )
+from .determinant_state import (
+    CheckpointStateBundle,
+    DeterminantStateWavefunction,
+    IndependentStateBundle,
+    SubspaceSpec,
+    take_replica,
+    take_replica_dynamic,
+)
 
 __all__ = [
+    "CheckpointStateBundle",
+    "DeterminantStateWavefunction",
+    "IndependentStateBundle",
     "NumericWavefunctionEvaluate",
+    "SubspaceSpec",
     "Wavefunction",
     "WavefunctionEvaluate",
     "WavefunctionInit",
     "WavefunctionLike",
+    "take_replica",
+    "take_replica_dynamic",
 ]

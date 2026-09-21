@@ -1,15 +1,21 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+from operator import itemgetter
+
+import jax
 import numpy as np
+import pytest
 import yaml
 from jax import lax
 from jax import numpy as jnp
 
 from jaqmc.app.hall import HallTrainWorkflow
-from jaqmc.estimator.loss_grad import LossAndGrad
+from jaqmc.data import BatchedData, Data
+from jaqmc.estimator import LossAndGrad, StreamingLossAndGrad
 from jaqmc.utils.clip import clip_observable
 from jaqmc.utils.config import ConfigManager
+from jaqmc.utils.func_transform import grad_maybe_complex
 
 
 def _mock_all_gather_identity(monkeypatch):
@@ -74,6 +80,141 @@ def test_loss_and_grad_reduce_uses_selected_clip_method(monkeypatch):
         reduced["grad_logpsi_and_loss"]["w"],
         jnp.mean(grads["w"] * expected_clipped),
     )
+    assert not any(key.endswith("_var") for key in reduced)
+
+
+class GradientData(Data):
+    x: jax.Array
+
+
+def test_native_vmc_gradient_convention_is_two_times_centered_score_force():
+    data = BatchedData(
+        GradientData(x=jnp.array([-1.2, -0.4, 0.1, 0.6, 1.0, 1.7])), ["x"]
+    )
+    params = {"weights": jnp.array([0.3, -0.2], dtype=jnp.float64)}
+    local_energy = jnp.array(
+        [0.8 + 0.1j, -0.4 + 0.7j, 1.3 - 0.2j, -0.1 + 0.5j, 0.6 - 0.8j, -0.7 + 0.2j],
+        dtype=jnp.complex128,
+    )
+
+    def logpsi(p, sample):
+        value = p["weights"][0] * sample.x + p["weights"][1] * sample.x**2
+        return value + 0.2j * p["weights"][0] * sample.x**2
+
+    estimator = StreamingLossAndGrad(
+        loss_key="energy", clip_method="none", f_log_psi=logpsi
+    )
+    sums, _ = estimator.evaluate_batch_walkers(
+        params, data, {"energy": local_energy}, None, jax.random.key(0)
+    )
+    reduced = estimator.reduce(sums)
+    final = estimator.finalize_stats(jax.tree.map(itemgetter(None), reduced), None)
+
+    scores = jax.vmap(lambda sample: grad_maybe_complex(logpsi)(params, sample))(
+        data.data
+    )["weights"]
+    n_walkers = data.batch_size
+    jacobian = (scores - jnp.mean(scores, axis=0)) / jnp.sqrt(n_walkers)
+    force = (local_energy - jnp.mean(local_energy)) / jnp.sqrt(n_walkers)
+    jacobian = jnp.concatenate((jnp.real(jacobian), jnp.imag(jacobian)), axis=0)
+    force = jnp.concatenate((jnp.real(force), jnp.imag(force)), axis=0)
+    gvmc_gradient = jacobian.T @ force
+
+    np.testing.assert_allclose(
+        final["grads"]["weights"], 2.0 * gvmc_gradient, rtol=1e-11, atol=1e-12
+    )
+
+
+@pytest.mark.parametrize("clip_method", ["none", "mad", "iqr"])
+@pytest.mark.parametrize("complex_output", [False, True])
+@pytest.mark.parametrize("chunk_size", [1, 2, 4, 6])
+def test_streaming_loss_grad_matches_reference(
+    monkeypatch, clip_method, complex_output, chunk_size
+):
+    _mock_all_gather_identity(monkeypatch)
+    data = BatchedData(
+        GradientData(x=jnp.array([0.2, -0.4, 0.7, 1.1, -0.8, 0.3])), ["x"]
+    )
+    params = {"a": jnp.array(0.6), "b": jnp.array(-0.3)}
+    local_energy = jnp.array(
+        [
+            1.0 + 0.2j,
+            -0.5 + 0.7j,
+            2.0 - 0.3j,
+            0.1 + 0.9j,
+            1.3 - 0.4j,
+            -0.2 + 0.1j,
+        ]
+    )
+
+    def logpsi(p, one_data):
+        value = p["a"] * one_data.x + p["b"] * one_data.x**2
+        return value + 1j * p["b"] * one_data.x if complex_output else value
+
+    reference = LossAndGrad(
+        loss_key="energy", clip_method=clip_method, f_log_psi=logpsi
+    )
+    streaming = StreamingLossAndGrad(
+        loss_key="energy",
+        vmap_chunk_size=chunk_size,
+        clip_method=clip_method,
+        f_log_psi=logpsi,
+    )
+    prev_stats = {"energy": local_energy}
+
+    ref_walkers, _ = reference.evaluate_batch_walkers(
+        params, data, prev_stats, None, jax.random.key(0)
+    )
+    ref_reduced = reference.reduce(ref_walkers)
+    ref_final = reference.finalize_stats(
+        jax.tree.map(itemgetter(None), ref_reduced), None
+    )
+    stream_sums, _ = streaming.evaluate_batch_walkers(
+        params, data, prev_stats, None, jax.random.key(0)
+    )
+    stream_reduced = streaming.reduce(stream_sums)
+    stream_final = streaming.finalize_stats(
+        jax.tree.map(itemgetter(None), stream_reduced), None
+    )
+
+    np.testing.assert_allclose(stream_final["loss"], ref_final["loss"], rtol=1e-6)
+    for actual, expected in zip(
+        jax.tree.leaves(stream_final["grads"]),
+        jax.tree.leaves(ref_final["grads"]),
+    ):
+        np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-6)
+
+
+def test_loss_and_grad_keeps_imaginary_local_energy_contribution():
+    estimator = LossAndGrad(clip_method="none")
+    local_energy = jnp.array([1.0 + 2.0j, 3.0 - 1.0j])
+    grad_logpsi = {"w": jnp.array([1.0 + 1.0j, 2.0 - 3.0j])}
+
+    reduced = estimator.reduce({"loss": local_energy, "grad_logpsi": grad_logpsi})
+    final = estimator.finalize_stats(jax.tree.map(itemgetter(None), reduced), None)
+    centered = local_energy - jnp.mean(local_energy)
+    expected = 2 * jnp.mean(jnp.real(jnp.conj(grad_logpsi["w"]) * centered))
+    wrong_real_only = 2 * jnp.mean(
+        jnp.real(jnp.conj(grad_logpsi["w"]) * jnp.real(centered))
+    )
+
+    np.testing.assert_allclose(final["grads"]["w"], expected)
+    assert not np.isclose(float(expected), float(wrong_real_only))
+
+
+def test_loss_and_grad_validity_mask_uses_same_walker_subset():
+    estimator = LossAndGrad(clip_method="none", validity_key="valid")
+    reduced = estimator.reduce(
+        {
+            "loss": jnp.array([1.0, 1000.0, 5.0]),
+            "grad_logpsi": {"w": jnp.array([1.0, 100.0, 3.0])},
+            "loss_valid": jnp.array([True, False, True]),
+        }
+    )
+    final = estimator.finalize_stats(jax.tree.map(itemgetter(None), reduced), None)
+    expected = 2 * jnp.mean(jnp.array([1.0, 3.0]) * (jnp.array([1.0, 5.0]) - 3.0))
+
+    np.testing.assert_allclose(final["grads"]["w"], expected)
 
 
 def test_loss_and_grad_config_roundtrip_preserves_clip_method():

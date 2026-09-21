@@ -1,0 +1,15 @@
+# Small-system single-device oracle matching the GVMC minSR/Kacz equations.
+# This backend converts JaQMC's factor-2 native gradient at its adapter and
+# applies the configured learning rate directly, as cqsl/GVMC does.
+# For controlled plain-SR comparisons, use lr_native ~= lr_gvmc / 2.
+# Do not use this backend for multi-device or production runs.
+train:
+  optim:
+    module: jaqmc.optimizer.gvmc_reference_sr:GVMCReferenceSROptimizer
+    learning_rate: 0.10
+    lam0: 1.0e-3
+    lam1: 1.0
+    mu: 0.9
+    score_chunk_size: null
+  grads:
+    clip_method: none

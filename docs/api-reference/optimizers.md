@@ -23,8 +23,14 @@ For optimizer config keys, see the configuration reference: [Molecule](#train-op
 
 ```{eval-rst}
 .. autoclass:: jaqmc.optimizer.sr.SROptimizer
+.. autoclass:: jaqmc.optimizer.gvmc_reference_sr.GVMCReferenceSROptimizer
 .. autoclass:: jaqmc.optimizer.kfac.kfac.KFACOptimizer
 ```
+
+The GVMC reference backend is intended only for source-equation comparisons on
+one device. Determinant-state production runs should use
+{class}`jaqmc.optimizer.sr.SROptimizer`, which evaluates the same Grassmann
+score with JaQMC's distributed and chunked solver.
 
 ## Optimizers provided by <inv:optax:*:doc#index>
 

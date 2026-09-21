@@ -19,6 +19,7 @@ Use this section when you already picked a system and want to run, analyze, tune
 - <project:wavefunction.md> — choose and tune built-in wavefunction architectures.
 - <project:optimizers/index.md> — pick and configure optimization methods.
 - <project:sampling.md> — tune MCMC behavior and acceptance.
+- <project:subspace-variational.md> — jointly optimize low-energy variational subspaces.
 - <project:writers.md> — control which statistics are written and where.
 
 ## Physics and Estimators
@@ -42,6 +43,7 @@ wavefunction.md
 estimators/index.md
 optimizers/index.md
 sampling.md
+subspace-variational.md
 periodic-boundaries.md
 writers.md
 multi-device.md

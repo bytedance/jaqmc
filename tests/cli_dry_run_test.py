@@ -400,6 +400,53 @@ def test_cli_command_dry_run(
     assert result.exit_code == 0, f"command: {case.command}\noutput:\n{result.output}"
 
 
+def test_solid_subspace_train_help_is_exposed() -> None:
+    result = CliRunner().invoke(cli, ["solid", "subspace-train", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "solid-state low-energy subspace" in result.output
+
+
+def test_hydrogen_subspace_example_dry_run() -> None:
+    root = Path(__file__).resolve().parents[1]
+    result = CliRunner().invoke(
+        cli,
+        [
+            "molecule",
+            "subspace-train",
+            "--yml",
+            str(root / "examples" / "atoms" / "hydrogen_subspace.yml"),
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+
+
+@pytest.mark.parametrize(
+    "optimizer_config",
+    ["subspace_grassmann_sr.yml", "subspace_gvmc_reference_sr.yml"],
+)
+def test_hydrogen_subspace_grassmann_optimizer_overlay_dry_run(
+    optimizer_config: str,
+) -> None:
+    root = Path(__file__).resolve().parents[1]
+    result = CliRunner().invoke(
+        cli,
+        [
+            "molecule",
+            "subspace-train",
+            "--yml",
+            str(root / "examples" / "atoms" / "hydrogen_subspace.yml"),
+            "--yml",
+            str(root / "configs" / "workflows" / optimizer_config),
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+
+
 def test_cli_verbose_config_dotlist(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level("INFO", logger="jaqmc.utils.config")
 

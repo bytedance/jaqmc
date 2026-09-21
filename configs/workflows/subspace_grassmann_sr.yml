@@ -1,0 +1,20 @@
+# Production Grassmann natural-gradient preset.
+# The determinant-state logpsi score is the Grassmann score; use JaQMC's
+# distributed/chunked SR implementation rather than a second QGT backend.
+# For controlled plain-SR A/B tests, JaQMC's native factor-2 gradient means
+# lr_native is approximately lr_gvmc / 2. Robust features break exact scaling.
+train:
+  optim:
+    module: jaqmc.optimizer.sr:SROptimizer
+    learning_rate: 0.05
+    damping: 1.0e-3
+    spring_mu: 0.9
+    march_beta: null
+    max_cond_num: null
+    max_norm: null
+    robust_gamma: null
+    mixed_precision: true
+    score_chunk_size: 64
+    gram_num_chunks: 4
+  grads:
+    clip_method: none

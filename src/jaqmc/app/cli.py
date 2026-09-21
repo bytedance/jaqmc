@@ -158,6 +158,14 @@ def molecule_evaluate(cfg: ConfigManager, dry_run: bool):
     MoleculeEvalWorkflow(cfg)(dry_run)
 
 
+@molecule.add_command
+@make_cli(name="subspace-train", help="Train a molecular low-energy subspace.")
+def molecule_subspace_train(cfg: ConfigManager, dry_run: bool):
+    from .molecule import MoleculeSubspaceTrainWorkflow
+
+    MoleculeSubspaceTrainWorkflow(cfg)(dry_run)
+
+
 # --- solid ---
 
 
@@ -180,6 +188,14 @@ def solid_evaluate(cfg: ConfigManager, dry_run: bool):
     from .solid import SolidEvalWorkflow
 
     SolidEvalWorkflow(cfg)(dry_run)
+
+
+@solid.add_command
+@make_cli(name="subspace-train", help="Train a solid-state low-energy subspace.")
+def solid_subspace_train(cfg: ConfigManager, dry_run: bool):
+    from .solid import SolidSubspaceTrainWorkflow
+
+    SolidSubspaceTrainWorkflow(cfg)(dry_run)
 
 
 # --- electron_gas ---

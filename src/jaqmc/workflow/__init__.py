@@ -3,10 +3,13 @@
 
 from .base import Workflow, WorkflowConfig, init_batched_data
 from .evaluation import EvaluationWorkflow
+from .subspace_vmc import SubspaceConfig, SubspaceVMCWorkflow
 from .vmc import VMCWorkflow
 
 __all__ = [
     "EvaluationWorkflow",
+    "SubspaceConfig",
+    "SubspaceVMCWorkflow",
     "VMCWorkflow",
     "Workflow",
     "WorkflowConfig",

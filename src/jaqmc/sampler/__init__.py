@@ -17,5 +17,12 @@ the chaining logics are handled in `DataGenerator`s instead of the samplers them
 """
 
 from .base import SamplePlan, SamplerInit, SamplerLike, SamplerStep
+from .determinant import DeterminantMCMCSampler
 
-__all__ = ["SamplePlan", "SamplerInit", "SamplerLike", "SamplerStep"]
+__all__ = [
+    "DeterminantMCMCSampler",
+    "SamplePlan",
+    "SamplerInit",
+    "SamplerLike",
+    "SamplerStep",
+]

@@ -234,6 +234,15 @@ class VMCWorkStage(SamplingWorkStage):
             opt_state=opt_state,
         )
 
+    def optimizer_step_valid(self, stats: dict[str, Any]):
+        """Return whether an optimizer update may be applied for this step.
+
+        Specialized VMC stages can override this hook while reusing the native
+        sampling, estimator, optimizer, and state-update pipeline.
+        """
+        del stats
+        return jnp.asarray(True)
+
     def compute_step(
         self, state: VMCState, rngs: PRNGKey
     ) -> tuple[VMCState, dict[str, Any]]:
@@ -257,14 +266,40 @@ class VMCWorkStage(SamplingWorkStage):
         grads = final_stats.pop("grads", None)
         if grads is None:
             raise ValueError("None of the estimators provides `grads` stats.")
-        updates, opt_state = self.optimizer.update(
-            grads,
-            state.opt_state,
-            params=state.params,
-            batched_data=data,
-            rngs=opt_rngs,
-        )
-        params = optax.apply_updates(state.params, updates)
+        grad_norm = optax.tree.norm(grads)
+        final_stats["grad_norm"] = grad_norm
+        valid = jnp.asarray(self.optimizer_step_valid(final_stats))
+
+        def apply_optimizer(_):
+            updates, opt_state = self.optimizer.update(
+                grads,
+                state.opt_state,
+                params=state.params,
+                batched_data=data,
+                rngs=opt_rngs,
+            )
+            return (
+                optax.apply_updates(state.params, updates),
+                opt_state,
+                optax.tree.norm(updates),
+            )
+
+        def preserve_state(_):
+            return state.params, state.opt_state, jnp.zeros_like(grad_norm)
+
+        try:
+            concrete_valid = bool(valid)
+        except jax.errors.TracerBoolConversionError:
+            params, opt_state, update_norm = jax.lax.cond(
+                valid, apply_optimizer, preserve_state, operand=None
+            )
+        else:
+            if concrete_valid:
+                params, opt_state, update_norm = apply_optimizer(None)
+            else:
+                params, opt_state, update_norm = preserve_state(None)
+
+        final_stats["update_norm"] = update_norm
         new_state = replace(
             state,
             params=params,
