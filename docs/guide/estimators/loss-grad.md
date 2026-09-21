@@ -13,12 +13,12 @@ To minimize $E(\theta)$, we need its gradient with respect to $\theta$. Because 
 
 $$
 \nabla_\theta E
-  = 2 \left\langle
-      \left(E_L - \left\langle E_L \right\rangle\right) \, \nabla_\theta \log|\psi_\theta|
+  = 2 \operatorname{Re} \left\langle
+      (\nabla_\theta \log\psi_\theta)^* \left(E_L - \left\langle E_L \right\rangle\right)
   \right\rangle
 $$
 
-where $\langle \cdot \rangle$ is the Monte Carlo average over walkers. Each walker contributes its log-wavefunction gradient $\nabla_\theta \log|\psi_\theta|$, weighted by how far its local energy deviates from the mean.
+where $\langle \cdot \rangle$ is the Monte Carlo average over walkers. Each walker contributes its log-wavefunction gradient $\nabla_\theta \log\psi_\theta$, weighted by how far its local energy deviates from the mean. For real wavefunctions this reduces to $2 \langle (E_L - \langle E_L \rangle) \nabla_\theta \log|\psi_\theta| \rangle$.
 
 The $\langle E_L \rangle$ baseline arises from differentiating the ratio $\langle \psi|H|\psi \rangle / \langle \psi|\psi \rangle$ (quotient rule) — it accounts for the fact that neural network wavefunctions are not normalized. It also reduces the variance of the gradient estimate, since walkers near the mean energy contribute little.
 

@@ -25,16 +25,22 @@ from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
 class LossAndGrad(PerWalkerEstimator):
     r"""Estimator that computes the VMC loss and parameter gradients.
 
-    The gradient of the variational energy with respect to wavefunction
-    parameters :math:`\theta` is:
+    For real parameters :math:`\theta` and a possibly complex wavefunction,
+    the gradient of the variational energy is:
 
     .. math::
 
         \nabla_\theta \langle E_L \rangle
-          = 2 \left\langle
-              (E_L - \langle E_L \rangle) \,
-              \nabla_\theta \log|\psi_\theta|
+          = 2 \operatorname{Re} \left\langle
+              (\nabla_\theta \log\psi_\theta)^*
+              (E_L - \langle E_L \rangle)
           \right\rangle
+
+    For real wavefunctions this reduces to
+    :math:`2 \langle (E_L - \langle E_L \rangle)
+    \nabla_\theta \log|\psi_\theta| \rangle` since
+    :math:`\nabla_\theta \log\psi = \nabla_\theta \log|\psi|`
+    is real.
 
     The computation proceeds in three stages across the estimator
     lifecycle:
@@ -43,9 +49,12 @@ class LossAndGrad(PerWalkerEstimator):
        parameter gradient for each walker, and reads the loss value.
     2. ``reduce`` — optionally clips the local energies for outlier
        robustness, then forms the per-walker product
-       :math:`\nabla\log\psi \cdot E_L^{\text{clipped}}`.
+       :math:`\operatorname{Re}[(\nabla\log\psi)^*
+       E_L^{\text{clipped}}]`.
     3. ``finalize`` — averages over walkers and subtracts the baseline
-       to assemble the final gradient.
+       :math:`\operatorname{Re}[(\langle\nabla\log\psi\rangle)^*
+       \langle E_L^{\text{clipped}} \rangle]` to assemble the final
+       gradient.
 
     Args:
         loss_key: Key in prev_walker_stats to use as the loss.
@@ -123,6 +132,8 @@ class LossAndGrad(PerWalkerEstimator):
         loss = batch_mean(batch_stats["loss"])
         grads = optax.tree.add(
             grad_logpsi_and_loss,
-            optax.tree.real(optax.tree.scale(-clipped_loss, grad_logpsi)),
+            optax.tree.real(
+                optax.tree.scale(-clipped_loss, optax.tree.conj(grad_logpsi))
+            ),
         )
         return {"loss": loss, "grads": optax.tree.scale(2, grads)}
