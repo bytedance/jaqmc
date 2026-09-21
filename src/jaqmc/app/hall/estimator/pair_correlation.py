@@ -4,28 +4,27 @@
 r"""Pair correlation function estimator for the Haldane sphere.
 
 Accumulates a histogram of geodesic pair angles :math:`\theta_{ij}`
-weighted by :math:`1/\sin\theta_{ij}` to obtain the pair correlation
-function :math:`g(\theta)`.
+weighted by :math:`1/\sin\theta_{ij}`.
 
-The normalization factor per evaluation step is included, but the
-division by the total number of steps is **not** — divide the state
-by the step count to obtain the final :math:`g(\theta)`.
+The histogram contains raw weighted counts.  To obtain the pair
+correlation function :math:`g(\theta)`, multiply by
+:math:`4\,b / (\pi\,N^2\,n_{\text{walkers}}\,n_{\text{steps}})`,
+where :math:`b` is the number of bins, :math:`N` the number of
+electrons, :math:`n_{\text{walkers}}` the global walker count
+(``workflow.batch_size``), and :math:`n_{\text{steps}}` the
+evaluation step count (provided as ``pair_correlation:n_steps``).
 """
-
-from collections.abc import Mapping
-from typing import Any
 
 from jax import numpy as jnp
 
-from jaqmc.array_types import PRNGKey
-from jaqmc.data import BatchedData, Data
-from jaqmc.estimator.base import Estimator
+from jaqmc.data import Data
+from jaqmc.estimator.histogram import HistogramEstimator
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
 
 
 @configurable_dataclass
-class PairCorrelation(Estimator):
+class PairCorrelation(HistogramEstimator):
     r"""Pair correlation function :math:`g(\theta)` on the Haldane sphere.
 
     For each pair of electrons :math:`(i < j)`, computes the geodesic
@@ -40,47 +39,31 @@ class PairCorrelation(Estimator):
 
     bins: int = 200
     data_field: str = runtime_dep(default="electrons")
+    name: str = "pair_correlation"
 
-    def init(self, data: Data, rngs: PRNGKey) -> jnp.ndarray:
-        return jnp.zeros(self.bins)
-
-    def evaluate_batch_walkers(
+    def _histogram_spec(
         self,
-        params: Any,
-        batched_data: BatchedData,
-        prev_walker_stats: Mapping[str, Any],
-        state: jnp.ndarray,
-        rngs: PRNGKey,
-    ) -> tuple[dict[str, Any], jnp.ndarray]:
-        del params, prev_walker_stats, rngs
-        electrons = batched_data.data[self.data_field]
-        batch_size, nelec, _ = electrons.shape
+    ) -> tuple[int | tuple[int, ...], list[tuple[float, float]]]:
+        return self.bins, [(0.0, jnp.pi)]
+
+    def extract(self, data: Data) -> jnp.ndarray:
+        """Return geodesic pair angles, shape ``(batch, n_pairs, 1)``."""
+        electrons = data[self.data_field]
+        nelec = electrons.shape[-2]
         theta, phi = electrons[..., 0], electrons[..., 1]
 
-        # Cartesian coordinates on the unit sphere
         sin_t, cos_t = jnp.sin(theta), jnp.cos(theta)
         xyz = jnp.stack(
             [sin_t * jnp.cos(phi), sin_t * jnp.sin(phi), cos_t],
             axis=-1,
         )
 
-        # Pairwise cosines and geodesic angles (upper triangle only)
         cos12 = jnp.sum(xyz[..., :, None, :] * xyz[..., None, :, :], axis=-1)
-        pairs = cos12[:, *jnp.triu_indices(nelec, 1)]
-        theta12 = jnp.arccos(jnp.clip(pairs, -1, 1)).reshape(-1)
+        pairs = cos12[..., *jnp.triu_indices(nelec, 1)]
+        theta12 = jnp.arccos(jnp.clip(pairs, -1, 1))
+        return theta12[..., None]
 
-        to_add, _ = jnp.histogram(
-            theta12, self.bins, (0.0, jnp.pi), weights=1 / jnp.sin(theta12)
-        )
-        # Factor 2 converts (i < j) to (i != j); remaining factors normalize
-        # to a density.  Division by number of evaluation steps is NOT included.
-        return {}, state + to_add * 4 * self.bins / batch_size / nelec**2 / jnp.pi
-
-    def reduce(self, walker_stats: Mapping[str, Any]) -> dict[str, Any]:
-        del walker_stats
-        return {}
-
-    def finalize_stats(
-        self, mean_stats: Mapping[str, Any], state: jnp.ndarray
-    ) -> dict[str, Any]:
-        return {}
+    def _weights(self, values: jnp.ndarray, data: Data) -> jnp.ndarray:
+        r"""Return per-pair weights :math:`1/\sin\theta_{ij}`."""
+        del data
+        return 1.0 / jnp.sin(values[..., 0])

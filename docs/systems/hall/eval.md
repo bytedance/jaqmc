@@ -152,9 +152,14 @@ Accumulates a histogram of the polar angle $\theta$ to measure electron density 
 
 ### Pair correlation (`estimators.pair_correlation.*`)
 
-Computes the pair correlation function $g(\theta)$ on the Haldane sphere
-from geodesic pair angles, weighted by $1/\sin\theta$. Divide the
-accumulated state by the evaluation step count to get the final $g(\theta)$.
+Accumulates a histogram of geodesic pair angles $\theta_{ij}$,
+weighted by $1/\sin\theta_{ij}$, on the Haldane sphere. The digest
+holds the raw weighted counts; multiply by
+$4b / (\pi N^2 n_{\text{walkers}} n_{\text{steps}})$ — with $b$ the
+bin count, $N$ the electron number, $n_{\text{walkers}}$ the global
+walker count (`workflow.batch_size`), and $n_{\text{steps}}$ the step
+count from the digest key `pair_correlation:n_steps` — to obtain the
+pair correlation function $g(\theta)$.
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.hall.estimator.pair_correlation.PairCorrelation
