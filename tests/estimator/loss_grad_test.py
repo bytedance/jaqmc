@@ -1,6 +1,9 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+from operator import itemgetter
+
+import jax
 import numpy as np
 import yaml
 from jax import lax
@@ -74,6 +77,19 @@ def test_loss_and_grad_reduce_uses_selected_clip_method(monkeypatch):
         reduced["grad_logpsi_and_loss"]["w"],
         jnp.mean(grads["w"] * expected_clipped),
     )
+
+
+def test_loss_and_grad_complex_gradient():
+    losses = jnp.array([0j, 2.0j])
+    grads = {"w": jnp.array([0j, 2.0j])}
+    estimator = LossAndGrad(clip_method="none")
+
+    reduced = estimator.reduce({"loss": losses, "grad_logpsi": grads})
+    batched = jax.tree.map(itemgetter(None), reduced)
+    final = estimator.finalize_stats(batched, None)
+
+    # 2 * (mean(Re[conj(O) E]) - Re[conj(mean O) mean E]) = 2 * (2 - 1).
+    np.testing.assert_allclose(final["grads"]["w"], 2.0)
 
 
 def test_loss_and_grad_config_roundtrip_preserves_clip_method():
