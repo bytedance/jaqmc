@@ -31,7 +31,9 @@ def mean_reduce(
 
     Computes the mean over walkers and across devices.  When
     ``include_variance`` is True, appends ``{key}_var`` entries with
-    the corresponding variance.
+    the mean of squared deviations from that mean.  Deviations are
+    centered before squaring so the result stays accurate in float32
+    when the walker values lie far from zero.
 
     Args:
         walker_stats: Per-walker values (leading walker dimension).
@@ -43,7 +45,7 @@ def mean_reduce(
     stats = jax.tree.map(parallel_jax.pnanmean, walker_stats)
     if include_variance:
         var_stats = jax.tree.map(
-            lambda x, mean_x: parallel_jax.pnanmean(x**2) - mean_x**2,
+            lambda x, mean_x: parallel_jax.pnanmean((x - mean_x) ** 2),
             walker_stats,
             stats,
         )
