@@ -15,6 +15,7 @@ from jaqmc.estimator import (
     FunctionEstimator,
     PerWalkerEstimator,
 )
+from jaqmc.estimator.base import mean_reduce
 
 
 def _dummy_evaluate(params, data, stats, state, rngs):
@@ -138,3 +139,10 @@ def test_pipeline_finalize_stats_raises_before_evaluate():
     pipeline = EstimatorPipeline({"a": _BatchEstimator("x", 1.0)})
     with pytest.raises(RuntimeError, match=r"finalize_stats.*before evaluate"):
         pipeline.finalize_stats({"x": np.array([1.0])}, {"a": None})
+
+
+def test_mean_reduce_variance_stays_accurate_far_from_zero():
+    values = jnp.asarray([-1000.0, -999.99], dtype=jnp.float32)
+    got = mean_reduce({"energy": values})["energy_var"]
+    ref = np.var(np.asarray(values, dtype=np.float64))
+    np.testing.assert_allclose(got, ref, rtol=1e-5, atol=0)
