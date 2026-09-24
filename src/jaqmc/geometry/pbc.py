@@ -4,6 +4,7 @@
 from enum import StrEnum
 
 import jax
+import numpy as np
 from jax import numpy as jnp
 
 from jaqmc.array_types import PRNGKey
@@ -111,6 +112,70 @@ def wrap_positions(positions: jnp.ndarray, lattice: jnp.ndarray) -> jnp.ndarray:
     return wrapped_fractional @ lattice
 
 
+def _lll_reduced_basis(lattice: jnp.ndarray, delta: float = 0.75) -> jnp.ndarray:
+    r"""LLL-reduces a lattice basis so a one-shell image search is exact.
+
+    LLL (Lenstra-Lenstra-Lovasz) reduction applies integer row operations,
+    leaving the spanned lattice unchanged while making the basis vectors
+    nearly orthogonal. On a reduced basis, once a separation is wrapped into
+    the reduced cell, the minimum image is always one of the ``3**ndim``
+    nearest images, so the general minimum-image branch never needs a wider
+    search.
+
+    This is the standard recipe for periodic distances: ASE applies a
+    Minkowski reduction in :func:`ase.geometry.geometry.general_find_mic`,
+    and pymatgen applies an LLL reduction in ``Lattice._calculate_lll`` before
+    searching the 27 neighbouring cells.
+
+    Args:
+        lattice: Lattice vectors with shape (ndim, ndim), each row a vector.
+        delta: Lovasz parameter controlling the strength of the reduction.
+            0.75 is the standard choice; larger values reduce more strongly.
+
+    Returns:
+        A reduced basis spanning the same lattice as ``lattice``.
+    """
+    basis = np.asarray(lattice, dtype=np.float64).copy()
+    ndim = len(basis)
+
+    # LLL needs a finite basis of linearly independent vectors. Bail out on
+    # invalid input (e.g. NaN or a singular cell) rather than loop forever on
+    # the non-terminating comparisons it would otherwise produce.
+    if not np.all(np.isfinite(basis)):
+        return lattice
+    norm_scale = np.linalg.norm(basis, axis=1).max()
+    if abs(np.linalg.det(basis)) <= np.finfo(np.float64).eps * norm_scale**ndim:
+        return lattice
+
+    def gram_schmidt() -> tuple[np.ndarray, np.ndarray]:
+        # QR of the basis (columns) gives an orthonormal basis Q and, in R,
+        # the projections q_j . a_i. The LLL coefficients follow as
+        # mu[i, j] = R[j, i] / R[j, j], with |R[i, i]| = ||b*_i||.
+        _, r = np.linalg.qr(basis.T)
+        b_star_norm = np.diag(r)
+        mu = np.zeros((ndim, ndim))
+        for i in range(ndim):
+            mu[i, :i] = r[:i, i] / b_star_norm[:i]
+        return b_star_norm, mu
+
+    k = 1
+    while k < ndim:
+        b_star_norm, mu = gram_schmidt()
+        # Size reduction: keep the off-diagonal coefficients small.
+        for j in range(k - 1, -1, -1):
+            if abs(mu[k, j]) > 0.5:
+                basis[k] = basis[k] - np.round(mu[k, j]) * basis[j]
+                b_star_norm, mu = gram_schmidt()
+        # Lovasz condition: swap neighbouring vectors if they are out of order.
+        lovasz = (delta - mu[k, k - 1] ** 2) * b_star_norm[k - 1] ** 2
+        if b_star_norm[k] ** 2 >= lovasz:
+            k += 1
+        else:
+            basis[[k, k - 1]] = basis[[k - 1, k]]
+            k = max(k - 1, 1)
+    return jnp.asarray(basis, dtype=lattice.dtype)
+
+
 def build_distance_fn(lattice: jnp.ndarray):
     """Computes minimal image distance between particles under PBC.
 
@@ -165,15 +230,20 @@ def build_distance_fn(lattice: jnp.ndarray):
 
         return distance_fn
 
-    # General MIC implementation searching 3^ndim neighboring images.
+    # General MIC: reduce the basis, wrap into the reduced cell, then search
+    # the 3^ndim nearest images. On a reduced basis that shell is sufficient.
     else:
+        reduced = _lll_reduced_basis(lattice)
+        inv_reduced = jnp.linalg.inv(reduced)
         mesh_grid = jnp.meshgrid(*[jnp.array([0, 1, 2]) for _ in range(ndim)])
         point_list = jnp.stack([m.ravel() for m in mesh_grid], axis=0).T - 1
-        shifts = point_list @ lattice
+        shifts = point_list @ reduced
 
         def distance_fn(ra: jnp.ndarray, rb: jnp.ndarray):
             diff = ra[..., :, None, :] - rb[..., None, :, :]
-            diff_all = diff[..., None, :] + shifts
+            frac_diff = diff @ inv_reduced
+            wrapped = diff - jnp.round(frac_diff) @ reduced
+            diff_all = wrapped[..., None, :] + shifts
             dists_all = jnp.linalg.norm(diff_all, axis=-1)
             min_idx = jnp.argmin(dists_all, axis=-1)
             best_disp = jnp.take_along_axis(diff_all, min_idx[..., None, None], axis=-2)
