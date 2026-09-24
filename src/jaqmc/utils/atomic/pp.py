@@ -28,9 +28,9 @@ deferred until the need actually arises.
 from pyscf import gto
 
 __all__ = [
-    "PH_SURROGATE_ECP",
     "PP_PH",
     "SUPPORTED_PH_ELEMENTS",
+    "core_electrons_by_pp",
 ]
 
 #: Reserved value in the unified ``pp`` spec that selects PH treatment.
@@ -44,9 +44,6 @@ _PH_NEON_CORE_ELEMENTS = frozenset(
 _PH_CORE_COUNTS = {symbol: 10 for symbol in _PH_NEON_CORE_ELEMENTS}
 
 SUPPORTED_PH_ELEMENTS: frozenset[str] = _PH_NEON_CORE_ELEMENTS
-
-# ECP used to bootstrap the SCF pretrain for each PH-treated element.
-PH_SURROGATE_ECP = {symbol: "ccecp" for symbol in _PH_NEON_CORE_ELEMENTS}
 
 
 def core_electrons_by_pp(symbol: str, pp: str | None = None):

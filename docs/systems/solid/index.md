@@ -5,8 +5,10 @@ boundary conditions. Most runs start from a YAML definition and a
 single `jaqmc solid train` command. JaQMC then follows the same three-stage
 workflow used for [molecules](../molecule/index.md):
 
-1. **Hartree-Fock (HF)** computes a reference electronic-structure solution with
-   PySCF.
+1. **Mean-field reference** loads a prepared `reference.npz` or generates one
+   with PySCF. Quantum ESPRESSO references must be prepared separately (see
+   [Orbital reference](#solid-pretrain-reference)). The file supplies both the
+   pretraining orbitals and the occupied k-points used by the solid ansatz.
 2. **Pretraining** matches the neural wavefunction to those orbitals.
 3. **VMC training** performs the main energy optimization.
 
@@ -166,10 +168,9 @@ constants.
 (solid-ecps)=
 ## Effective core potentials
 
-Solids use the same unified `system.pp` key as molecules, but only its ECP and
-all-electron branches are supported: core electrons are replaced by a
-pseudopotential, and JaQMC samples only the remaining valence electrons. To use
-an ECP, set `system.pp` to an ECP name or mapping:
+Solids use the same unified `system.pp` key as molecules and accept the same
+ECP names, but only ECP and all-electron treatment are supported — `pp: ph` is
+rejected. An ECP name or mapping under `system.pp` enables ECP treatment:
 
 ```yaml
 system:
@@ -177,47 +178,27 @@ system:
     Li: ccecp
 ```
 
-The `rock_salt` and `two_atom_chain` shortcuts use `system.pp` to choose
-valence electron counts automatically. If you define `atoms` directly, set
-`system.s_z` to the desired value for the explicit electrons. For a charged
-primitive cell, follow the `total_charge` and `local_charge` rule above.
-
-Solid workflows currently support ECP and all-electron treatment only. The
-shared `pp` key accepts the same ECP names as molecules, but `pp: ph` is
-rejected for solids.
+With an ECP enabled, JaQMC derives the explicit electron count from the
+valence system rather than the all-electron atoms, following the charge
+resolution rule above. `system.s_z` applies to the explicit electrons, and
+charged primitive cells follow the `total_charge` and `local_charge` rule
+above.
 
 See <project:#molecule-pseudopotentials> for the broader pseudopotential setup
 guidance.
 
 (solid-pretrain-reference)=
-## Pretrain reference settings
+## Orbital reference
 
-`pretrain.reference.*` configures the PySCF Hartree-Fock calculation used for
-pretraining. For most solid runs, the basis is the only reference setting you
-need to choose. The default is cc-pVDZ, and you can change it with:
-
-```yaml
-pretrain:
-  reference:
-    basis: sto-3g
-```
-
-If the system uses an ECP, choose a pretrain basis that matches that
-pseudopotential:
-
-```yaml
-system:
-  pp:
-    Li: ccecp
-pretrain:
-  reference:
-    basis:
-      Li: ccecpccpvdz
-      H: cc-pvdz
-```
-
-The available reference settings are shared with molecule runs; see
-<project:#molecule-pretrain-reference> for the detailed discussion.
+When no `reference=` path is given, `jaqmc solid train` and
+`jaqmc solid evaluate` reuse a reference from a run directory or generate one
+with PySCF. Automatic generation covers all-electron and `ccecp` systems when
+each atom uses the effective charge derived from `system.pp`. Custom per-atom
+charges and other ECP families need a prepared reference. The
+`jaqmc solid reference prepare` command exposes the solver input, supports
+non-default bases, and selects Quantum ESPRESSO with `solver.module=qe`.
+Training and evaluation accept the resulting file through `reference=`. The
+complete workflow is described in <project:reference.md>.
 
 ## Supercell Expansion
 
@@ -250,27 +231,32 @@ After training finishes, run evaluation to freeze the parameters and collect
 samples for the final observables:
 
 ```bash
-jaqmc solid evaluate --yml lih_solid.yml workflow.save_path=./runs/lih_solid-eval \
+jaqmc solid evaluate --yml lih_solid.yml \
+  workflow.save_path=./runs/lih_solid/eval \
   workflow.source_path=./runs/lih_solid
 ```
+
+That command reuses `workflow.source_path/reference.npz`. If training used
+an explicit `reference=` path, evaluation requires the same path.
 
 To run multiple evaluations with different settings, use a different
 `save_path` for each.
 
 :::{note}
 The total energy in solid simulations is complex-valued because the wavefunction
-uses complex [Bloch phases](#bloch-phases-in-the-wavefunction). The
-reported `total_energy` is the real part; the imaginary component is a
+uses complex [Bloch phases](#bloch-phases-in-the-wavefunction). The reported
+`total_energy` is the complex mean of the local energy; its real part, reported
+as `total_energy_real`, is the variational energy, and the imaginary part is a
 finite-sampling artifact whose expectation value vanishes.
 :::
 
 ## Production Settings
 
 The workflow presets default to 2,000 pretraining iterations and 200,000
-training iterations so that a bare `jaqmc solid train ...` command is usable
-for a real run. If that budget fits your cell size and hardware, you can
-usually keep the defaults. Primitive cells and toy systems may converge
-earlier, while larger supercells may need more steps.
+training iterations so that a bare `jaqmc solid train ...` command is closer
+to a real calculation than a smoke test. If that budget fits your cell size and
+hardware, you can usually keep the defaults. Primitive cells and toy systems
+may converge earlier, while larger supercells may need more steps.
 See <project:../../guide/running-workflows.md> for the shared workflow mechanics.
 
 When you do tune a run, start with the optimization budget, walker count, and
@@ -279,8 +265,9 @@ supercell size.
 The main optimization knobs are
 {cfgkey}`pretrain.run.iterations <systems-solid-train-cfg-pretrain-run-iterations>` and
 {cfgkey}`train.run.iterations <systems-solid-train-cfg-train-run-iterations>` based on how
-long the energy takes to settle. The table below gives solid-specific starting
-points for primitive cells and larger supercells.
+long the energy takes to settle. Primitive-cell smoke tests can use much shorter
+runs; larger supercells usually need longer optimization and more careful
+convergence checks.
 
 For walkers,
 {cfgkey}`workflow.batch_size <systems-solid-train-cfg-workflow-batch-size>`
@@ -315,6 +302,8 @@ Solid simulations benefit significantly from multi-GPU parallelism. See <project
 
 - **Periodic boundary conditions**: [Distance functions, Bloch phases, and twisted boundary conditions](../../guide/periodic-boundaries.md)
   explains the solid-specific concepts behind PBC runs.
+- **Orbital references**: <project:reference.md> explains how to prepare and
+  convert reference orbitals, including PySCF and Quantum ESPRESSO solver options.
 - **Configuration reference**: <project:train.md> and <project:eval.md> list the resolved
   workflow defaults and every supported key.
 - **Training diagnostics**: <project:../../guide/training-stats.md>
@@ -333,4 +322,5 @@ Solid simulations benefit significantly from multi-GPU parallelism. See <project
 
 Training <train.md>
 Evaluation <eval.md>
+Reference orbitals <reference.md>
 ```

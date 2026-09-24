@@ -1,6 +1,13 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-from .base import SolidAtomConfig, SolidConfig, SolidPretrainReferenceConfig
+from .base import SolidAtomConfig, SolidConfig
+from .pyscf import SolidPySCFSolverConfig
+from .qe import SolidQESolverConfig
 
-__all__ = ["SolidAtomConfig", "SolidConfig", "SolidPretrainReferenceConfig"]
+__all__ = [
+    "SolidAtomConfig",
+    "SolidConfig",
+    "SolidPySCFSolverConfig",
+    "SolidQESolverConfig",
+]

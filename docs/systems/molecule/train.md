@@ -108,6 +108,23 @@ all-electron Gaussian proposal. Pretraining and training share these settings.
 
 ---
 
+## Reference (`reference`)
+
+Optional path to a `reference.npz` used for pretraining. When omitted, `train`
+generates or reuses a PySCF reference. <project:reference.md> describes
+resolution and standalone preparation.
+
+In YAML:
+
+```yaml
+reference: ./runs/water/hf/reference.npz
+```
+
+The combination `pretrain.run.iterations=0` with no `reference` disables
+pretraining and reference resolution.
+
+---
+
 (train-stage)=
 ## Train Stage (`train.*`)
 
@@ -200,20 +217,15 @@ Loss and gradient estimator. Computes the VMC loss and parameter gradients.
 
 ## Pretrain Stage (`pretrain.*`)
 
-Initializes the neural network to approximate Hartree-Fock orbitals before VMC
-training. Its run and writer settings follow the same schemas as the train
-stage, while the optimizer default and workflow-wired supervised loss are
+Initializes the neural network to approximate the loaded reference orbitals
+before VMC training. Its run and writer settings follow the same schemas as the
+train stage, while the optimizer default and workflow-wired supervised loss are
 specific to pretraining.
 
-### Reference (`pretrain.reference.*`)
+### Sampling mixture (`pretrain.sample_fraction`)
 
-The Hartree-Fock reference is the PySCF calculation JaQMC uses to generate the
-target orbitals for pretraining. Most runs can keep the default settings.
-
-```{eval-rst}
-.. config-defaults:: jaqmc.app.molecule.config.base.MoleculePretrainReferenceConfig
-   :prefix: pretrain.reference
-```
+Mixing fraction between the neural ansatz and the loaded reference during
+pretrain sampling. `0.0` is pure neural, `1.0` (the default) is pure reference.
 
 ### Run options (`pretrain.run.*`)
 
@@ -263,7 +275,7 @@ The pretrain stage enables `console`, `csv`, and `hdf5` writers by default.
 ### Loss gradients
 
 Pretraining does not use configurable `pretrain.grads.*` settings. The workflow
-wires a supervised Hartree-Fock orbital-matching loss directly.
+wires a supervised orbital-matching loss against the loaded reference.
 
 ---
 
@@ -272,8 +284,6 @@ wires a supervised Hartree-Fock orbital-matching loss directly.
 Energy estimators are configured programmatically by the workflow and are not
 typically overridden via config. The same definitions are used by <project:eval.md>.
 
-- `total_energy` and the electron-nuclei potential are always added by the workflow
-  and are not configurable via config keys.
 - `estimators.enabled.spin` defaults to `false`.
 
 ### Kinetic energy (`estimators.energy.kinetic.*`)

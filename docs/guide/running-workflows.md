@@ -19,7 +19,7 @@ you want to do, then use the later sections as reference.
 (recipe-fast-debug-run)=
 ### Fast debug run
 
-Use this when you want to confirm that the workflow starts, writes outputs, and makes
+A fast debug run confirms that the workflow starts, writes outputs, and makes
 progress without waiting for a full calculation.
 
 1. Pick your normal system input: CLI flags or one or more `--yml` files.
@@ -37,7 +37,7 @@ jaqmc <app> train ... \
 
 What success looks like:
 
-- `workflow.save_path` is created and contains `config.yaml`.
+- `workflow.save_path` is created and contains `train_config.yaml`.
 - The logs show increasing step numbers.
 - Reported losses and energies stay finite.
 - A final checkpoint is written.
@@ -46,7 +46,7 @@ If the run fails to initialize or produces NaNs, continue in <project:troublesho
 
 ### Production baseline
 
-Use this when you are launching a real optimization run on a workstation or cluster.
+A production baseline launches a real optimization run on a workstation or cluster.
 
 1. Start from the recommended settings on your system page and its config reference.
 2. Set a stable, descriptive `workflow.save_path`.
@@ -86,11 +86,12 @@ they add overhead.
 (recipe-resume-evaluate)=
 ### Resume, branch, or evaluate
 
-Use this when you already have a run on disk and want to continue it, fork from it, or
+These recipes start from a run already on disk: continue it, fork from it, or
 measure final observables from its checkpoints.
 
 Resume training in the same directory by reusing `workflow.save_path` and increasing the
-training budget:
+training budget. `train.run.iterations` is the total target step count, not the
+number of additional steps:
 
 ```bash
 jaqmc <app> train ... \
@@ -140,7 +141,7 @@ jaqmc <app> evaluate ... \
 ```
 
 Evaluation always writes per-step statistics to `evaluation_stats.h5` in
-`workflow.save_path`. Use that file for uncertainty analysis. Console and CSV writers
+`workflow.save_path`. That file is the input for uncertainty analysis. Console and CSV writers
 are disabled by default; see <project:writers.md> to enable them. For example, to print
 the total energy when the energy estimator is enabled:
 
@@ -169,14 +170,15 @@ These three path settings do different jobs:
 
 ### Reporting checklist
 
-Use this checklist before sharing final numbers:
+A final report should satisfy these criteria:
 
-1. Prefer evaluation outputs over in-training values for final reported observables.
-2. Estimate uncertainty from per-step evaluation data in `evaluation_stats.h5`, not from
-   a single digest value.
-3. Keep the resolved config and run provenance with the result.
-4. Record any non-default estimator, optimizer, or wavefunction settings.
-5. Make sure comparisons across runs use the same observable definitions and units.
+1. Final reported observables come from evaluation outputs rather than
+   in-training values.
+2. Uncertainty comes from per-step evaluation data in `evaluation_stats.h5`,
+   not from a single digest value.
+3. The resolved config and run provenance accompany the result.
+4. Non-default estimator, optimizer, and wavefunction settings are recorded.
+5. Comparisons across runs share the same observable definitions and units.
 
 For detailed analysis workflows, see <project:training-stats.md> and
 <project:analyzing-evaluations.md>.
@@ -197,6 +199,12 @@ What *is* shared across apps is the command contract:
   parameter-free analytic wavefunctions start from fresh state. The production system apps
   (`molecule`, `solid`, and `hall`) expose evaluation commands; the
   `hydrogen-atom` tutorial command is train-only on the CLI.
+- **`jaqmc <app> reference`** prepares and converts the orbital reference files that
+  `molecule` and `solid` runs load. These files provide pretraining targets and,
+  for solids, occupied k-points. The command supports solver setups that
+  automatic generation cannot provide, such as a non-default basis or, for
+  solids, Quantum ESPRESSO. System-specific instructions:
+  [Molecule](../systems/molecule/reference.md), [Solid](../systems/solid/reference.md).
 - Training-stage keys are workflow-specific, so their structure lives in the app's config
   reference rather than on this page.
 - Evaluation-stage keys live at the config root, which is why evaluation examples use
@@ -226,7 +234,8 @@ stage, the `pretrain_*` files are simply absent:
 
 ```
 save_path/
-├── config.yaml
+├── train_config.yaml
+├── reference.npz                 # molecule/solid only: auto-generated orbital reference
 ├── pretrain_ckpt_NNNNNN.npz
 ├── pretrain_stats.h5
 ├── pretrain_stats.csv
@@ -239,7 +248,7 @@ Typical evaluation output looks like this:
 
 ```
 save_path/
-├── config.yaml
+├── evaluation_config.yaml
 ├── evaluation_ckpt_NNNNNN.npz
 ├── evaluation_stats.h5
 ├── evaluation_stats.csv        # optional, depends on configured writers

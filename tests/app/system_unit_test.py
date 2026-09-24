@@ -4,18 +4,15 @@
 import numpy as np
 import pytest
 
-from jaqmc.app.molecule.config.base import MoleculePretrainReferenceConfig
 from jaqmc.app.molecule.wavefunction.ferminet import FermiNetWavefunction
 from jaqmc.app.molecule.workflow import configure_system as configure_molecule_system
-from jaqmc.app.molecule.workflow import make_scf as make_molecule_scf
-from jaqmc.app.solid.config.base import SolidAtomConfig, SolidPretrainReferenceConfig
+from jaqmc.app.solid.config import SolidAtomConfig, SolidConfig
 from jaqmc.app.solid.workflow import configure_system as configure_solid_system
-from jaqmc.app.solid.workflow import make_scf as make_solid_scf
 from jaqmc.utils.config import ConfigError, ConfigManager
 from jaqmc.utils.units import ONE_ANGSTROM_IN_BOHR, LengthUnit
 
 
-def test_molecule_configure_system_normalizes_angstrom_before_scf():
+def test_molecule_configure_system_normalizes_angstrom():
     cfg = ConfigManager(
         {
             "system": {
@@ -29,9 +26,6 @@ def test_molecule_configure_system_normalizes_angstrom_before_scf():
     )
 
     system_config, wf = configure_molecule_system(cfg)
-    scf = make_molecule_scf(
-        MoleculePretrainReferenceConfig(basis="sto-3g"), system_config
-    )
 
     expected_coords = np.array(
         [
@@ -47,13 +41,9 @@ def test_molecule_configure_system_normalizes_angstrom_before_scf():
         [atom.coords for atom in system_config.atoms],
         expected_coords,
     )
-    np.testing.assert_allclose(
-        scf._mol.atom_coords(unit="Bohr"),
-        expected_coords,
-    )
 
 
-def test_solid_configure_system_normalizes_angstrom_before_scf():
+def test_solid_configure_system_normalizes_angstrom():
     cfg = ConfigManager(
         {
             "system": {
@@ -73,7 +63,6 @@ def test_solid_configure_system_normalizes_angstrom_before_scf():
     )
 
     system_config, wf, _ = configure_solid_system(cfg)
-    scf = make_solid_scf(SolidPretrainReferenceConfig(basis="sto-3g"), system_config)
 
     expected_lattice = np.array(
         [
@@ -108,8 +97,11 @@ def test_solid_configure_system_normalizes_angstrom_before_scf():
         np.asarray(wf.simulation_lattice),
         np.asarray(system_config.supercell_lattice),
     )
-    np.testing.assert_allclose(np.asarray(scf._cell.a), expected_lattice)
-    np.testing.assert_allclose(scf._cell.atom_coords(unit="Bohr"), expected_coords)
+
+
+def test_solid_config_rejects_singular_supercell_matrix():
+    with pytest.raises(ValueError, match="non-singular"):
+        SolidConfig(supercell_matrix=[[1, 0, 0], [0, 1, 0], [0, 0, 0]])
 
 
 def test_system_config_rejects_unknown_length_unit():

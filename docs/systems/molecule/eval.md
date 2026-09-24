@@ -76,8 +76,6 @@ root-level writer keys enable additional outputs.
 Energy estimator definitions match training, with additional evaluation-only
 estimators enabled through boolean flags.
 
-- `total_energy` and the electron-nuclei potential are always added by the
-  workflow and are not configurable via config keys.
 - `estimators.enabled.energy` defaults to `true`.
 - `estimators.enabled.spin` defaults to `false`.
 - `estimators.enabled.density` defaults to `false`.

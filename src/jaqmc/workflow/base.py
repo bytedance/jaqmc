@@ -110,6 +110,11 @@ class Workflow:
             if self.config.restore_path is not None
             else self.save_path
         )
+        self.restore_dir = (
+            self.restore_path.parent
+            if self.restore_path.is_file()
+            else self.restore_path
+        )
         self.signal_handler = GracefulKiller()
         self.run_context = RunContext(
             save_path=self.save_path,

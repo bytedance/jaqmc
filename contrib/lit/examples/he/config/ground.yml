@@ -29,8 +29,6 @@ sampler:
   adapt_frequency: 100
 
 pretrain:
-  reference:
-    basis: aug-cc-pVTZ
   run:
     burn_in: 200
     iterations: 2000

@@ -2,18 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import field
-from typing import Literal, Protocol
+from typing import Protocol
 
 import numpy as np
 import serde
 
-from jaqmc.utils.atomic import Atom, AtomInitialization
-from jaqmc.utils.atomic.atomic_system import AtomicSystemConfig
-from jaqmc.utils.atomic.pretrain import PretrainReferenceConfig
+from jaqmc.utils.atomic import Atom, AtomicSystemConfig, AtomInitialization
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.units import ONE_ANGSTROM_IN_BOHR, LengthUnit
 
-__all__ = ["SolidAtomConfig", "SolidConfig", "SolidPretrainReferenceConfig"]
+__all__ = ["SolidAtomConfig", "SolidConfig"]
 
 
 @configurable_dataclass(kw_only=False)
@@ -85,10 +83,10 @@ class LatticeParams(LatticeSpec):
 
 @configurable_dataclass
 class SolidConfig(AtomicSystemConfig):
-    """Configuration for solid-state/periodic systems.
+    """Configuration for a periodic solid system.
 
-    This class holds the configuration for solid-state systems, including
-    lattice vectors, supercell matrix, and twist vectors. It inherits from
+    The configuration combines primitive-cell atoms, lattice vectors, a
+    supercell matrix, and a twist vector. It inherits from
     :class:`~jaqmc.utils.atomic.atomic_system.AtomicSystemConfig`.
 
     Args:
@@ -97,7 +95,7 @@ class SolidConfig(AtomicSystemConfig):
             (`a`, `b`, `c`) or as cell parameters (`a`, `b`, `c`,
             `alpha`, `beta`, `gamma`).
         supercell_matrix: Optional 3x3 integer matrix defining a supercell.
-        twist: Twist vector in fractional reciprocal coordinates.
+        twist: Twist vector in fractional supercell reciprocal coordinates.
         unit: Length unit applied to lattice vectors.
     """
 
@@ -128,6 +126,8 @@ class SolidConfig(AtomicSystemConfig):
             )
         if not np.allclose(supercell_arr, np.round(supercell_arr)):
             raise ValueError("supercell_matrix must have integer entries.")
+        if round(float(np.linalg.det(supercell_arr))) == 0:
+            raise ValueError("supercell_matrix must be non-singular.")
 
     @property
     def lattice_vectors(self) -> np.ndarray:
@@ -158,12 +158,6 @@ class SolidConfig(AtomicSystemConfig):
     @property
     def per_atom_init(self) -> list[AtomInitialization]:
         return [atom.initialization for atom in self.atom_configs]
-
-
-@configurable_dataclass
-class SolidPretrainReferenceConfig(PretrainReferenceConfig):
-    method: Literal["KRHF", "KUHF"] = "KUHF"
-    "Variants of Hartree-Fock method."
 
 
 def _cosd_snap_90(angle, *, atol=1e-12):

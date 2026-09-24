@@ -1,7 +1,7 @@
 # Atomic data
 
 Reference for JaQMC's shared atomic-system APIs, from `Element` and `Atom`
-through `AtomicSystemConfig`, SCF/orbital helpers, electron initialization,
+through `AtomicSystemConfig`, orbital helpers, electron initialization,
 and pretraining utilities.
 
 ## Elements and atoms
@@ -65,16 +65,6 @@ primitive-cell fractional coordinates.
    :members:
 ```
 
-## Self-consistent field (SCF)
-
-```{eval-rst}
-.. autoclass:: jaqmc.utils.atomic.scf.MolecularSCF
-   :members:
-
-.. autoclass:: jaqmc.utils.atomic.scf.PeriodicSCF
-   :members:
-```
-
 ## Gaussian-type orbitals
 
 ```{eval-rst}
@@ -99,9 +89,6 @@ The unified `pp` vocabulary and public helper functions are re-exported from
 .. autofunction:: jaqmc.utils.atomic.core_electrons_by_pp
 ```
 
-JaQMC also exposes `jaqmc.utils.atomic.PH_SURROGATE_ECP`, the internal mapping
-from each PH-supported element to the ECP used to bootstrap the SCF pretrain.
-
 ## Electron initialization
 
 ```{eval-rst}
@@ -112,8 +99,6 @@ from each PH-supported element to the ECP used to bootstrap the SCF pretrain.
 ## Pretraining
 
 ```{eval-rst}
-.. autoclass:: jaqmc.utils.atomic.pretrain.PretrainReferenceConfig
-
 .. autofunction:: jaqmc.utils.atomic.pretrain.make_pretrain_log_amplitude
 .. autofunction:: jaqmc.utils.atomic.pretrain.make_pretrain_loss
 ```

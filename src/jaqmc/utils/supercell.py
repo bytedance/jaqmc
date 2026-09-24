@@ -1,11 +1,7 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import Literal
-
 from jax import numpy as jnp
-
-LatticeType = Literal["cubic", "fcc", "bcc", "hexagonal", "honey"]
 
 
 def get_reciprocal_vectors(lattice: jnp.ndarray) -> jnp.ndarray:
@@ -23,44 +19,60 @@ def get_reciprocal_vectors(lattice: jnp.ndarray) -> jnp.ndarray:
     return 2 * jnp.pi * jnp.linalg.inv(lattice).T
 
 
-def get_supercell_kpts(
-    S: jnp.ndarray,
-    original_reciprocal_vectors: jnp.ndarray,
+def get_primitive_kpts_for_supercell(
+    supercell_matrix: jnp.ndarray,
+    primitive_reciprocal_vectors: jnp.ndarray,
+    twist: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
-    r"""Generates supercell k-points in a primitive reciprocal fundamental domain.
+    r"""Return primitive-cell k-points compatible with a supercell boundary condition.
 
-    These are the k-points of the primitive cell that fold into the Gamma point
-    of the supercell. They satisfy the condition:
+    The returned Cartesian k-points are expressed in the primitive reciprocal
+    basis and satisfy the boundary condition of
+    ``supercell_lattice = supercell_matrix @ primitive_lattice``. With no
+    ``twist``, they fold to the supercell Gamma point. A twist shifts the entire
+    mesh by its fractional coordinates in the supercell reciprocal basis:
 
     .. math::
-        \mathbf{k} \cdot \mathbf{S}^{-1} \pmod 1 = 0
 
-    **Algorithm Explanation**:
+        \mathbf{k} = \mathbf{k}_\Gamma + \boldsymbol{\theta} \cdot \mathbf{B}_S
 
-    This function finds integer vectors :math:`\mathbf{n}` such that the fractional
-    coordinates :math:`\mathbf{n} \cdot \mathbf{S}^{-T}` lie in the primitive
-    reciprocal fundamental parallelepiped. This matches the row-vector convention
+    Equivalently, the primitive reciprocal fractional coordinates are shifted
+    by :math:`\boldsymbol{\theta} \cdot S^{-T}`.
+
+    The enumeration finds integer vectors :math:`\mathbf{n}` for which
+    :math:`\mathbf{n} \cdot \mathbf{S}^{-T}` lies in
+    :math:`[0, 1)^{\mathrm{ndim}}`. This matches the row-vector convention
     used by ``supercell_lattice = S @ lattice``.
 
-    For non-diagonal :math:`\mathbf{S}` (e.g., transforming an FCC primitive cell to a
-    conventional cell), the valid integers :math:`\mathbf{n}` form a skewed volume.
-    The algorithm:
+    For a non-diagonal :math:`\mathbf{S}`, such as one that transforms an FCC
+    primitive cell to a conventional cell, the valid integer vectors occupy a
+    skewed region. The algorithm:
 
     1. Finds the bounding box of this skewed volume in integer space.
     2. Scans all integers within the box.
     3. Filters for points that map back into the unit cube.
 
     Args:
-        S: Supercell matrix with shape (ndim, ndim).
-        original_reciprocal_vectors: Reciprocal vectors of the primitive cell
-            with shape (ndim, ndim).
+        supercell_matrix: Integer supercell matrix :math:`S` with shape
+            ``(ndim, ndim)``.
+        primitive_reciprocal_vectors: Primitive-cell reciprocal vectors with
+            shape ``(ndim, ndim)``.
+        twist: Optional twist in fractional supercell reciprocal coordinates
+            with shape ``(ndim,)``. ``None`` selects Gamma boundary conditions.
 
     Returns:
-        Array of k-points with shape (N_k, ndim).
+        Primitive-cell Cartesian k-points with shape ``(abs(det(S)), ndim)``.
     """
-    frac_kpts = supercell_fractional_kpts(jnp.asarray(S))
-    frac_kpts = jnp.asarray(frac_kpts, dtype=original_reciprocal_vectors.dtype)
-    return frac_kpts @ original_reciprocal_vectors
+    primitive_reciprocal_vectors = jnp.asarray(primitive_reciprocal_vectors)
+    fractional_kpts = supercell_fractional_kpts(jnp.asarray(supercell_matrix))
+    fractional_kpts = fractional_kpts.astype(primitive_reciprocal_vectors.dtype)
+    if twist is not None:
+        twist = jnp.asarray(twist, dtype=primitive_reciprocal_vectors.dtype)
+        fractional_kpts += jnp.linalg.solve(
+            jnp.asarray(supercell_matrix, dtype=primitive_reciprocal_vectors.dtype),
+            twist,
+        )
+    return fractional_kpts @ primitive_reciprocal_vectors
 
 
 def fold_to_reciprocal_voronoi(
@@ -115,7 +127,7 @@ def get_supercell_kpts_in_first_bz(
     """
     primitive_lattice = jnp.asarray(primitive_lattice)
     reciprocal = get_reciprocal_vectors(primitive_lattice)
-    raw_kpts = get_supercell_kpts(supercell_matrix, reciprocal)
+    raw_kpts = get_primitive_kpts_for_supercell(supercell_matrix, reciprocal)
     return fold_to_reciprocal_voronoi(raw_kpts, reciprocal)
 
 
