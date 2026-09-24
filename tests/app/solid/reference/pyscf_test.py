@@ -15,10 +15,8 @@ from jaqmc.app.solid.reference import pyscf as reference_pyscf
 from tests.app.solid.reference.helpers import _solid_system, _write_gamma_checkpoint
 
 
-@pytest.mark.parametrize("unrestricted", [False, True])
-def test_pyscf_convert_flattens_occupied_multik_layout(
-    tmp_path, monkeypatch, unrestricted
-):
+@pytest.mark.parametrize("layout", ["restricted", "nested", "ndarray"])
+def test_pyscf_convert_flattens_occupied_multik_layout(tmp_path, monkeypatch, layout):
     cell = pyscf.pbc.gto.Cell(
         atom="He 0 0 0",
         a=np.eye(3) * 4,
@@ -30,22 +28,28 @@ def test_pyscf_convert_flattens_occupied_multik_layout(
     kpoints = np.asarray([[0.0, 0.0, 0.0], [0.2, 0.0, 0.0]])
     # Each k-point must account for the full unit-cell electron count
     # (cell.nelec == (1, 1) for He); per-k occupied columns vary instead.
-    if unrestricted:
+    if layout == "restricted":
         coefficients: Any = [
+            np.asarray([[1.0, 10.0]]),
+            np.asarray([[2.0, 20.0]]),
+        ]
+        occupations: Any = [np.asarray([2.0, 0.0]), np.asarray([0.0, 2.0])]
+        expected_alpha = [[1.0, 20.0]]
+        expected_beta = [[1.0, 20.0]]
+    else:
+        coefficients = [
             [np.asarray([[1.0, 10.0]]), np.asarray([[2.0, 20.0]])],
             [np.asarray([[3.0, 30.0]]), np.asarray([[4.0, 40.0]])],
         ]
-        occupations: Any = [
+        occupations = [
             [np.asarray([1.0, 0.0]), np.asarray([0.0, 1.0])],
             [np.asarray([0.0, 1.0]), np.asarray([1.0, 0.0])],
         ]
+        if layout == "ndarray":
+            coefficients = np.asarray(coefficients)
+            occupations = np.asarray(occupations)
         expected_alpha = [[1.0, 20.0]]
         expected_beta = [[30.0, 4.0]]
-    else:
-        coefficients = [np.asarray([[1.0, 10.0]]), np.asarray([[2.0, 20.0]])]
-        occupations = [np.asarray([2.0, 0.0]), np.asarray([0.0, 2.0])]
-        expected_alpha = [[1.0, 20.0]]
-        expected_beta = [[1.0, 20.0]]
     values: dict[str, Any] = {
         "kpts": kpoints,
         "mo_coeff": coefficients,
@@ -65,6 +69,7 @@ def test_pyscf_convert_flattens_occupied_multik_layout(
     assert reference.nspins == (2, 2)
     assert loaded.alpha_counts.tolist() == [1, 1]
     assert loaded.beta_counts.tolist() == [1, 1]
+    np.testing.assert_allclose(loaded.kpoints, kpoints)
     np.testing.assert_allclose(loaded.alpha_coeffs, expected_alpha)
     np.testing.assert_allclose(loaded.beta_coeffs, expected_beta)
     assert loaded.get_kpoint_occupancies()[1][1:] == (
@@ -196,6 +201,24 @@ def test_pyscf_convert_rejects_fractional_occupations(tmp_path):
 
     with pytest.raises(ValueError, match="occupations are fractional"):
         reference_pyscf.convert_checkpoint(checkpoint, tmp_path / "reference.npz")
+
+
+def test_pyscf_convert_rejects_cartesian_checkpoint(tmp_path, monkeypatch):
+    cell = pyscf.pbc.gto.Cell(
+        atom="He 0 0 0", a=np.eye(3) * 4, basis="sto-3g", verbose=0
+    )
+    cell.cart = True
+    cell.build()
+    monkeypatch.setattr(
+        pyscf.pbc.scf.chkfile,
+        "load_scf",
+        lambda _path: (cell, {}),
+    )
+
+    with pytest.raises(ValueError, match="spherical Gaussian"):
+        reference_pyscf.convert_checkpoint(
+            tmp_path / "cartesian.chk", tmp_path / "reference.npz"
+        )
 
 
 def _spin_down_hydrogen_cell() -> pyscf.pbc.gto.Cell:

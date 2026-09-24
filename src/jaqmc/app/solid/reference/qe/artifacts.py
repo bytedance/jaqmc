@@ -385,14 +385,6 @@ def _complete_plane_wave_expansion(
         raise ValueError("QE Miller indices do not match wavefunction coefficients.")
     if not gamma_only:
         return miller_indices, coefficients
-    miller_set = {tuple(index) for index in miller_indices}
-    if any(
-        index != (0, 0, 0) and tuple(-value for value in index) in miller_set
-        for index in miller_set
-    ):
-        raise ValueError(
-            "Gamma-only QE wavefunction contains both G and -G coefficients."
-        )
     nonzero = np.any(miller_indices != 0, axis=1)
     return (
         np.concatenate([miller_indices, -miller_indices[nonzero]]),
@@ -426,10 +418,6 @@ def _decode_wavefunction_file(path: Path) -> WavefunctionBlock:
             raise ValueError(
                 f"{path} contains npol={npol}; QE spinor wavefunctions are "
                 "not supported."
-            )
-        if not np.isclose(float(handle.attrs["scale_factor"]), 1.0):
-            raise ValueError(
-                f"{path} has unsupported scale_factor={handle.attrs['scale_factor']}."
             )
         indices = np.asarray(handle["MillerIndices"], dtype=int)
         if indices.shape != (igwx, 3):

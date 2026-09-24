@@ -74,6 +74,22 @@ def test_auto_generate_does_not_convert_failed_job(
     assert not job.finalized
 
 
+def test_auto_generate_propagates_finalization_failure(
+    tmp_path: Path, process_zero: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(reference.time, "sleep", lambda _: None)
+
+    class FailingJob(FakeJob):
+        def finalize_npz(self, job_dir: Path, reference_path: UPath) -> None:
+            raise ValueError("invalid reference")
+
+    with pytest.raises(ValueError, match="invalid reference"):
+        reference.auto_generate_reference(
+            path=UPath(tmp_path / "reference.npz"),
+            job=FailingJob(FakeProcess([None, 0])),
+        )
+
+
 def test_auto_generate_reports_process_zero_failure_to_peer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

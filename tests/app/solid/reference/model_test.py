@@ -5,6 +5,7 @@ from dataclasses import fields
 
 import numpy as np
 import pytest
+from jax import numpy as jnp
 from upath import UPath
 
 from jaqmc.app.solid.reference import PlaneWaveSolidReference, SolidReference
@@ -15,14 +16,18 @@ def _plane_wave_reference() -> PlaneWaveSolidReference:
         symbols=("He",),
         atom_coords=np.zeros((1, 3)),
         lattice=np.eye(3) * 4,
-        # The second k-point has no occupied bands in either spin channel.
-        kpoints=np.asarray([[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]]),
-        alpha_counts=np.asarray([1, 0]),
-        beta_counts=np.asarray([1, 0]),
-        alpha_coeffs=np.ones((2, 1), dtype=complex),
-        beta_coeffs=np.ones((2, 1), dtype=complex),
-        alpha_g_vectors=np.zeros((2, 3)),
-        beta_g_vectors=np.zeros((2, 3)),
+        # The third k-point has no occupied bands in either spin channel.
+        kpoints=np.asarray([[0.0, 0.0, 0.0], [0.5, 0.0, 0.0], [1.0, 0.0, 0.0]]),
+        alpha_counts=np.asarray([1, 1, 0]),
+        beta_counts=np.asarray([1, 1, 0]),
+        alpha_coeffs=np.asarray([[2.0, 3.0]], dtype=complex),
+        beta_coeffs=np.asarray([[5.0, 7.0]], dtype=complex),
+        alpha_g_vectors=np.asarray(
+            [[[0.0, 0.0, 0.0]], [[0.25, 0.0, 0.0]], [[0.0, 0.0, 0.0]]]
+        ),
+        beta_g_vectors=np.asarray(
+            [[[1.0, 0.0, 0.0]], [[0.75, 0.0, 0.0]], [[0.0, 0.0, 0.0]]]
+        ),
     )
 
 
@@ -47,6 +52,38 @@ def test_plane_wave_reference_roundtrip(tmp_path, path_uri):
             np.testing.assert_array_equal(actual, expected)
         else:
             assert actual == expected
+
+
+def test_plane_wave_reference_evaluates_spin_and_kpoint_orbitals():
+    reference = _plane_wave_reference()
+    positions = jnp.asarray(
+        [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0], [3.0, 0.0, 0.0]]]
+    )
+
+    alpha, beta = reference.eval_orbitals(positions)
+    volume_normalization = 1 / np.sqrt(4**3)
+    expected_alpha = volume_normalization * np.asarray(
+        [
+            [2.0, 3.0],
+            [2.0, 3.0 * np.exp(0.75j)],
+        ]
+    )
+    expected_beta = volume_normalization * np.asarray(
+        [
+            [5.0 * np.exp(2.0j), 7.0 * np.exp(2.5j)],
+            [5.0 * np.exp(3.0j), 7.0 * np.exp(3.75j)],
+        ]
+    )
+
+    np.testing.assert_allclose(alpha[0], expected_alpha)
+    np.testing.assert_allclose(beta[0], expected_beta)
+    assert np.asarray(reference.get_orbital_kpoints()).tolist() == [
+        [0.0, 0.0, 0.0],
+        [0.5, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
+        [0.5, 0.0, 0.0],
+    ]
+    assert reference.get_kpoint_occupancies()[2][1:] == (0, 0)
 
 
 def test_load_rejects_reference_file_missing_kind_specific_arrays(tmp_path):

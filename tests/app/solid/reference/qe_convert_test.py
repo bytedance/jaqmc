@@ -1,11 +1,13 @@
 # Copyright (c) 2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+from typing import cast
+
 import numpy as np
 import pytest
 from jax import numpy as jnp
 
-from jaqmc.app.solid.reference import qe
+from jaqmc.app.solid.reference import PlaneWaveSolidReference, SolidReference, qe
 from tests.app.solid.reference.helpers import (
     _solid_system,
     _write_qe_wfc,
@@ -42,21 +44,34 @@ def test_qe_convert_accepts_fixed_integer_occupations(tmp_path):
         [("0 0 0", " ".join(["2"] * 8 + ["0"] * 8))],
         symbol="Fe",
     )
+    coefficients = np.arange(64, dtype=float).reshape(16, 4)
     _write_qe_wfc(
         save_dir / "wfc1.hdf5",
         [[0, 0, 0], [1, 0, 0]],
-        np.ones((16, 4)),
+        coefficients,
     )
 
-    reference = qe.convert_save_directory(save_dir, tmp_path / "reference.npz")
+    output_path = tmp_path / "reference.npz"
+    reference = qe.convert_save_directory(save_dir, output_path)
+    loaded = cast(PlaneWaveSolidReference, SolidReference.load(output_path))
 
-    assert reference.symbols == ("Fe",)
-    np.testing.assert_allclose(reference.lattice, np.eye(3) * 4)
-    assert reference.nspins == system.electron_spins == (8, 8)
-    assert reference.alpha_counts.tolist() == [8]
-    assert reference.beta_counts.tolist() == [8]
-    assert reference.alpha_g_vectors.shape == (1, 2, 3)
-    assert reference.beta_g_vectors.shape == (1, 2, 3)
+    assert output_path.is_file()
+    assert loaded.symbols == reference.symbols == ("Fe",)
+    np.testing.assert_allclose(loaded.lattice, np.eye(3) * 4)
+    assert loaded.nspins == reference.nspins == system.electron_spins == (8, 8)
+    assert loaded.alpha_counts.tolist() == [8]
+    assert loaded.beta_counts.tolist() == [8]
+    expected_coefficients = (coefficients[:8, 0::2] + 1j * coefficients[:8, 1::2]).T
+    np.testing.assert_allclose(loaded.alpha_coeffs, expected_coefficients)
+    np.testing.assert_allclose(loaded.beta_coeffs, expected_coefficients)
+    np.testing.assert_allclose(loaded.kpoints, reference.kpoints)
+    np.testing.assert_allclose(loaded.atom_coords, reference.atom_coords)
+    np.testing.assert_allclose(loaded.alpha_coeffs, reference.alpha_coeffs)
+    np.testing.assert_allclose(loaded.beta_coeffs, reference.beta_coeffs)
+    np.testing.assert_allclose(loaded.alpha_g_vectors, reference.alpha_g_vectors)
+    np.testing.assert_allclose(loaded.beta_g_vectors, reference.beta_g_vectors)
+    assert loaded.alpha_g_vectors.shape == (1, 2, 3)
+    assert loaded.beta_g_vectors.shape == (1, 2, 3)
 
 
 def test_qe_convert_halves_unpolarized_smeared_occupations(tmp_path, caplog):
@@ -105,6 +120,33 @@ def test_qe_convert_integerizes_fractional_occupations_by_energy(tmp_path, caplo
     np.testing.assert_allclose(reference.alpha_coeffs, [[2.0]])
     np.testing.assert_allclose(reference.beta_coeffs, [[2.0]])
     assert "fractional occupations were converted" in caplog.text
+
+
+def test_qe_convert_selects_fractional_bands_globally_across_kpoints(tmp_path):
+    save_dir = tmp_path / "test.save"
+    save_dir.mkdir()
+    _write_qe_xml(
+        save_dir / "data-file-schema.xml",
+        [("0 0 0", "1.5 0.5 0"), ("0.5 0 0", "1.5 0.5 0")],
+        eigenvalues=["0 1 2", "10 11 12"],
+        nelec=2,
+    )
+    _write_qe_wfc(
+        save_dir / "wfc1.hdf5", [[0, 0, 0]], [[1.0, 0.0], [2.0, 0.0], [3.0, 0.0]]
+    )
+    _write_qe_wfc(
+        save_dir / "wfc2.hdf5",
+        [[0, 0, 0]],
+        [[10.0, 0.0], [20.0, 0.0], [30.0, 0.0]],
+        xk=(np.pi / 4, 0.0, 0.0),
+        ik=2,
+    )
+
+    reference = qe.convert_save_directory(save_dir, tmp_path / "reference.npz")
+
+    assert reference.alpha_counts.tolist() == [2, 0]
+    assert reference.beta_counts.tolist() == [2, 0]
+    np.testing.assert_allclose(reference.alpha_coeffs, [[1.0, 2.0]])
 
 
 def test_qe_convert_rejects_unpolarized_odd_electron_count(tmp_path):
