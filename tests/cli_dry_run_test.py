@@ -375,7 +375,7 @@ train:
         dotlist=(
             "system.flux=10",
             "system.nspins=[4,0]",
-            "wf.flux_per_elec=2",
+            "wf.dressing.degree=2",
             "workflow.batch_size=4",
             "train.run.iterations=1",
         ),

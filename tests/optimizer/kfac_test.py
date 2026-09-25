@@ -10,6 +10,9 @@ import jax.numpy as jnp
 import kfac_jax
 import pytest
 
+from jaqmc.app.hall.data import HallData
+from jaqmc.app.hall.wavefunction._dressing import DressingConfig
+from jaqmc.app.hall.wavefunction.mhpo import MHPO
 from jaqmc.app.molecule.data import MoleculeData
 from jaqmc.app.molecule.wavefunction.ferminet import FermiNetWavefunction
 from jaqmc.app.molecule.wavefunction.lapnet import LapNetWavefunction
@@ -17,6 +20,7 @@ from jaqmc.data import BatchedData
 from jaqmc.optimizer.kfac.complex_support import patch_block_diagonal_curvature
 from jaqmc.optimizer.kfac.curvature_blocks import make_tag_to_block_ctor
 from jaqmc.optimizer.kfac.tag_registration import make_graph_patterns
+from jaqmc.utils.wiring import wire
 from jaqmc.wavefunction.output.envelope import Envelope, EnvelopeType
 
 
@@ -137,6 +141,34 @@ def test_cast_scale_only_broadcast_registration(x64_mode):
         variant="scale_and_shift",
         match_type="scale_only_broadcast_2",
     )
+
+
+def test_constant_full_dressing_matrix_uses_generic_blocks():
+    """Constant full-matrix dressing must not match a spurious scale block."""
+    wf = MHPO(
+        backbone="psiformer",
+        num_layers=1,
+        dressing=DressingConfig(type="full", degree=2),
+    )
+    wire(
+        wf,
+        nspins=(8, 0),
+        monopole_strength=8,
+        flux=16,
+        interaction_strength=1.0,
+        radius=float(jnp.sqrt(8.0)),
+    )
+    walker = HallData(electrons=jnp.ones((8, 2)))
+    params = wf.init_params(walker, jax.random.PRNGKey(0))
+    batch = HallData(electrons=jnp.stack([walker.electrons, walker.electrons + 0.1]))
+
+    def apply_logpsi(p, data):
+        return jax.vmap(wf.logpsi, in_axes=(None, 0))(p, data)
+
+    tags = get_tag_tree(apply_logpsi, params, batch)
+    matrix_tags = tags["params"]["dressing_layer"]
+    for matrix_name in ("matrix_real", "matrix_imag"):
+        assert "Auto[generic(" in matrix_tags[matrix_name]
 
 
 class KfacPatternComposite(nn.Module):

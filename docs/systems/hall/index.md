@@ -50,11 +50,16 @@ The reported `total_energy` is complex-valued — the real part is the electroni
 
 ## Composite Fermions
 
-The MHPO wavefunction supports composite fermion (CF) mean-field theory. Setting `wf.flux_per_elec` attaches flux quanta to each electron, reducing the effective monopole strength for the orbitals:
+The MHPO wavefunction supports composite fermion (CF) mean-field theory.
+`wf.dressing.degree` sets the number of flux quanta attached to each electron,
+reducing the effective monopole strength for the orbitals. The dressing type
+can be `laughlin` or `full`; the learnable type additionally supports
+constant or backbone conditioning together with orbital-dependent and
+determinant-dependent parameters.
 
 ```bash
 # Composite fermion with 2 flux quanta per electron
-jaqmc hall train system.flux=10 system.nspins='[4,0]' wf.flux_per_elec=2
+jaqmc hall train system.flux=10 system.nspins='[4,0]' wf.dressing.degree=2
 ```
 
 ## Angular Momentum Penalties

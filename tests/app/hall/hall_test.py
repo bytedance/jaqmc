@@ -13,6 +13,7 @@ from jaqmc.app.hall.config import HallConfig, InteractionType
 from jaqmc.app.hall.data import HallData, data_init
 from jaqmc.app.hall.estimator.penalized_loss import PenalizedLoss
 from jaqmc.app.hall.hamiltonian import SpherePotential
+from jaqmc.app.hall.wavefunction._dressing import Dressing, DressingConfig
 from jaqmc.app.hall.wavefunction.free import Free
 from jaqmc.app.hall.wavefunction.jastrow import SphericalJastrow
 from jaqmc.app.hall.wavefunction.laughlin import Laughlin
@@ -567,16 +568,24 @@ class TestLaughlinWavefunction:
 class TestMHPO:
     """MHPO wavefunction: antisymmetry and composite fermion branch."""
 
-    def _make_mhpo(self, nspins=(2, 1), flux=4, flux_per_elec=0, backbone="psiformer"):
+    def _make_mhpo(
+        self,
+        nspins=(2, 1),
+        flux=4,
+        backbone="psiformer",
+        dressing=None,
+    ):
+        if dressing is None:
+            dressing = DressingConfig()
         wf = MHPO(
             ndets=1,
             backbone=backbone,
             num_heads=2,
             heads_dim=8,
             num_layers=1,
+            dressing=dressing,
         )
         wire(wf, nspins=nspins, monopole_strength=flux / 2, flux=flux)
-        wf.flux_per_elec = flux_per_elec
         electrons = _sample(jax.random.PRNGKey(0), 1, sum(nspins))[0]
         data = HallData(electrons=electrons)
         params = wf.init_params(data, jax.random.PRNGKey(1))
@@ -594,6 +603,182 @@ class TestMHPO:
         lp_swap = wf.evaluate(params, HallData(electrons=swapped))["logpsi"]
 
         ratio = jnp.exp(lp_swap - lp_orig)
+        np.testing.assert_allclose(float(jnp.real(ratio)), -1.0, atol=1e-3)
+        np.testing.assert_allclose(float(jnp.imag(ratio)), 0.0, atol=1e-3)
+
+    def test_orbital_pair_antisymmetry_and_flux_shift(self):
+        wf, params, data, electrons = self._make_mhpo(
+            nspins=(3, 0),
+            flux=4,
+            dressing=DressingConfig(type="full", degree=2),
+        )
+        lp_orig = wf.evaluate(params, data)["logpsi"]
+        swapped = electrons.at[0].set(electrons[1]).at[1].set(electrons[0])
+        lp_swap = wf.evaluate(params, HallData(electrons=swapped))["logpsi"]
+
+        ratio = jnp.exp(lp_swap - lp_orig)
+        np.testing.assert_allclose(float(jnp.real(ratio)), -1.0, atol=1e-3)
+        kernel = params["params"]["orbital_layer"]["orbitals_real"]["DenseGeneral_0"][
+            "kernel"
+        ]
+        assert kernel.shape[1] == 1
+
+    def test_orbital_pair_shared_parameters(self):
+        wf, params, data, electrons = self._make_mhpo(
+            nspins=(3, 0),
+            flux=4,
+            dressing=DressingConfig(
+                type="full",
+                degree=2,
+                conditioning="constant",
+                orbital_dependent=False,
+                det_dependent=False,
+            ),
+        )
+        lp_orig = wf.evaluate(params, data)["logpsi"]
+
+        swapped = electrons.at[0].set(electrons[1]).at[1].set(electrons[0])
+        lp_swap = wf.evaluate(params, HallData(electrons=swapped))["logpsi"]
+
+        ratio = jnp.exp(lp_swap - lp_orig)
+        np.testing.assert_allclose(float(jnp.real(ratio)), -1.0, atol=1e-3)
+        np.testing.assert_allclose(float(jnp.imag(ratio)), 0.0, atol=1e-3)
+        matrix = params["params"]["dressing_layer"]
+        assert matrix["matrix_real"].shape == (1, 1, 1, 2, 2)
+        assert matrix["matrix_imag"].shape == (1, 1, 1, 2, 2)
+
+    @pytest.mark.parametrize("det_dependent", [True, False])
+    def test_det_dependent_dressing_shapes(self, det_dependent):
+        """``det_dependent`` decides whether the dressing spans determinants."""
+        ndets, nelec, degree = 3, 4, 2
+        key = jax.random.PRNGKey(0)
+        theta = jnp.arccos(jax.random.uniform(key, (nelec,), minval=-1, maxval=1))
+        phi = jax.random.uniform(key, (nelec,), minval=-jnp.pi, maxval=jnp.pi)
+        u, v = spinor_coordinates_from_angles(jnp.stack([theta, phi], axis=-1))
+        orbitals = jax.random.normal(key, (ndets, nelec, nelec), dtype=jnp.complex64)
+        h_one = jax.random.normal(key, (nelec, 8))
+
+        dressing = Dressing(
+            config=DressingConfig(
+                type="full",
+                degree=degree,
+                conditioning="constant",
+                det_dependent=det_dependent,
+            ),
+            ndets=ndets,
+        )
+        params = dressing.init(jax.random.PRNGKey(1), orbitals, u, v, h_one)
+        lead = ndets if det_dependent else 1
+        matrix = params["params"]
+        assert matrix["matrix_real"].shape == (lead, degree // 2, nelec, 2, 2)
+        assert matrix["matrix_imag"].shape == (lead, degree // 2, nelec, 2, 2)
+
+    def test_orbital_pair_matrix_is_finite_and_antisymmetric(self):
+        wf, params, data, electrons = self._make_mhpo(
+            nspins=(3, 0),
+            flux=4,
+            backbone="lapnet",
+            dressing=DressingConfig(type="full", degree=2),
+        )
+        lp_orig = wf.evaluate(params, data)["logpsi"]
+        assert jnp.isfinite(lp_orig)
+
+        swapped = electrons.at[0].set(electrons[1]).at[1].set(electrons[0])
+        lp_swap = wf.evaluate(params, HallData(electrons=swapped))["logpsi"]
+        ratio = jnp.exp(lp_swap - lp_orig)
+        np.testing.assert_allclose(float(jnp.real(ratio)), -1.0, atol=1e-3)
+        np.testing.assert_allclose(float(jnp.imag(ratio)), 0.0, atol=1e-3)
+
+    @pytest.mark.parametrize("nelec", [3, 24])
+    @pytest.mark.parametrize("conditioning", ["constant", "backbone"])
+    @pytest.mark.parametrize("orbital_dependent", [True, False])
+    @pytest.mark.parametrize("det_dependent", [True, False])
+    def test_learnable_dressing_matches_pair_spinor_at_init(
+        self, nelec, conditioning, orbital_dependent, det_dependent
+    ):
+        """Every learnable dressing starts as the plain pair-spinor factor."""
+        key = jax.random.PRNGKey(0)
+        ndets, degree = 2, 4
+        theta = jnp.arccos(jax.random.uniform(key, (nelec,), minval=-1, maxval=1))
+        phi = jax.random.uniform(key, (nelec,), minval=-jnp.pi, maxval=jnp.pi)
+        u, v = spinor_coordinates_from_angles(jnp.stack([theta, phi], axis=-1))
+        orbitals = jax.random.normal(key, (ndets, nelec, nelec), dtype=jnp.complex64)
+        h_one = jax.random.normal(key, (nelec, 8))
+
+        dressing = Dressing(
+            config=DressingConfig(
+                type="full",
+                degree=degree,
+                conditioning=conditioning,
+                orbital_dependent=orbital_dependent,
+                det_dependent=det_dependent,
+            ),
+            ndets=ndets,
+        )
+        params = dressing.init(jax.random.PRNGKey(1), orbitals, u, v, h_one)
+        out = dressing.apply(params, orbitals, u, v, h_one)
+
+        pair = (u[:, None] * v[None, :] - v[:, None] * u[None, :]) * jnp.sqrt(2.0)
+        pair = pair + jnp.eye(nelec)
+        row_factor = jnp.prod(pair, axis=1) ** (degree // 2)
+        expected = orbitals * row_factor[None, :, None]
+        np.testing.assert_allclose(
+            jnp.asarray(out), jnp.asarray(expected), rtol=1e-4, atol=1e-6
+        )
+
+    def test_neural_matrix_is_finite_and_antisymmetric(self):
+        """The neural-matrix attachment preserves same-spin antisymmetry."""
+        wf, params, data, electrons = self._make_mhpo(
+            nspins=(3, 0),
+            flux=4,
+            backbone="lapnet",
+            dressing=DressingConfig(
+                type="full",
+                degree=2,
+                conditioning="backbone",
+            ),
+        )
+        lp_orig = wf.evaluate(params, data)["logpsi"]
+        assert jnp.isfinite(lp_orig)
+
+        swapped = electrons.at[0].set(electrons[1]).at[1].set(electrons[0])
+        lp_swap = wf.evaluate(params, HallData(electrons=swapped))["logpsi"]
+        ratio = jnp.exp(lp_swap - lp_orig)
+        np.testing.assert_allclose(float(jnp.real(ratio)), -1.0, atol=1e-3)
+        np.testing.assert_allclose(float(jnp.imag(ratio)), 0.0, atol=1e-3)
+
+    def test_orbital_pair_rejects_odd_flux(self):
+        with pytest.raises(ValueError, match="requires an even degree"):
+            self._make_mhpo(
+                dressing=DressingConfig(type="full", degree=1),
+            )
+
+    @pytest.mark.parametrize("conditioning", ["constant", "backbone"])
+    @pytest.mark.parametrize("orbital_dependent", [True, False])
+    @pytest.mark.parametrize("det_dependent", [True, False])
+    def test_learnable_dressing_configuration_grid(
+        self, conditioning, orbital_dependent, det_dependent
+    ):
+        """Every learnable dressing combination preserves antisymmetry."""
+        wf, params, data, electrons = self._make_mhpo(
+            nspins=(3, 0),
+            flux=4,
+            backbone="lapnet",
+            dressing=DressingConfig(
+                type="full",
+                degree=2,
+                conditioning=conditioning,
+                orbital_dependent=orbital_dependent,
+                det_dependent=det_dependent,
+            ),
+        )
+        logpsi = wf.evaluate(params, data)["logpsi"]
+        assert jnp.isfinite(logpsi)
+
+        swapped = electrons.at[0].set(electrons[1]).at[1].set(electrons[0])
+        ratio = jnp.exp(
+            wf.evaluate(params, HallData(electrons=swapped))["logpsi"] - logpsi
+        )
         np.testing.assert_allclose(float(jnp.real(ratio)), -1.0, atol=1e-3)
         np.testing.assert_allclose(float(jnp.imag(ratio)), 0.0, atol=1e-3)
 
@@ -636,7 +821,10 @@ class TestMHPO:
     @pytest.mark.parametrize("backbone", NEURAL_BACKBONES)
     def test_composite_fermion(self, backbone):
         """Composite fermion branch (flux_per_elec > 0) produces finite output."""
-        wf, params, data, _ = self._make_mhpo(flux_per_elec=2, backbone=backbone)
+        wf, params, data, _ = self._make_mhpo(
+            backbone=backbone,
+            dressing=DressingConfig(type="full", degree=2),
+        )
         out = wf.evaluate(params, data)
         assert jnp.isfinite(out["logpsi"])
 
@@ -712,6 +900,68 @@ class TestNeuralHallKineticSmoke:
         data = HallData(electrons=electrons)
         wf = MHPO(ndets=1, num_heads=2, heads_dim=8, num_layers=1)
         wire(wf, nspins=nspins, monopole_strength=flux / 2, flux=flux)
+        params = wf.init_params(data, jax.random.PRNGKey(1))
+        estimator = SphericalKinetic(
+            monopole_strength=float(flux / 2),
+            radius=float(jnp.sqrt(flux / 2)),
+            f_log_psi_from_spinor=wf.logpsi_from_spinor,
+        )
+        stats, _ = estimator.evaluate_single_walker(
+            params, data, {}, None, jax.random.PRNGKey(0)
+        )
+        assert jnp.isfinite(stats["energy:kinetic"])
+
+    @_requires_forward_laplacian()
+    def test_lapnet_backbone_kinetic_smoke(self):
+        nspins = (2, 1)
+        flux = 4
+        electrons = _sample(jax.random.PRNGKey(7), 1, sum(nspins))[0]
+        data = HallData(electrons=electrons)
+        wf = MHPO(
+            backbone="lapnet",
+            ndets=1,
+            num_heads=2,
+            heads_dim=8,
+            num_layers=1,
+        )
+        wire(
+            wf,
+            nspins=nspins,
+            monopole_strength=flux / 2,
+            flux=flux,
+            interaction_strength=1.0,
+            radius=float(jnp.sqrt(flux / 2)),
+        )
+
+        params = wf.init_params(data, jax.random.PRNGKey(1))
+        estimator = SphericalKinetic(
+            monopole_strength=float(flux / 2),
+            radius=float(jnp.sqrt(flux / 2)),
+            f_log_psi_from_spinor=wf.logpsi_from_spinor,
+        )
+        stats, _ = estimator.evaluate_single_walker(
+            params, data, {}, None, jax.random.PRNGKey(0)
+        )
+        assert jnp.isfinite(stats["energy:kinetic"])
+
+    @_requires_forward_laplacian()
+    def test_mhpo_lapnet_forward_laplacian_smoke_two_spinless_electrons(self):
+        """Regression for scalar-times-orbitals broadcast in MHPO LapNet path."""
+        nspins = (2, 0)
+        flux = 3
+        electrons = _sample(jax.random.PRNGKey(7), 1, sum(nspins))[0]
+        data = HallData(electrons=electrons)
+
+        wf = MHPO(backbone="lapnet", ndets=1, num_heads=2, heads_dim=8, num_layers=4)
+        wire(
+            wf,
+            nspins=nspins,
+            monopole_strength=flux / 2,
+            flux=flux,
+            interaction_strength=1.0,
+            radius=float(jnp.sqrt(flux / 2)),
+        )
+
         params = wf.init_params(data, jax.random.PRNGKey(1))
         estimator = SphericalKinetic(
             monopole_strength=float(flux / 2),

@@ -20,6 +20,11 @@ from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.output.orbital import SplitChannelDense
 
 from ._backbone import build_hall_backbone
+from ._dressing import (
+    Dressing,
+    DressingConfig,
+    reduced_monopole_strength,
+)
 from .base import HallWavefunction, lll_monopole_harmonics
 from .jastrow import SphericalJastrow
 
@@ -85,12 +90,11 @@ class MHPO(HallWavefunction):
         4. Jastrow: Spherical chord-distance Jastrow factor
         5. Output: ``slogdet`` of orbital matrix to complex ``log psi``
 
-    When ``flux_per_elec > 0``, the ansatz implements composite fermion
-    mean-field theory by attaching ``flux_per_elec`` flux quanta per electron.
+    When ``dressing.degree > 0``, the ansatz attaches that many flux quanta per
+    electron using a fixed Laughlin factor or learned orbital pair factors.
     The effective monopole strength for the orbitals is reduced to
-    :math:`Q^* = Q - p(N-1)/2` where :math:`p` is ``flux_per_elec``,
-    and a Vandermonde-like Jastrow factor
-    :math:`\prod_{i<j}(u_i v_j - u_j v_i)^p` is multiplied in.
+    :math:`Q^* = Q - p(N-1)/2` where :math:`p` is ``dressing.degree``,
+    independent of the selected dressing.
 
     Args:
         nspins: ``(n_up, n_down)`` electron counts.
@@ -101,7 +105,11 @@ class MHPO(HallWavefunction):
         heads_dim: Dimension of each attention head.
         backbone: Neural backbone implementation.
         num_layers: Number of backbone layers.
-        flux_per_elec: Flux quanta attached per electron for composite fermions.
+        dressing: Fixed or learned flux dressing configuration. ``type`` selects
+            Laughlin or full matrix pair factors; ``conditioning`` selects
+            constant or backbone-conditioned factors; and ``orbital_dependent``
+            and ``det_dependent`` control whether each orbital and each
+            determinant has its own pair factor.
     """
 
     nspins: tuple[int, int] = runtime_dep()
@@ -112,10 +120,14 @@ class MHPO(HallWavefunction):
     num_heads: int = 4
     heads_dim: int = 64
     num_layers: int = 2
-    flux_per_elec: int = 0
+    dressing: DressingConfig = DressingConfig()
 
     def setup(self) -> None:
-        reduced_flux = self.flux - self.flux_per_elec * (sum(self.nspins) - 1)
+        q_effective = reduced_monopole_strength(
+            flux=self.flux,
+            degree=self.dressing.degree,
+            nelec=sum(self.nspins),
+        )
         self.backbone_layer = build_hall_backbone(
             backbone=self.backbone,
             nspins=self.nspins,
@@ -124,8 +136,12 @@ class MHPO(HallWavefunction):
             heads_dim=self.heads_dim,
         )
         self.orbital_layer = MonopoleOrbitals(
-            Q=reduced_flux / 2,
+            Q=q_effective,
             nspins=self.nspins,
+            ndets=self.ndets,
+        )
+        self.dressing_layer = Dressing(
+            config=self.dressing,
             ndets=self.ndets,
         )
         self.jastrow_layer = SphericalJastrow(nspins=self.nspins)
@@ -138,14 +154,10 @@ class MHPO(HallWavefunction):
 
         # Monopole harmonic orbitals: (ndets, nelec, nelec)
         orbitals = self.orbital_layer(h_one, u, v)
+        orbitals = self.dressing_layer(orbitals, u, v, h_one=h_one)
 
         # Jastrow factor
         jastrow = self.jastrow_layer(cartesian)
-
-        # Composite fermion Jastrow attachment
-        if self.flux_per_elec > 0:
-            element = u * v[..., None] - u[..., None] * v + jnp.eye(u.shape[0])
-            jastrow += jnp.sum(jnp.triu(jnp.log(element), k=1)) * self.flux_per_elec
 
         orbitals = jnp.exp(jastrow / sum(self.nspins)) * orbitals
 
