@@ -9,13 +9,13 @@ import pytest
 from jax import numpy as jnp
 
 from jaqmc.app.hall import HallEvalWorkflow, HallTrainWorkflow
-from jaqmc.app.hall.config import HallConfig, InteractionType
+from jaqmc.app.hall.config import HallConfig
 from jaqmc.app.hall.data import HallData, data_init
 from jaqmc.app.hall.estimator.penalized_loss import PenalizedLoss
 from jaqmc.app.hall.hamiltonian import SpherePotential
 from jaqmc.app.hall.wavefunction._dressing import Dressing, DressingConfig
+from jaqmc.app.hall.wavefunction._jastrow import SphericalCoulombJastrow
 from jaqmc.app.hall.wavefunction.free import Free
-from jaqmc.app.hall.wavefunction.jastrow import SphericalJastrow
 from jaqmc.app.hall.wavefunction.laughlin import Laughlin
 from jaqmc.app.hall.wavefunction.mhpo import MHPO
 from jaqmc.estimator.angular_momentum import (
@@ -276,7 +276,6 @@ class TestSpherePotential:
     def test_coulomb_two_electrons(self):
         """Two electrons at opposite poles: distance=2, potential=1/(2R)."""
         estimator = SpherePotential(
-            interaction_type=InteractionType.coulomb,
             monopole_strength=1.0,
             radius=1.0,
             interaction_strength=1.0,
@@ -343,8 +342,8 @@ class TestPenalizedLoss:
         np.testing.assert_allclose(out["penalized_loss"], 8.0)
 
 
-class TestSphericalJastrow:
-    """SphericalJastrow: symmetric under same-spin swaps."""
+class TestSphericalCoulombJastrow:
+    """SphericalCoulombJastrow: cusp-scaled and same-spin symmetric."""
 
     @pytest.mark.x64_modes
     def test_parameters_are_float32(self, x64_mode):
@@ -352,13 +351,17 @@ class TestSphericalJastrow:
         cartesian = _cartesian(
             _sample(jax.random.PRNGKey(0), 1, 3)[0].astype(input_dtype)
         )
-        params = SphericalJastrow(nspins=(2, 1)).init(jax.random.PRNGKey(1), cartesian)
+        params = SphericalCoulombJastrow(
+            nspins=(2, 1), interaction_strength=1.0, radius=1.0
+        ).init(jax.random.PRNGKey(1), cartesian)
 
         assert all(param.dtype == jnp.float32 for param in jax.tree.leaves(params))
 
     def test_all_same_spin(self):
         """All electrons same spin: parallel pairs only, no antiparallel."""
-        jastrow = SphericalJastrow(nspins=(3, 0))
+        jastrow = SphericalCoulombJastrow(
+            nspins=(3, 0), interaction_strength=1.0, radius=1.0
+        )
         cartesian = _cartesian(_sample(jax.random.PRNGKey(0), 1, 3)[0])
         params = jastrow.init(jax.random.PRNGKey(1), cartesian)
         out: jax.Array = jastrow.apply(params, cartesian)  # type: ignore[assignment]
@@ -366,7 +369,9 @@ class TestSphericalJastrow:
 
     def test_mixed_spins(self):
         """Mixed spins: both parallel and antiparallel pairs."""
-        jastrow = SphericalJastrow(nspins=(2, 1))
+        jastrow = SphericalCoulombJastrow(
+            nspins=(2, 1), interaction_strength=1.0, radius=1.0
+        )
         cartesian = _cartesian(_sample(jax.random.PRNGKey(0), 1, 3)[0])
         params = jastrow.init(jax.random.PRNGKey(1), cartesian)
         out: jax.Array = jastrow.apply(params, cartesian)  # type: ignore[assignment]
@@ -374,7 +379,9 @@ class TestSphericalJastrow:
 
     def test_one_per_spin(self):
         """One electron per spin: no parallel pairs, only antiparallel."""
-        jastrow = SphericalJastrow(nspins=(1, 1))
+        jastrow = SphericalCoulombJastrow(
+            nspins=(1, 1), interaction_strength=1.0, radius=1.0
+        )
         cartesian = _cartesian(_sample(jax.random.PRNGKey(0), 1, 2)[0])
         params = jastrow.init(jax.random.PRNGKey(1), cartesian)
         out: jax.Array = jastrow.apply(params, cartesian)  # type: ignore[assignment]
@@ -382,7 +389,9 @@ class TestSphericalJastrow:
 
     def test_symmetric_under_same_spin_swap(self):
         """Jastrow is symmetric: swapping two same-spin electrons is invariant."""
-        jastrow = SphericalJastrow(nspins=(3, 0))
+        jastrow = SphericalCoulombJastrow(
+            nspins=(3, 0), interaction_strength=1.0, radius=1.0
+        )
         electrons = _sample(jax.random.PRNGKey(7), 1, 3)[0]
         cartesian = _cartesian(electrons)
         params = jastrow.init(jax.random.PRNGKey(1), cartesian)
@@ -391,13 +400,28 @@ class TestSphericalJastrow:
         swapped: jax.Array = jastrow.apply(params, _cartesian(e_swap))  # type: ignore[assignment]
         np.testing.assert_allclose(float(original), float(swapped), atol=1e-5)
 
+    def test_interaction_strength_scales_jastrow(self):
+        """The exact 2D Coulomb cusp scales with interaction strength."""
+        electrons = _sample(jax.random.PRNGKey(9), 1, 3)[0]
+        cartesian = _cartesian(electrons)
+        base = SphericalCoulombJastrow(
+            nspins=(2, 1), interaction_strength=1.0, radius=1.0
+        )
+        scaled = SphericalCoulombJastrow(
+            nspins=(2, 1), interaction_strength=2.5, radius=1.0
+        )
+        params = base.init(jax.random.PRNGKey(1), cartesian)
+        base_out: jax.Array = base.apply(params, cartesian)  # type: ignore[assignment]
+        scaled_out: jax.Array = scaled.apply(params, cartesian)  # type: ignore[assignment]
+        np.testing.assert_allclose(scaled_out, 2.5 * base_out, rtol=1e-6)
+
 
 class TestFreeWavefunction:
     """Free wavefunction: antisymmetry and exact kinetic energy."""
 
     def _make_free(self, nspins, flux):
         wf = Free()
-        wire(wf, nspins=nspins, flux=flux)
+        wire(wf, nspins=nspins, flux=flux, interaction_strength=1.0)
         return wf
 
     def test_antisymmetry(self):
@@ -456,7 +480,7 @@ class TestLaughlinWavefunction:
 
     def _make_laughlin(self, nspins, flux, flux_per_elec=1, excitation_lz=0):
         wf = Laughlin(flux_per_elec=flux_per_elec, excitation_lz=excitation_lz)
-        wire(wf, nspins=nspins, flux=flux)
+        wire(wf, nspins=nspins, flux=flux, interaction_strength=1.0)
         return wf
 
     def test_unsupported_filling(self):
@@ -620,7 +644,14 @@ class TestMHPO:
             num_layers=1,
             dressing=dressing,
         )
-        wire(wf, nspins=nspins, monopole_strength=flux / 2, flux=flux)
+        wire(
+            wf,
+            nspins=nspins,
+            monopole_strength=flux / 2,
+            flux=flux,
+            interaction_strength=1.0,
+            radius=float(jnp.sqrt(flux / 2)),
+        )
         electrons = _sample(jax.random.PRNGKey(0), 1, sum(nspins))[0]
         data = HallData(electrons=electrons)
         params = wf.init_params(data, jax.random.PRNGKey(1))
@@ -903,7 +934,14 @@ class TestNeuralHallKineticSmoke:
         nspins = (2, 0)
         flux = 3
         wf = MHPO(ndets=1, num_heads=2, heads_dim=8, num_layers=1)
-        wire(wf, nspins=nspins, monopole_strength=flux / 2, flux=flux)
+        wire(
+            wf,
+            nspins=nspins,
+            monopole_strength=flux / 2,
+            flux=flux,
+            interaction_strength=1.0,
+            radius=float(jnp.sqrt(flux / 2)),
+        )
         electrons = _sample(jax.random.PRNGKey(81), 1, sum(nspins))[0]
         params = wf.init_params(HallData(electrons=electrons), jax.random.PRNGKey(1))
         estimator = SphericalKinetic(
@@ -934,7 +972,14 @@ class TestNeuralHallKineticSmoke:
         electrons = _sample(jax.random.PRNGKey(7), 1, sum(nspins))[0]
         data = HallData(electrons=electrons)
         wf = MHPO(ndets=1, num_heads=2, heads_dim=8, num_layers=1)
-        wire(wf, nspins=nspins, monopole_strength=flux / 2, flux=flux)
+        wire(
+            wf,
+            nspins=nspins,
+            monopole_strength=flux / 2,
+            flux=flux,
+            interaction_strength=1.0,
+            radius=float(jnp.sqrt(flux / 2)),
+        )
         params = wf.init_params(data, jax.random.PRNGKey(1))
         estimator = SphericalKinetic(
             monopole_strength=float(flux / 2),

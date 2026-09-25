@@ -126,6 +126,12 @@ def configure_system(
     wf.nspins = system_config.nspins
     wf.monopole_strength = system_config.flux / 2
     wf.flux = system_config.flux
+    wf.interaction_strength = system_config.interaction_strength
+    wf.radius = (
+        system_config.radius
+        if system_config.radius is not None
+        else float(jnp.sqrt(system_config.flux / 2))
+    )
 
     return system_config, wf
 
@@ -167,7 +173,6 @@ def make_estimators(
         estimators["potential"] = cfg.get(
             "estimators.energy.potential",
             SpherePotential(
-                interaction_type=system_config.interaction_type,
                 monopole_strength=Q,
                 radius=radius,
                 interaction_strength=system_config.interaction_strength,

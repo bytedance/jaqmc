@@ -9,7 +9,6 @@ from typing import Any
 from jax import numpy as jnp
 from jax.numpy import cos, sin
 
-from jaqmc.app.hall.config import InteractionType
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
 from jaqmc.estimator.base import PerWalkerEstimator
@@ -20,20 +19,18 @@ from jaqmc.utils.config import configurable_dataclass
 class SpherePotential(PerWalkerEstimator):
     r"""Potential energy on the Haldane sphere.
 
-    Converts spherical coordinates to Cartesian, computes pairwise
-    cosines, then evaluates the chosen interaction.
+    Converts spherical coordinates to Cartesian and computes pairwise
+    Coulomb repulsion from the chord distance.
 
     Args:
-        interaction_type: Interaction potential form.
+        interaction_strength: Overall Coulomb scaling factor.
         monopole_strength: :math:`Q = \text{flux}/2`.
         radius: Sphere radius.
-        interaction_strength: Overall scaling factor.
     """
 
-    interaction_type: InteractionType = InteractionType.coulomb
+    interaction_strength: float
     monopole_strength: float = 1.0
     radius: float = 1.0
-    interaction_strength: float = 1.0
 
     def evaluate_single_walker(
         self,
@@ -53,9 +50,6 @@ class SpherePotential(PerWalkerEstimator):
         )
         i, j = jnp.triu_indices(xyz.shape[0], k=1)
         r_ee = jnp.linalg.norm(xyz[i] - xyz[j], axis=-1) * self.radius
-        if self.interaction_type == InteractionType.coulomb:
-            potential = jnp.sum(1 / r_ee)
-        else:
-            raise ValueError(f"Unknown interaction type: {self.interaction_type}")
+        potential = jnp.sum(1 / r_ee)
 
         return {"energy:potential": potential * self.interaction_strength}, state

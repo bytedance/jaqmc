@@ -25,8 +25,8 @@ from ._dressing import (
     DressingConfig,
     reduced_monopole_strength,
 )
+from ._jastrow import SphericalCoulombJastrow
 from .base import HallWavefunction, lll_monopole_harmonics
-from .jastrow import SphericalJastrow
 
 __all__ = ["MHPO", "DirectMonopoleOrbitals", "FactorizedMonopoleOrbitals"]
 
@@ -171,11 +171,16 @@ class MHPO(HallWavefunction):
             constant or backbone-conditioned factors; and ``orbital_dependent``
             and ``det_dependent`` control whether each orbital and each
             determinant has its own pair factor.
+        interaction_strength: Coulomb interaction scaling factor for the Jastrow.
+        radius: Sphere radius used by the Jastrow cusp (runtime dep, wired by
+            the workflow to match the estimators).
     """
 
     nspins: tuple[int, int] = runtime_dep()
     monopole_strength: float = runtime_dep()
     flux: int = runtime_dep()
+    interaction_strength: float = runtime_dep()
+    radius: float = runtime_dep()
     ndets: int = 1
     backbone: Literal["psiformer", "lapnet"] = "psiformer"
     num_heads: int = 4
@@ -216,7 +221,11 @@ class MHPO(HallWavefunction):
             config=self.dressing,
             ndets=self.ndets,
         )
-        self.jastrow_layer = SphericalJastrow(nspins=self.nspins)
+        self.jastrow_layer = SphericalCoulombJastrow(
+            nspins=self.nspins,
+            interaction_strength=self.interaction_strength,
+            radius=self.radius,
+        )
 
     def _logpsi_from_spinor(self, u: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
         cartesian = cartesian_from_spinor(u, v)
