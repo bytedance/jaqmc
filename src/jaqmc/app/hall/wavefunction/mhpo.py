@@ -34,7 +34,7 @@ class MonopoleOrbitals(nn.Module):
     and :math:`v = \sin(\theta/2) e^{-i\phi/2}`.
 
     Args:
-        Q: Monopole strength.
+        Q: Monopole strength; may be negative for anti-holomorphic shells.
         nspins: ``(n_up, n_down)`` electron counts.
         ndets: Number of determinants.
     """
@@ -44,8 +44,9 @@ class MonopoleOrbitals(nn.Module):
     ndets: int
 
     def setup(self) -> None:
-        n_orb = round(2 * self.Q + 1)
-        self.norm_factor = jnp.array(np.sqrt(ss.comb(2 * self.Q, np.arange(n_orb))))
+        q_abs = abs(self.Q)
+        n_orb = round(2 * q_abs + 1)
+        self.norm_factor = jnp.array(np.sqrt(ss.comb(2 * q_abs, np.arange(n_orb))))
         features = [n_orb, sum(self.nspins), self.ndets]
         self.orbitals_real = SplitChannelDense(channels=self.nspins, features=features)
         self.orbitals_imag = SplitChannelDense(channels=self.nspins, features=features)
@@ -65,7 +66,10 @@ class MonopoleOrbitals(nn.Module):
         """
         orbitals = self.orbitals_real(h_one) + 1j * self.orbitals_imag(h_one)
 
-        envelope = self.norm_factor * lll_monopole_harmonics(u, v, self.Q)
+        q_abs = abs(self.Q)
+        envelope = self.norm_factor * lll_monopole_harmonics(u, v, q_abs)
+        if self.Q < 0:
+            envelope = jnp.conj(envelope)
         orbitals = jnp.sum(orbitals * envelope[..., None, None], axis=1)
 
         return jnp.moveaxis(orbitals, -1, 0)  # (ndets, nelec, nelec)
