@@ -4,8 +4,8 @@
 """Monopole harmonics product orbital (MHPO) wavefunction on the Haldane sphere.
 
 Cartesian coordinates on the unit sphere feed a configurable neural backbone
-(which appends spin encoding), followed by monopole harmonic orbital projection
-and a spherical Jastrow factor.
+(which appends spin encoding), followed by a direct or factorized
+monopole-harmonic orbital projection and a spherical Jastrow factor.
 """
 
 from typing import Literal
@@ -28,11 +28,11 @@ from ._dressing import (
 from .base import HallWavefunction, lll_monopole_harmonics
 from .jastrow import SphericalJastrow
 
-__all__ = ["MHPO"]
+__all__ = ["MHPO", "DirectMonopoleOrbitals", "FactorizedMonopoleOrbitals"]
 
 
-class MonopoleOrbitals(nn.Module):
-    r"""Monopole harmonic orbital construction.
+class DirectMonopoleOrbitals(nn.Module):
+    r"""Direct monopole-harmonic orbital construction.
 
     Combines learned features with monopole harmonic basis functions
     :math:`u^{Q+m} v^{Q-m}` where :math:`u = \cos(\theta/2) e^{i\phi/2}`
@@ -80,14 +80,74 @@ class MonopoleOrbitals(nn.Module):
         return jnp.moveaxis(orbitals, -1, 0)  # (ndets, nelec, nelec)
 
 
+class FactorizedMonopoleOrbitals(nn.Module):
+    """Factorized monopole-harmonic orbital readout."""
+
+    nspins: tuple[int, int]
+    ndets: int
+    Q: float
+
+    @nn.compact
+    def __call__(
+        self, h_one: jnp.ndarray, u: jnp.ndarray, v: jnp.ndarray
+    ) -> jnp.ndarray:
+        """Compute determinant-leading factorized orbital matrices.
+
+        Returns:
+            Orbitals with shape ``(ndets, ..., nelec, nelec)``.
+        """
+        nelec = h_one.shape[-2]
+        feature_dim = h_one.shape[-1]
+
+        q_abs = abs(self.Q)
+        m = jnp.arange(-q_abs, q_abs + 1)
+        norm_factor = jnp.array(
+            np.sqrt(ss.comb(2 * q_abs, q_abs - np.arange(-q_abs, q_abs + 1)))
+        )
+        envelope = norm_factor * u[..., None] ** (q_abs + m)
+        envelope = envelope * v[..., None] ** (q_abs - m)
+        if self.Q < 0:
+            envelope = jnp.conj(envelope)
+
+        h_splits = jnp.split(h_one, (self.nspins[0],), axis=-2)
+        envelope_splits = jnp.split(envelope, (self.nspins[0],), axis=-2)
+
+        orbitals_parts = []
+        for i, (h_part, envelope_part) in enumerate(
+            zip(h_splits, envelope_splits, strict=True)
+        ):
+            if h_part.shape[-2] == 0:
+                continue
+
+            projected_envelope = nn.DenseGeneral(
+                features=(self.ndets, feature_dim), use_bias=False
+            )(jnp.stack((envelope_part.real, envelope_part.imag), axis=-2))
+            x = h_part[..., :, None, :] * (
+                projected_envelope[..., 0, :, :] + 1j * projected_envelope[..., 1, :, :]
+            )
+            stacked_x = jnp.stack((x.real, x.imag), axis=-2)
+            real_projected = nn.Dense(nelec, use_bias=False, name=f"out_real_{i}")(
+                stacked_x
+            )
+            imag_projected = nn.Dense(nelec, use_bias=False, name=f"out_imag_{i}")(
+                stacked_x
+            )
+            real = real_projected[..., 0, :] + 1j * real_projected[..., 1, :]
+            imag = imag_projected[..., 0, :] + 1j * imag_projected[..., 1, :]
+            orbitals_parts.append(real + 1j * imag)
+
+        orbitals = jnp.concatenate(orbitals_parts, axis=-3)
+        return jnp.moveaxis(orbitals, -2, 0)
+
+
 class MHPO(HallWavefunction):
     r"""Monopole harmonics product orbital ansatz on the Haldane sphere.
 
     Architecture:
         1. Input: ``(theta, phi)`` to a monopole spinor and Cartesian point
         2. Backbone: configurable Psiformer or LapNet feature extractor
-        3. Orbitals: Monopole harmonic projection
-        4. Jastrow: Spherical chord-distance Jastrow factor
+        3. Orbitals: Direct or factorized monopole-harmonic projection
+        4. Jastrow: Coulomb-cusp Jastrow factor on the sphere
         5. Output: ``slogdet`` of orbital matrix to complex ``log psi``
 
     When ``dressing.degree > 0``, the ansatz attaches that many flux quanta per
@@ -105,6 +165,7 @@ class MHPO(HallWavefunction):
         heads_dim: Dimension of each attention head.
         backbone: Neural backbone implementation.
         num_layers: Number of backbone layers.
+        orbital_readout: Monopole-harmonic readout parameterization.
         dressing: Fixed or learned flux dressing configuration. ``type`` selects
             Laughlin or full matrix pair factors; ``conditioning`` selects
             constant or backbone-conditioned factors; and ``orbital_dependent``
@@ -120,6 +181,7 @@ class MHPO(HallWavefunction):
     num_heads: int = 4
     heads_dim: int = 64
     num_layers: int = 2
+    orbital_readout: Literal["direct", "factorized"] = "direct"
     dressing: DressingConfig = DressingConfig()
 
     def setup(self) -> None:
@@ -135,11 +197,21 @@ class MHPO(HallWavefunction):
             num_heads=self.num_heads,
             heads_dim=self.heads_dim,
         )
-        self.orbital_layer = MonopoleOrbitals(
-            Q=q_effective,
-            nspins=self.nspins,
-            ndets=self.ndets,
-        )
+        self.orbital_layer: nn.Module
+        if self.orbital_readout == "direct":
+            self.orbital_layer = DirectMonopoleOrbitals(
+                Q=q_effective,
+                nspins=self.nspins,
+                ndets=self.ndets,
+            )
+        elif self.orbital_readout == "factorized":
+            self.orbital_layer = FactorizedMonopoleOrbitals(
+                Q=q_effective,
+                nspins=self.nspins,
+                ndets=self.ndets,
+            )
+        else:
+            raise ValueError(f"Unknown orbital readout: {self.orbital_readout!r}")
         self.dressing_layer = Dressing(
             config=self.dressing,
             ndets=self.ndets,

@@ -107,6 +107,107 @@ def test_vmapped_repeated_dense_layer_registration_mixed_x64_activations(x64_mod
     )
 
 
+def test_factorized_projection_registration():
+    """Factorized embedding and output kernels use structured KFAC blocks."""
+    wf = MHPO(
+        ndets=2,
+        num_heads=2,
+        heads_dim=4,
+        num_layers=1,
+        orbital_readout="factorized",
+    )
+    wire(
+        wf,
+        nspins=(3, 0),
+        monopole_strength=1.0,
+        flux=2,
+        interaction_strength=1.0,
+        radius=1.0,
+    )
+    electrons = jnp.asarray([[0.4, -1.0], [1.2, 0.3], [2.2, 2.0]])
+    data = HallData(electrons=electrons)
+    batch = HallData(electrons=jnp.stack([electrons, electrons + 0.01]))
+    params = wf.init_params(data, jax.random.PRNGKey(0))
+
+    def apply_logpsi(p, batched_data):
+        return jax.vmap(wf.logpsi, in_axes=(None, 0))(p, batched_data)
+
+    tags = get_tag_tree(apply_logpsi, params, batch)
+    output_tags = tags["params"]["orbital_layer"]
+    assert_tag(
+        output_tags["DenseGeneral_0"]["kernel"],
+        variant="repeated_dense",
+        match_type="repeated[2]_flax_dense_no_bias",
+    )
+    for output_name in ("out_real_0", "out_imag_0"):
+        assert_tag(
+            output_tags[output_name]["kernel"],
+            variant="repeated_dense",
+            match_type="repeated[3]_flax_dense_no_bias",
+        )
+
+
+def test_factorized_readout_curvature_update_is_finite():
+    wf = MHPO(
+        ndets=1,
+        num_heads=2,
+        heads_dim=4,
+        num_layers=1,
+        orbital_readout="factorized",
+        dressing=DressingConfig(
+            type="full",
+            degree=2,
+            conditioning="backbone",
+        ),
+    )
+    wire(
+        wf,
+        nspins=(3, 0),
+        monopole_strength=3.0,
+        flux=6,
+        interaction_strength=1.0,
+        radius=float(jnp.sqrt(3.0)),
+    )
+    electrons = jnp.asarray(
+        [
+            [[0.4, -1.0], [1.2, 0.3], [2.2, 2.0]],
+            [[0.45, -0.9], [1.1, 0.4], [2.1, 1.9]],
+        ]
+    )
+    params = wf.init_params(HallData(electrons=electrons[0]), jax.random.PRNGKey(0))
+
+    def value_func(p, batch):
+        logpsi = jax.vmap(lambda coords: wf.logpsi(p, HallData(electrons=coords)))(
+            batch
+        )
+        kfac_jax.register_normal_predictive_distribution(logpsi[:, None])
+        return logpsi
+
+    precon = kfac_jax.OptaxPreconditioner(
+        value_func,
+        damping=1e-3,
+        l2_reg=0.0,
+        estimation_mode="fisher_exact",
+        layer_tag_to_block_ctor=make_tag_to_block_ctor(),
+        auto_register_kwargs=dict(graph_patterns=make_graph_patterns()),
+        batch_size_extractor=lambda batch: cast(jax.Array, batch).shape[0],
+        distributed_inverses=False,
+        distributed_precon_apply=False,
+    )
+    patch_block_diagonal_curvature(precon.estimator)
+
+    rng = jax.random.PRNGKey(1)
+    state = precon.init((params, electrons), rng)
+    state = precon.maybe_update_estimator_curvature(
+        state, (params, electrons), rng, sync=False
+    )
+    snapshots = _snapshot_preconditioner_factors(precon, state)
+    assert snapshots
+    for snapshot in snapshots.values():
+        assert snapshot.weight > 0
+        assert jnp.all(jnp.isfinite(snapshot.value))
+
+
 @pytest.mark.x64_modes
 def test_scalar_scale_registration_mixed_x64_activation(x64_mode):
     params = {"alpha": jnp.asarray(2.0, dtype=jnp.float32)}

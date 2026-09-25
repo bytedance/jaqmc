@@ -911,8 +911,9 @@ class TestNeuralHallKineticSmoke:
         )
         assert jnp.isfinite(stats["energy:kinetic"])
 
+    @pytest.mark.parametrize("orbital_readout", ["direct", "factorized"])
     @_requires_forward_laplacian()
-    def test_lapnet_backbone_kinetic_smoke(self):
+    def test_lapnet_backbone_kinetic_smoke(self, orbital_readout):
         nspins = (2, 1)
         flux = 4
         electrons = _sample(jax.random.PRNGKey(7), 1, sum(nspins))[0]
@@ -923,6 +924,7 @@ class TestNeuralHallKineticSmoke:
             num_heads=2,
             heads_dim=8,
             num_layers=1,
+            orbital_readout=orbital_readout,
         )
         wire(
             wf,
@@ -966,6 +968,126 @@ class TestNeuralHallKineticSmoke:
         estimator = SphericalKinetic(
             monopole_strength=float(flux / 2),
             radius=float(jnp.sqrt(flux / 2)),
+            f_log_psi_from_spinor=wf.logpsi_from_spinor,
+        )
+        stats, _ = estimator.evaluate_single_walker(
+            params, data, {}, None, jax.random.PRNGKey(0)
+        )
+        assert jnp.isfinite(stats["energy:kinetic"])
+
+
+class TestFactorizedReadout:
+    def _make_factorized_readout(
+        self,
+        nspins=(2, 1),
+        flux=4,
+        backbone="psiformer",
+        dressing=None,
+    ):
+        if dressing is None:
+            dressing = DressingConfig()
+        wf = MHPO(
+            ndets=1,
+            backbone=backbone,
+            num_heads=2,
+            heads_dim=8,
+            num_layers=1,
+            orbital_readout="factorized",
+            dressing=dressing,
+        )
+        wire(
+            wf,
+            nspins=nspins,
+            monopole_strength=flux / 2,
+            flux=flux,
+            interaction_strength=1.0,
+            radius=float(jnp.sqrt(flux / 2)),
+        )
+        electrons = _sample(jax.random.PRNGKey(0), 1, sum(nspins))[0]
+        data = HallData(electrons=electrons)
+        params = wf.init_params(data, jax.random.PRNGKey(1))
+        return wf, params, data, electrons
+
+    @pytest.mark.parametrize("backbone", NEURAL_BACKBONES)
+    def test_finite_eval(self, backbone):
+        wf, params, data, _ = self._make_factorized_readout(backbone=backbone)
+        out = wf.evaluate(params, data)
+        assert jnp.isfinite(out["logpsi"])
+
+    @pytest.mark.parametrize("backbone", NEURAL_BACKBONES)
+    def test_antisymmetry(self, backbone):
+        wf, params, data, electrons = self._make_factorized_readout(
+            nspins=(3, 0), flux=4, backbone=backbone
+        )
+        lp_orig = wf.evaluate(params, data)["logpsi"]
+
+        swapped = electrons.at[0].set(electrons[1]).at[1].set(electrons[0])
+        lp_swap = wf.evaluate(params, HallData(electrons=swapped))["logpsi"]
+
+        ratio = jnp.exp(lp_swap - lp_orig)
+        np.testing.assert_allclose(float(jnp.real(ratio)), -1.0, atol=1e-3)
+        np.testing.assert_allclose(float(jnp.imag(ratio)), 0.0, atol=1e-3)
+
+    def test_orbital_pair_antisymmetry_and_flux_shift(self):
+        wf, params, data, electrons = self._make_factorized_readout(
+            nspins=(3, 0),
+            flux=4,
+            dressing=DressingConfig(type="full", degree=2),
+        )
+        lp_orig = wf.evaluate(params, data)["logpsi"]
+        swapped = electrons.at[0].set(electrons[1]).at[1].set(electrons[0])
+        lp_swap = wf.evaluate(params, HallData(electrons=swapped))["logpsi"]
+
+        ratio = jnp.exp(lp_swap - lp_orig)
+        np.testing.assert_allclose(float(jnp.real(ratio)), -1.0, atol=1e-3)
+        embedding_kernel = params["params"]["orbital_layer"]["DenseGeneral_0"]["kernel"]
+        assert embedding_kernel.shape[1] == wf.ndets
+
+    @_requires_forward_laplacian()
+    def test_neural_matrix_flux_has_finite_gradients_and_laplacian(self):
+        wf, params, data, electrons = self._make_factorized_readout(
+            nspins=(3, 0),
+            flux=6,
+            dressing=DressingConfig(
+                type="full",
+                degree=2,
+                conditioning="backbone",
+            ),
+        )
+        logpsi = wf.logpsi(params, data)
+        assert jnp.isfinite(logpsi)
+
+        swapped = electrons.at[0].set(electrons[1]).at[1].set(electrons[0])
+        ratio = jnp.exp(wf.logpsi(params, HallData(electrons=swapped)) - logpsi)
+        np.testing.assert_allclose(ratio, -1.0 + 0.0j, atol=1e-3)
+
+        grads = jax.grad(lambda p: jnp.real(wf.logpsi(p, data)))(params)
+        flux_grads = grads["params"]["dressing_layer"]
+        assert all(jnp.all(jnp.isfinite(leaf)) for leaf in jax.tree.leaves(flux_grads))
+
+        def logpsi_fn(coords):
+            return wf.logpsi(params, HallData(electrons=coords))
+
+        transformed = forward_laplacian(logpsi_fn)
+        dense = transformed(data.electrons)
+        sparse = transformed(make_laplacian_input(data.electrons, sparse_axis=0))
+        np.testing.assert_allclose(sparse.x, dense.x, rtol=2e-5, atol=2e-5)
+        np.testing.assert_allclose(
+            sparse.dense_jacobian,
+            dense.dense_jacobian,
+            rtol=2e-4,
+            atol=2e-4,
+        )
+        np.testing.assert_allclose(
+            sparse.laplacian,
+            dense.laplacian,
+            rtol=2e-4,
+            atol=2e-4,
+        )
+
+        estimator = SphericalKinetic(
+            monopole_strength=3.0,
+            radius=float(jnp.sqrt(3.0)),
             f_log_psi_from_spinor=wf.logpsi_from_spinor,
         )
         stats, _ = estimator.evaluate_single_walker(
