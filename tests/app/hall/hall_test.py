@@ -18,7 +18,10 @@ from jaqmc.app.hall.wavefunction.free import Free
 from jaqmc.app.hall.wavefunction.jastrow import SphericalJastrow
 from jaqmc.app.hall.wavefunction.laughlin import Laughlin
 from jaqmc.app.hall.wavefunction.mhpo import MHPO
-from jaqmc.estimator.angular_momentum import SphericalAngularMomentum
+from jaqmc.estimator.angular_momentum import (
+    SphericalAngularMomentum,
+    SphericalAngularMomentumProjection,
+)
 from jaqmc.estimator.kinetic import LaplacianMode, SphericalKinetic
 from jaqmc.geometry.sphere import (
     cartesian_from_spinor,
@@ -232,6 +235,38 @@ class TestHallAngularMomentumRegistration:
                     {
                         "system": {penalty_key: 1.0},
                         "estimators": {"enabled": {"angular_momentum": False}},
+                    }
+                )
+            )
+
+    def test_projection_is_evaluation_only_and_opt_in(self):
+        train = HallTrainWorkflow(
+            ConfigManager({"estimators": {"enabled": {"angular_projection": True}}})
+        )
+        evaluation = HallEvalWorkflow(
+            ConfigManager({"estimators": {"enabled": {"angular_projection": True}}})
+        )
+
+        assert "angular_projection" not in train.train_stage.estimators.estimators
+        assert isinstance(
+            evaluation.evaluation_stage.estimators.estimators["angular_projection"],
+            SphericalAngularMomentumProjection,
+        )
+
+    def test_projection_requires_energy(self):
+        with pytest.raises(
+            ValueError,
+            match=r"projection requires estimators\.enabled\.energy=true",
+        ):
+            HallEvalWorkflow(
+                ConfigManager(
+                    {
+                        "estimators": {
+                            "enabled": {
+                                "energy": False,
+                                "angular_projection": True,
+                            }
+                        }
                     }
                 )
             )

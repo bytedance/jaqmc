@@ -3,7 +3,7 @@
 Physics, derivations, and computational details behind JaQMC's built-in estimators. For configuration options, see the estimator sections of each system's config reference ([molecule](#molecule-estimators), [solid](#solid-estimators), [hall](#hall-estimators)).
 
 - <project:kinetic.md> — Euclidean kinetic energy, plus the spherical variant for FQHE
-- <project:angular-momentum.md> — Angular momentum (currently on the Haldane sphere)
+- <project:angular-momentum.md> — Angular momentum and sector projection on the Haldane sphere
 - <project:ewald.md> — Coulomb energy in periodic systems via real/reciprocal-space decomposition
 - <project:ecp.md> — Semi-local effective core potential (ECP) contributions, quadrature details
 - <project:ph.md> — Local pseudopotential, or Pseudo-Hamiltonian (PH), parallel to the semi-local ECP family

@@ -109,6 +109,9 @@ estimators enabled through boolean flags.
 - `estimators.enabled.angular_momentum` defaults to `true`. Setting it to
   `false` while an angular-momentum penalty is active raises a configuration
   error.
+- `estimators.enabled.angular_projection` defaults to `false` and is available
+  only during evaluation. It requires the energy estimator and resolves
+  requested total-angular-momentum sectors from rotational overlap kernels.
 - `estimators.enabled.density` defaults to `false`.
 - `estimators.enabled.pair_correlation` defaults to `false`.
 - `estimators.enabled.one_rdm` defaults to `false`.
@@ -127,11 +130,53 @@ Covariant kinetic energy on the Haldane sphere. See
 
 Computes `angular_momentum_z`, `angular_momentum_z_square`, and
 `angular_momentum_square` on the Haldane sphere. See
-[Angular momentum](../../guide/estimators/angular-momentum.md).
+[Angular momentum](../../guide/estimators/angular-momentum.md)
+for its formulation, and {ref}`hall-angular-projection` for sector
+weights $p_L$.
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.estimator.angular_momentum.SphericalAngularMomentum
    :prefix: estimators.angular_momentum
+```
+
+(hall-angular-projection)=
+### Angular-momentum sector projection (`estimators.angular_projection.*`)
+
+Resolves requested total-angular-momentum sectors during evaluation. Requires
+`estimators.enabled.energy=true`. See
+[Angular momentum](../../guide/estimators/angular-momentum.md)
+for the overlap kernels, Haar sampling, and how to read $p_L$.
+
+`angular_momenta` defaults to `[0]`; list every integer or half-integer $L$
+that might carry weight. `n_rotations` is the number of fresh Haar samples
+drawn per walker evaluation.
+
+```bash
+jaqmc hall evaluate \
+  estimators.enabled.angular_projection=true \
+  estimators.angular_projection.angular_momenta='[0,1,2,3]' \
+  estimators.angular_projection.n_rotations=256
+```
+
+```yaml
+estimators:
+  enabled:
+    angular_projection: true
+  angular_projection:
+    angular_momenta: [0, 1, 2, 3]
+    n_rotations: 256
+```
+
+The digest reports `angular_projection:angular_momentum` (requested $L$),
+`angular_projection:weight` ($p_L$), and `angular_projection:energy`
+($E_L$). Block the per-step `angular_projection:weight` and
+`angular_projection:energy_weight` ($h_L$) series in `evaluation_stats.h5`
+the same way [Analyzing evaluations](../../guide/analyzing-evaluations.md)
+treats per-step energies.
+
+```{eval-rst}
+.. config-defaults:: jaqmc.estimator.angular_momentum.SphericalAngularMomentumProjection
+   :prefix: estimators.angular_projection
 ```
 
 ### Coulomb potential (`estimators.energy.potential.*`)

@@ -188,7 +188,8 @@ Covariant kinetic energy on the Haldane sphere. See
 
 Computes `angular_momentum_z`, `angular_momentum_z_square`, and
 `angular_momentum_square` for the Haldane sphere. See
-[Angular momentum](../../guide/estimators/angular-momentum.md).
+[Angular momentum](../../guide/estimators/angular-momentum.md)
+for its formulation.
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.estimator.angular_momentum.SphericalAngularMomentum

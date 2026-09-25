@@ -3,12 +3,13 @@
 
 """Spherical geometry utilities for the Haldane sphere.
 
-Covers coordinate charts, monopole spinors, the monopole connection, and MCMC
-proposals for the Haldane sphere.
+Covers coordinate charts, monopole spinors, Haar rotation samples, the monopole
+connection, and MCMC proposals for the Haldane sphere.
 """
 
 import jax
 from jax import numpy as jnp
+from jax.scipy.spatial.transform import Rotation
 
 from jaqmc.array_types import PRNGKey
 
@@ -33,6 +34,81 @@ def cartesian_from_spinor(u: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
         jnp.stack([2 * jnp.real(uv), -2 * jnp.imag(uv), u_abs2 - v_abs2], axis=-1)
         / norm_squared[..., None]
     )
+
+
+def _sample_haar_quaternions(
+    key: PRNGKey, n_samples: int, dtype: jnp.dtype
+) -> jnp.ndarray:
+    """Sample unit quaternions uniformly from the three-sphere.
+
+    Isotropic Gaussian vectors in four dimensions, normalized, are uniform on
+    the three-sphere. Components follow the ``(x, y, z, w)`` quaternion
+    convention.
+
+    Returns:
+        Quaternion components ``(x, y, z, w)`` with shape
+        ``(n_samples, 4)``.
+
+    Raises:
+        ValueError: If ``n_samples`` is negative.
+    """
+    if n_samples < 0:
+        raise ValueError("n_samples must be nonnegative.")
+    if n_samples == 0:
+        return jnp.empty((0, 4), dtype=dtype)
+    quaternions = jax.random.normal(key, (n_samples, 4), dtype=dtype)
+    return quaternions / jnp.linalg.norm(quaternions, axis=-1, keepdims=True)
+
+
+def sample_haar_su2(
+    key: PRNGKey, n_samples: int, dtype: jnp.dtype = jnp.float32
+) -> jnp.ndarray:
+    r"""Sample fundamental-representation matrices from Haar measure on :math:`SU(2)`.
+
+    Unit quaternions ``(x, y, z, w)`` map to
+    :math:`a=w+iz`, :math:`b=y+ix`, and
+    :math:`\left(\begin{smallmatrix}a&b\\-b^*&a^*\end{smallmatrix}\right)`.
+
+    Args:
+        key: PRNG key.
+        n_samples: Number of matrices to draw. Zero returns an empty batch.
+        dtype: Real dtype of the quaternion sample; the matrices are complex.
+
+    Returns:
+        Complex matrices with shape ``(n_samples, 2, 2)``.
+    """
+    quaternions = _sample_haar_quaternions(key, n_samples, dtype)
+    x, y, z, w = jnp.moveaxis(quaternions, -1, 0)
+    a = w + 1j * z
+    b = y + 1j * x
+    return jnp.stack(
+        [
+            jnp.stack([a, b], axis=-1),
+            jnp.stack([-jnp.conj(b), jnp.conj(a)], axis=-1),
+        ],
+        axis=-2,
+    )
+
+
+def sample_haar_so3(
+    key: PRNGKey, n_samples: int, dtype: jnp.dtype = jnp.float32
+) -> jnp.ndarray:
+    r"""Sample rotation matrices from Haar measure on :math:`SO(3)`.
+
+    Unit quaternions uniform on the three-sphere map to Haar-uniform rotations.
+
+    Args:
+        key: PRNG key.
+        n_samples: Number of matrices to draw. Zero returns an empty batch.
+        dtype: Floating-point dtype of the returned matrices.
+
+    Returns:
+        Real matrices with shape ``(n_samples, 3, 3)``.
+    """
+    if n_samples == 0:
+        return jnp.empty((0, 3, 3), dtype=dtype)
+    quaternions = _sample_haar_quaternions(key, n_samples, dtype)
+    return Rotation.from_quat(quaternions).as_matrix()
 
 
 def spinor_coordinates_from_angles(

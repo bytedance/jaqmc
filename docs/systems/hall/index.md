@@ -84,10 +84,10 @@ jaqmc hall train system.lz_penalty=0.02 system.lz_center=0
 jaqmc hall train system.lz_penalty=0.02 system.l2_penalty=0.02
 ```
 
-Watch `Lz` against `system.lz_center` and `L_square` toward zero. The
-console `energy` column is the unpenalized variational energy
-(`total_energy_real`); the optimizer minimizes `penalized_loss`. See
-[Angular momentum](../../guide/estimators/angular-momentum.md).
+Watch `Lz` (`angular_momentum_z`) against `system.lz_center` and `L_square`
+(`angular_momentum_square`) toward zero. The console `energy` column is the
+unpenalized variational energy (`total_energy_real`); the optimizer minimizes
+`penalized_loss`. See [Angular momentum](../../guide/estimators/angular-momentum.md).
 
 ```{tip}
 Converge first **without** penalties, then resume with penalties on to
@@ -157,9 +157,10 @@ support `laughlin` or `free`.
 
 ### Additional Evaluation Estimators
 
-Density, pair correlation, and the one-body reduced density matrix are
-optional evaluation estimators. Enable them via config; see
-[evaluation estimators](#hall-estimators) for keys and post-processing.
+Density, pair correlation, angular-momentum projection, and the one-body
+reduced density matrix are optional evaluation estimators. Enable them via
+config; see [evaluation estimators](#hall-estimators) for keys and
+post-processing.
 
 ```bash
 jaqmc hall evaluate estimators.enabled.density=true \

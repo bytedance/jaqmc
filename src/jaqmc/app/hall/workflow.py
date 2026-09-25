@@ -10,7 +10,10 @@ from typing import Any
 from jax import numpy as jnp
 
 from jaqmc.estimator import EstimatorLike
-from jaqmc.estimator.angular_momentum import SphericalAngularMomentum
+from jaqmc.estimator.angular_momentum import (
+    SphericalAngularMomentum,
+    SphericalAngularMomentumProjection,
+)
 from jaqmc.estimator.density import SphericalDensity
 from jaqmc.estimator.kinetic import SphericalKinetic
 from jaqmc.estimator.loss_grad import LossAndGrad
@@ -91,6 +94,18 @@ class HallEvalWorkflow(EvaluationWorkflow):
         eval_estimators: dict[str, EstimatorLike] = make_estimators(
             cfg, wf, system_config
         )
+        if cfg.get("estimators.enabled.angular_projection", False):
+            if not cfg.get("estimators.enabled.energy", True):
+                raise ValueError(
+                    "Angular-momentum projection requires "
+                    "estimators.enabled.energy=true."
+                )
+            eval_estimators["angular_projection"] = cfg.get(
+                "estimators.angular_projection",
+                SphericalAngularMomentumProjection(
+                    f_log_psi_from_spinor=wf.logpsi_from_spinor
+                ),
+            )
         evaluation.configure_estimators(**eval_estimators)
         self.evaluation_stage = evaluation.build()
 
