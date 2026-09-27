@@ -29,6 +29,7 @@ def _builtin_handler_tables() -> tuple[
     dict[Primitive | str, LaplacianHandler],
     ...,
 ]:
+    from .annotations import ANNOTATION_HANDLERS
     from .arithmetic import ARITHMETIC_HANDLERS
     from .complex import COMPLEX_HANDLERS
     from .custom_laplacian import CUSTOM_LAPLACIAN_HANDLERS
@@ -44,6 +45,7 @@ def _builtin_handler_tables() -> tuple[
     from .stop_gradient import STOP_GRADIENT_HANDLERS
 
     return (
+        ANNOTATION_HANDLERS,
         ARITHMETIC_HANDLERS,
         COMPLEX_HANDLERS,
         CUSTOM_LAPLACIAN_HANDLERS,

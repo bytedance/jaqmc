@@ -6,6 +6,8 @@
 from flax import linen as nn
 from jax import numpy as jnp
 
+from jaqmc.optimizer.kfac.tags import register_first_order_parameter
+
 
 class SphericalCoulombJastrow(nn.Module):
     """Coulomb-cusp Jastrow factor on the Haldane sphere.
@@ -59,15 +61,17 @@ class SphericalCoulombJastrow(nn.Module):
 
         if r_ees_parallel.shape[0] > 0:
             alpha_par = self.param("ee_par", alpha_init, (1,), jnp.float32)
-            jastrow_ee_par = -(1 / 3) * jnp.sum(
+            contribution = -(1 / 3) * jnp.sum(
                 alpha_par**2 / (alpha_par + r_ees_parallel)
             )
+            jastrow_ee_par = register_first_order_parameter(contribution, alpha_par)
         else:
             jastrow_ee_par = jnp.asarray(0.0)
 
         if r_ees[0][1].size > 0:
             alpha_anti = self.param("ee_anti", alpha_init, (1,), jnp.float32)
-            jastrow_ee_anti = -jnp.sum(alpha_anti**2 / (alpha_anti + r_ees[0][1]))
+            contribution = -jnp.sum(alpha_anti**2 / (alpha_anti + r_ees[0][1]))
+            jastrow_ee_anti = register_first_order_parameter(contribution, alpha_anti)
         else:
             jastrow_ee_anti = jnp.asarray(0.0)
 

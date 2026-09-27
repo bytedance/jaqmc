@@ -15,12 +15,15 @@ As elaborated in `complex_support.py`, we should update the estimation of curvat
 support complex numbers.
 """
 
+from collections.abc import Sequence
 from math import prod
 from string import ascii_lowercase
 from typing import cast
 
 import kfac_jax
 from jax import numpy as jnp
+
+from .tags import FIRST_ORDER_TAG
 
 
 def _update_factor(
@@ -200,6 +203,22 @@ class NaiveDiagonal(kfac_jax.NaiveDiagonal):
         return state
 
 
+class FirstOrderBlock(kfac_jax.ScaledIdentity):
+    """Pass tagged parameter updates through without KFAC preconditioning."""
+
+    def _multiply_matpower_unscaled(
+        self,
+        state: kfac_jax.CurvatureBlock.State,
+        vector: Sequence[kfac_jax.utils.Array],
+        identity_weight: kfac_jax.utils.Numeric,
+        power: float | int,
+        exact_power: bool,
+        use_cached: bool,
+    ) -> tuple[kfac_jax.utils.Array, ...]:
+        del state, identity_weight, power, exact_power, use_cached
+        return tuple(vector)
+
+
 class ScaleAndShiftDiagonal(kfac_jax.ScaleAndShiftDiagonal):
     @kfac_jax.utils.auto_scope_method
     def update_curvature_matrix_estimate(
@@ -272,5 +291,6 @@ def make_tag_to_block_ctor():
         "repeated_dense": RepeatedDenseBlock,
         "dense": DenseTwoKroneckerFactored,
         "generic": NaiveDiagonal,
+        FIRST_ORDER_TAG: FirstOrderBlock,
         "scale_and_shift": ScaleAndShiftDiagonal,
     }
