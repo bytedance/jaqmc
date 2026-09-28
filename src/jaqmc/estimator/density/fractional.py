@@ -36,9 +36,10 @@ class FractionalDensity(HistogramEstimator):
 
     .. math::
 
-        \mathbf{f} = L^{-1}\,\mathbf{r} \mod 1
+        \mathbf{f} = \mathbf{r}\,L^{-1} \mod 1
 
-    then histograms selected fractional axes.  The range is always
+    where each row of :math:`L` is a lattice vector and positions are row
+    vectors, then histograms selected fractional axes.  The range is always
     :math:`[0, 1)` per axis regardless of cell shape.
 
     For molecules or other open-boundary systems, use
@@ -48,7 +49,8 @@ class FractionalDensity(HistogramEstimator):
         axes: Per-axis configuration keyed by user-chosen labels.
             Set a value to ``None`` to disable an axis inherited from
             defaults.
-        inv_lattice: Inverse lattice matrix, shape ``(3, 3)``.
+        inv_lattice: Inverse lattice matrix ``inv(L)``, shape ``(3, 3)``,
+            where each row of ``L`` is a lattice vector.
             Set by the workflow via :func:`~jaqmc.utils.wiring.wire`.
         data_field: Field name holding Cartesian coordinates in the
             structured :class:`~jaqmc.data.Data` object.
@@ -74,6 +76,6 @@ class FractionalDensity(HistogramEstimator):
         return bins, ranges
 
     def extract(self, data: Data) -> jnp.ndarray:
-        frac = data[self.data_field] @ self.inv_lattice.T % 1.0
+        frac = data[self.data_field] @ self.inv_lattice % 1.0
         indices = jnp.array([a.lattice_index for a in self._sorted_axes()])
         return frac[..., indices]
