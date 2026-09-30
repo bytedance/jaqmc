@@ -52,7 +52,8 @@ class HallTrainWorkflow(VMCWorkflow):
             "train": {
                 "run": {"iterations": 200_000},
                 "writers": {"console": {"fields": console_fields}},
-                "grads": {"clip_scale": 100, "clip_method": "iqr"},
+                "optim": {"learning_rate": {"delay": 10000, "warmup": 1000}},
+                "grads": {"clip_scale": 100},
             }
         }
 
