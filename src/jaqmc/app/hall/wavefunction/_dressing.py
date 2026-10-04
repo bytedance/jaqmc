@@ -38,6 +38,7 @@ class DressingConfig:
     conditioning: Literal["backbone", "constant"] = "backbone"
     orbital_dependent: bool = True
     det_dependent: bool = True
+    random_init: bool = False
 
     def __post_init__(self) -> None:
         if self.type not in {"laughlin", "full"}:
@@ -107,7 +108,9 @@ class Dressing(nn.Module):
         """Return a zero-initialized complex readout with shape ``(nelec, *shape)``."""
         out = nn.DenseGeneral(
             features=(*shape, 2),
-            kernel_init=nn.initializers.zeros,
+            kernel_init=nn.initializers.lecun_normal()
+            if self.config.random_init
+            else nn.initializers.zeros,
             bias_init=nn.initializers.zeros,
         )(h_one)
         return out[..., 0] + 1j * out[..., 1]
@@ -128,7 +131,9 @@ class Dressing(nn.Module):
         if self.config.conditioning == "constant":
             matrix_real = self.param(
                 "matrix_real",
-                nn.initializers.constant(PAIR_SPINOR_MATRIX),
+                nn.initializers.normal(stddev=1.0)
+                if self.config.random_init
+                else nn.initializers.constant(PAIR_SPINOR_MATRIX),
                 (*shape, 2, 2),
             )
             matrix_imag = self.param(
@@ -139,5 +144,7 @@ class Dressing(nn.Module):
             w = jnp.einsum("ia,dckab->idckb", z, matrix_real)
             w = w + 1j * jnp.einsum("ia,dckab->idckb", z, matrix_imag)
             return log_pair_factor(w, z)
-        n_mat = PAIR_SPINOR_MATRIX + self._readout(h_one, (*shape, 2, 2))
+        n_mat = self._readout(h_one, (*shape, 2, 2))
+        if not self.config.random_init:
+            n_mat += PAIR_SPINOR_MATRIX
         return log_pair_factor(jnp.einsum("ia,idckab->idckb", z, n_mat), z)
