@@ -51,7 +51,7 @@ execnet==2.1.2
     # via pytest-xdist
 flax==0.12.6
     # via jaqmc
-fsspec==2026.3.0
+fsspec==2026.6.0
     # via
     #   etils
     #   jaqmc
