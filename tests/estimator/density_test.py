@@ -326,16 +326,22 @@ class TestFractionalDensity:
         )
         inv_lattice = jnp.linalg.inv(lattice)
         est = FractionalDensity(
-            axes={"a": FractionalAxis(lattice_index=0, bins=10)},
+            axes={
+                "a": FractionalAxis(lattice_index=0, bins=10),
+                "b": FractionalAxis(lattice_index=1, bins=10),
+                "c": FractionalAxis(lattice_index=2, bins=10),
+            },
             inv_lattice=inv_lattice,
         )
-        # [5,0,0] with a=[10,0,0] gives frac_a = 0.5 -> bin 5
-        electrons = jnp.array([[[5.0, 0.0, 0.0]]])
+        # r = f @ L with rows of L as lattice vectors; r @ inv(L).T would
+        # give (0.725, 0.331, 0.25) and land in the wrong a/b bins.
+        frac = jnp.array([0.35, 0.75, 0.25])
+        electrons = (frac @ lattice)[None, None, :]
         batched = _make_batched(electrons)
         data = _TestData(electrons=jnp.zeros((1, 3)))
         state = est.init(data, KEY)
         _, state = est.evaluate_batch_walkers({}, batched, {}, state, KEY)
-        _assert_bin(state["histogram"][0], 5, 1.0)
+        _assert_bin(state["histogram"][0], (3, 7, 2), 1.0)
 
     def test_wrapping(self):
         """Positions outside [0,1) wrap via modulo."""

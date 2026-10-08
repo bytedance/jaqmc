@@ -112,7 +112,7 @@ Added automatically when `system.pp` selects an ECP for at least one atom.
 
 ### Density (`estimators.density.*`)
 
-Electron density in fractional (lattice) coordinates. Converts Cartesian positions to fractional coordinates via the inverse lattice matrix, then histograms within $[0, 1)$.
+Electron density in fractional coordinates of the simulation (super)cell. Converts Cartesian positions to fractional coordinates via $\mathbf{f} = \mathbf{r}\,L^{-1} \bmod 1$, where each row of $L$ is a supercell lattice vector, then histograms within $[0, 1)$. The `a`, `b`, and `c` axes therefore run along the supercell lattice vectors, not the primitive-cell vectors.
 
 When enabled without overrides, the workflow wires one 3-D histogram with the
 `a`, `b`, and `c` fractional coordinates as the active axes. Each axis uses 50
