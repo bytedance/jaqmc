@@ -6,12 +6,12 @@
 from collections.abc import Mapping
 from typing import Any
 
-import jax
 from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import BatchedData, Data
 from jaqmc.estimator.base import Estimator
+from jaqmc.utils import parallel_jax
 
 
 class HistogramEstimator(Estimator):
@@ -27,15 +27,15 @@ class HistogramEstimator(Estimator):
     returns per-sample weights matching the leading shape of the
     :meth:`extract` output.
 
-    The histogram and its Kahan compensation array are stored in the
-    estimator state with a leading device dimension so that each device
-    maintains a full independent histogram.  No per-step statistics are
-    produced (:meth:`reduce` and :meth:`finalize_stats` return empty
-    dicts).  The final histogram is produced by :meth:`finalize_state`,
-    which sums across devices and returns raw counts.  The step count
-    is provided by the work stage.  Normalization to physical density
-    is left to post-processing since the correct measure depends on
-    the coordinate system.
+    The histogram and its Kahan compensation array are replicated across
+    devices.  Each step, the per-device counts are summed across devices
+    before being accumulated, so every device holds the same totals.
+    No per-step statistics are produced (:meth:`reduce` and
+    :meth:`finalize_stats` return empty dicts).  The final histogram is
+    produced by :meth:`finalize_state`, which returns raw counts.  The
+    step count is provided by the work stage.  Normalization to physical
+    density is left to post-processing since the correct measure depends
+    on the coordinate system.
 
     **Kahan summation** prevents floating-point error from accumulating
     over tens of thousands of evaluation steps.  Each step's histogram
@@ -117,11 +117,11 @@ class HistogramEstimator(Estimator):
         return tuple(bins)
 
     def init(self, data: Data, rngs: PRNGKey) -> dict[str, jnp.ndarray]:
+        del data, rngs
         shape = self._histogram_shape()
-        n = jax.device_count()
         return {
-            "histogram": jnp.zeros((n, *shape)),
-            "compensation": jnp.zeros((n, *shape)),
+            "histogram": jnp.zeros(shape),
+            "compensation": jnp.zeros(shape),
         }
 
     def evaluate_batch_walkers(
@@ -133,9 +133,7 @@ class HistogramEstimator(Estimator):
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], dict[str, jnp.ndarray]]:
         del params, prev_walker_stats, rngs
-        counts = self._get_histogram_counts(batched_data)
-        # Kahan summation (state arrays have a leading device dim that
-        # broadcasts naturally with the per-device counts).
+        counts = parallel_jax.psum(self._get_histogram_counts(batched_data))
         adjusted = counts - state["compensation"]
         new_sum = state["histogram"] + adjusted
         new_comp = (new_sum - state["histogram"]) - adjusted
@@ -153,12 +151,11 @@ class HistogramEstimator(Estimator):
     def finalize_state(
         self, state: dict[str, jnp.ndarray], *, n_steps: int
     ) -> dict[str, Any]:
-        """Sum histograms across devices.
+        """Return the accumulated histogram.
 
         Returns:
             ``{self.name: histogram, self.name + ":n_steps": n_steps}``
-            where *histogram* is the raw counts summed over all devices
-            and *n_steps* is the total number of evaluation steps.
+            where *histogram* is the raw counts and *n_steps* is the
+            total number of evaluation steps.
         """
-        histogram = jnp.sum(state["histogram"], axis=0)
-        return {self.name: histogram, f"{self.name}:n_steps": n_steps}
+        return {self.name: state["histogram"], f"{self.name}:n_steps": n_steps}

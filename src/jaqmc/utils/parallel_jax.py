@@ -112,6 +112,24 @@ def pmean[ValueT](x: ValueT) -> ValueT:
     except NameError:
         # Outside a shard_map context (e.g. interactive notebook use).
         # With a single shard the mean is the identity.
+        logger.warning("Using pmean() outside a shard_map context.")
+        return x
+
+
+def psum[ValueT](x: ValueT) -> ValueT:
+    """Sum ``x`` across devices along the batch axis.
+
+    Returns:
+        The sum of ``x`` across all devices, or ``x`` unchanged outside shard_map.
+
+    Type Parameters:
+        ValueT: Arbitrary pytree-like value type preserved across the call.
+    """
+    try:
+        return jax.lax.psum(x, axis_name=BATCH_AXIS_NAME)
+    except NameError:
+        # With a single shard the sum is also the identity.
+        logger.warning("Using psum() outside a shard_map context.")
         return x
 
 

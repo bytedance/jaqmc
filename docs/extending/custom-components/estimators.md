@@ -205,12 +205,20 @@ examples. For those cases, inherit directly from
 
 The method receives
 {class}`~jaqmc.data.BatchedData`, so fields listed in
-`batched_data.fields_with_batch` already carry the leading walker axis.
+`batched_data.fields_with_batch` already carry the leading walker axis. On
+multiple devices, that axis holds only the current device's shard of walkers,
+while estimator state is replicated on every device. Any reduction over the
+walker axis is therefore local to one device, and a result that feeds the
+state needs a cross-device collective from `jaqmc.utils.parallel_jax`,
+such as {func}`~jaqmc.utils.parallel_jax.psum` for totals or
+{func}`~jaqmc.utils.parallel_jax.pmean` for averages, so the state stays
+identical on every device.
 
 ```python
 from jax import numpy as jnp
 
 from jaqmc.estimator import Estimator
+from jaqmc.utils import parallel_jax
 from jaqmc.utils.config import configurable_dataclass
 
 
@@ -237,7 +245,7 @@ class RadiusHistogram(Estimator):
         electrons = batched_data.data.electrons
         radii = jnp.linalg.norm(electrons, axis=-1).reshape(-1)
         counts = jnp.histogram(radii, self.bins, (0.0, self.max_radius))[0]
-        return {}, state + counts
+        return {}, state + parallel_jax.psum(counts)
 
     def reduce(self, walker_stats):
         del walker_stats

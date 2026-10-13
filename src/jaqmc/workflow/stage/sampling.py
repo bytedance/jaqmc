@@ -51,9 +51,7 @@ class SamplingState(StageState, metaclass=JAXDataclassMeta):
                 if not isinstance(s, BatchedData)
                 else s.partition_spec
                 for name, s in self.__dict__.items()
-                if name != "estimator_state"
             },
-            estimator_state=parallel_jax.DATA_PARTITION,
         )
 
     def process_allgather(self) -> Self:
@@ -233,7 +231,7 @@ class SamplingWorkStage(WorkStage):
 
         estimator_state = jax.device_put(
             self.estimators.init(local_data, est_rngs),
-            parallel_jax.make_sharding(parallel_jax.DATA_PARTITION),
+            parallel_jax.make_sharding(parallel_jax.SHARE_PARTITION),
         )
 
         return SamplingState(
