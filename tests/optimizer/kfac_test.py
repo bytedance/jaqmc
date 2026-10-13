@@ -249,7 +249,11 @@ def test_constant_full_dressing_matrix_uses_generic_blocks():
     wf = MHPO(
         backbone="psiformer",
         num_layers=1,
-        dressing=DressingConfig(type="full", degree=2),
+        dressing=DressingConfig(
+            type="full",
+            degree=2,
+            conditioning="constant",
+        ),
     )
     wire(
         wf,
@@ -528,6 +532,9 @@ def _weighted_factors(
         return list(block_state.factors)
     if hasattr(block_state, "diagonal_factors"):
         return list(block_state.diagonal_factors)
+    if type(block_state) is kfac_jax.CurvatureBlock.State:
+        # ScaledIdentity/FirstOrderBlock intentionally stores no factors.
+        return []
     raise AssertionError(f"unsupported KFAC block state layout: {type(block_state)!r}")
 
 

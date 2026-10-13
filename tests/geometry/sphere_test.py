@@ -11,6 +11,7 @@ from jaqmc.geometry.sphere import (
     cartesian_from_spinor,
     sample_haar_so3,
     sample_haar_su2,
+    sphere_proposal,
     spinor_coordinates_from_angles,
 )
 
@@ -53,3 +54,16 @@ def test_cartesian_from_spinors_is_gauge_invariant():
     reconstructed = cartesian_from_spinor(u * phase, v * phase)
 
     np.testing.assert_allclose(reconstructed, cartesian, atol=1e-6)
+
+
+def test_sphere_proposal_keeps_angles_in_range():
+    key1, key2, key3 = jax.random.split(jax.random.key(3), 3)
+    theta = jnp.arccos(jax.random.uniform(key1, (8, 5), minval=-1, maxval=1))
+    phi = jax.random.uniform(key2, (8, 5), minval=-jnp.pi, maxval=jnp.pi)
+    x = jnp.stack([theta, phi], axis=-1)
+
+    x_new = sphere_proposal(key3, x, 0.1)
+
+    assert x_new.shape == x.shape
+    assert jnp.all((x_new[..., 0] >= 0) & (x_new[..., 0] <= jnp.pi))
+    assert jnp.all((x_new[..., 1] >= -jnp.pi) & (x_new[..., 1] <= jnp.pi))
