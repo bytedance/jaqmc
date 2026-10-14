@@ -106,7 +106,7 @@ class Laughlin(HallWavefunction):
     def _full_orbitals(self, u: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
         harmonics = lll_monopole_harmonics(u, v, self.Q1)
         _, jastrow = _jastrow_factor(u, v)
-        return harmonics * jastrow
+        return harmonics * jastrow**self.flux_per_elec
 
     def _quasihole_orbitals(self, u: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
         # Drop the m = -excitation_lz column (index Q - excitation_lz).
@@ -117,13 +117,14 @@ class Laughlin(HallWavefunction):
             [full[..., :excluded], full[..., excluded + 1 :]], axis=-1
         )
         _, jastrow = _jastrow_factor(u, v)
-        return harmonics * jastrow
+        return harmonics * jastrow**self.flux_per_elec
 
     def _quasiparticle_orbitals(self, u: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
         Q = self.Q1
         harmonics = lll_monopole_harmonics(u, v, Q)
 
         element, jastrow = _jastrow_factor(u, v)
+        jastrow = jastrow**self.flux_per_elec
         jastrow_flat = jastrow[:, 0]
         d_log_jastrow_dv = jnp.sum(-u / element, axis=-1) + u
         d_log_jastrow_du = jnp.sum(v / element, axis=-1) - v

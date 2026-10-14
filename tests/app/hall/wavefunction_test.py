@@ -48,8 +48,8 @@ def _free(nspins, flux):
     return wf
 
 
-def _laughlin(nspins, flux, excitation_lz=0):
-    wf = Laughlin(flux_per_elec=1, excitation_lz=excitation_lz)
+def _laughlin(nspins, flux, excitation_lz=0, flux_per_elec=1):
+    wf = Laughlin(flux_per_elec=flux_per_elec, excitation_lz=excitation_lz)
     wire(wf, nspins=nspins, flux=flux, interaction_strength=1.0)
     return wf
 
@@ -248,8 +248,16 @@ class TestFree:
 
 
 LAUGHLIN_STATES = pytest.mark.parametrize(
-    "nelec,Q,excitation_lz",
-    [(3, 3, 0), (4, 4.5, 0), (4, 5, 2), (6, 7, 1)],
+    "nelec,Q,excitation_lz,flux_per_elec",
+    [
+        (3, 3, 0, 1),
+        (4, 4.5, 0, 1),
+        (4, 5, 2, 1),
+        (6, 7, 1, 1),
+        (4, 7.5, 0, 2),
+        (4, 8, 1, 2),
+        (4, 7, 1, 2),
+    ],
 )
 
 
@@ -261,8 +269,13 @@ class TestLaughlin:
 
     @LAUGHLIN_STATES
     @requires_forward_laplacian
-    def test_kinetic_energy_is_exact(self, nelec, Q, excitation_lz):
-        wf = _laughlin((nelec, 0), flux=int(2 * Q), excitation_lz=excitation_lz)
+    def test_kinetic_energy_is_exact(self, nelec, Q, excitation_lz, flux_per_elec):
+        wf = _laughlin(
+            (nelec, 0),
+            flux=int(2 * Q),
+            excitation_lz=excitation_lz,
+            flux_per_elec=flux_per_elec,
+        )
         params, _ = _init(wf, nelec)
         estimator = SphericalKinetic(
             monopole_strength=Q,
@@ -274,8 +287,13 @@ class TestLaughlin:
         np.testing.assert_allclose(stats["energy:kinetic"], nelec / 2, atol=1e-3)
 
     @LAUGHLIN_STATES
-    def test_angular_momentum_eigenstate(self, nelec, Q, excitation_lz):
-        wf = _laughlin((nelec, 0), flux=int(2 * Q), excitation_lz=excitation_lz)
+    def test_angular_momentum_eigenstate(self, nelec, Q, excitation_lz, flux_per_elec):
+        wf = _laughlin(
+            (nelec, 0),
+            flux=int(2 * Q),
+            excitation_lz=excitation_lz,
+            flux_per_elec=flux_per_elec,
+        )
         params, _ = _init(wf, nelec)
         estimator = SphericalAngularMomentum(
             f_log_psi_from_spinor=wf.logpsi_from_spinor
@@ -289,10 +307,11 @@ class TestLaughlin:
         np.testing.assert_allclose(
             stats["angular_momentum_z_square"], excitation_lz**2, atol=1e-3
         )
-        if excitation_lz == 0:
-            # Only ground states are L^2 eigenstates; excitations carry extra
-            # angular momentum in the quasihole/quasiparticle coordinates.
-            np.testing.assert_allclose(stats["angular_momentum_square"], 0, atol=1e-3)
+        is_ground = nelec == 2 * (Q - flux_per_elec * (nelec - 1)) + 1
+        total_l = 0 if is_ground else nelec / 2
+        np.testing.assert_allclose(
+            stats["angular_momentum_square"], total_l * (total_l + 1), atol=1e-3
+        )
 
     @requires_forward_laplacian
     def test_kinetic_stable_near_pole(self):
