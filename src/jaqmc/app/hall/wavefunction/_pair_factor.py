@@ -1,14 +1,7 @@
 # Copyright (c) 2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-r"""Reduced log pair factors and their memory-efficient Forward Laplacian rule.
-
-For pair bilinears :math:`G_{ij} = w_i \cdot z_j` the reduced log pair factor
-is :math:`\sum_c \sum_{j\ne i} \log(G_{ij} / r)`, with :math:`r` the Haar RMS
-of the pair spinor. :func:`log_pair_factor` takes the unstacked factors
-:math:`w` and :math:`z` so its Laplacian never materializes an ``O(N^4)``
-Jacobian of :math:`G`.
-"""
+"""Reduced log pair factors and a memory-efficient Forward Laplacian rule."""
 
 import math
 

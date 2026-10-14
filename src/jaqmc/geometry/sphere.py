@@ -39,11 +39,10 @@ def cartesian_from_spinor(u: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
 def _sample_haar_quaternions(
     key: PRNGKey, n_samples: int, dtype: jnp.dtype
 ) -> jnp.ndarray:
-    """Sample unit quaternions uniformly from the three-sphere.
+    """Sample unit quaternions uniformly on the three-sphere.
 
-    Isotropic Gaussian vectors in four dimensions, normalized, are uniform on
-    the three-sphere. Components follow the ``(x, y, z, w)`` quaternion
-    convention.
+    Normalized isotropic Gaussians in four dimensions, in ``(x, y, z, w)``
+    component order.
 
     Returns:
         Quaternion components ``(x, y, z, w)`` with shape

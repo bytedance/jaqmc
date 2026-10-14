@@ -48,14 +48,14 @@ for the full estimator guide, see
 
 The reported `total_energy` is complex-valued — the real part is the electronic variational energy $E_v$, and the imaginary component is a finite-sampling artifact whose expectation value vanishes. Hall training prints that real part as `energy` (`total_energy_real`). Comparing $E_v$ with literature values requires post-processing corrections for background charge and finite-size effects. See <project:energy-corrections.md> for the formulas.
 
-## Composite Fermions
+## Composite Fermions and Dressing
 
-The MHPO wavefunction supports composite fermion (CF) mean-field theory.
-`wf.dressing.degree` sets the number of flux quanta attached to each electron,
-reducing the effective monopole strength for the orbitals. The dressing type
-can be `laughlin` or `full`; the learnable type additionally supports
-constant or backbone conditioning together with orbital-dependent and
-determinant-dependent parameters.
+The MHPO wavefunction supports composite-fermion flux attachment and learnable
+pair-factor dressings. By default `wf.dressing.degree` is `0` (bare MHPO
+orbitals). Raising the degree attaches that many flux quanta per electron and
+reduces the effective monopole strength for the orbitals. The dressing type is
+`laughlin` (fixed) or `full` (learnable); `full` additionally supports constant
+or backbone conditioning and orbital-/determinant-dependent parameters.
 
 ```bash
 # Composite fermion with 2 flux quanta per electron

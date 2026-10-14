@@ -3,14 +3,8 @@
 
 r"""Flux dressing blocks for neural Hall wavefunctions.
 
-Learnable dressings multiply each orbital by pair factors
-:math:`\prod_{c}\prod_{j\ne i} z_i^\mathsf{T} N z_j`, with
-:math:`N = N_0 + \Delta` and :math:`N_0` the antisymmetric spinor matrix, so
-every variant reduces to :math:`u_i v_j - v_i u_j` at initialization.
-``type`` selects a fixed Laughlin factor or a learnable full pair-spinor
-matrix, ``conditioning`` whether :math:`\Delta` is constant or read out from
-backbone features, ``orbital_dependent`` whether each orbital has its own
-:math:`\Delta`, and ``det_dependent`` whether each determinant does.
+Learnable dressings multiply orbitals by pair factors
+:math:`\prod_c\prod_{j\ne i} z_i^\mathsf{T}(N_0+\Delta)z_j`.
 """
 
 from typing import Literal

@@ -139,8 +139,8 @@ def _angular_momentum_characters(
     r"""Return :math:`\chi_L(g)=U_{2L}(x)` for each requested sector.
 
     :math:`x` is half the trace of the fundamental representation of
-    :math:`g\in SU(2)`. The Chebyshev polynomials of the second kind are the
-    characters of the angular-momentum irreps.
+    :math:`g\in SU(2)`; :math:`U_{2L}` is the degree-:math:`2L` Chebyshev
+    polynomial of the second kind, the character of the :math:`L` irrep.
 
     Args:
         half_traces: Half-traces :math:`x` with shape ``(n_rotations,)``.
@@ -162,8 +162,9 @@ def _angular_momentum_characters(
 class SphericalAngularMomentumProjection(PerWalkerEstimator):
     r"""Project a Hall wavefunction onto total-angular-momentum sectors.
 
-    For Haar-distributed rotations :math:`g\in SU(2)`, the estimator averages
-    character-weighted rotational overlaps
+    Averages character-weighted rotational overlaps over Haar rotations
+    :math:`g\in SU(2)` (:math:`U(g)` rotates every electron's monopole
+    spinor):
 
     .. math::
 
@@ -175,14 +176,10 @@ class SphericalAngularMomentumProjection(PerWalkerEstimator):
             \frac{\psi(g^{-1}R)}{\psi(R)}
         \right\rangle_{|\psi|^2,g}.
 
-    :math:`U(g)` acts by rotating every electron's monopole spinor. Each walker
-    evaluation draws a fresh batch of Haar rotations, so increasing the walker
-    count or the number of evaluation steps improves the Haar integral instead
-    of refining a fixed rotation quadrature. :meth:`finalize_stats` reports
-    :math:`p_L` and :math:`E_L=h_L/p_L`.
-
-    Requires ``total_energy`` in ``prev_walker_stats`` from a preceding energy
-    estimator.
+    Rotations are drawn fresh per walker evaluation, so more walkers or steps
+    refine the Haar integral. :meth:`finalize_stats` reports :math:`p_L` and
+    :math:`E_L=h_L/p_L`. Requires ``total_energy`` in ``prev_walker_stats``
+    from a preceding energy estimator.
 
     Args:
         angular_momenta: Nonnegative integer or half-integer total angular

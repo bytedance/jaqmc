@@ -28,8 +28,8 @@ def register_first_order_parameter(
 ) -> jax.Array:
     """Exclude a parameter from KFAC preconditioning.
 
-    Block preconditioning leaves the parameter's learning-rate-scaled gradient
-    unchanged. The update remains subject to the optimizer's global norm constraint.
+    Block preconditioning leaves the learning-rate-scaled gradient unchanged,
+    still subject to the optimizer's global norm constraint.
 
     Args:
         output: The output produced with ``parameter``.

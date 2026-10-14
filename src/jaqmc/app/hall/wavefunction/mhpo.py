@@ -1,12 +1,7 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-"""Monopole harmonics product orbital (MHPO) wavefunction on the Haldane sphere.
-
-Cartesian coordinates on the unit sphere feed a configurable neural backbone
-(which appends spin encoding), followed by a direct or factorized
-monopole-harmonic orbital projection and a spherical Jastrow factor.
-"""
+"""Monopole harmonics product orbital (MHPO) wavefunction on the Haldane sphere."""
 
 from typing import Literal
 
@@ -34,7 +29,7 @@ __all__ = ["MHPO", "DirectMonopoleOrbitals", "FactorizedMonopoleOrbitals"]
 class DirectMonopoleOrbitals(nn.Module):
     r"""Direct monopole-harmonic orbital construction.
 
-    Combines learned features with monopole harmonic basis functions
+    Combines learned features with the basis
     :math:`u^{Q+m} v^{Q-m}` where :math:`u = \cos(\theta/2) e^{i\phi/2}`
     and :math:`v = \sin(\theta/2) e^{-i\phi/2}`.
 
@@ -166,11 +161,7 @@ class MHPO(HallWavefunction):
         backbone: Neural backbone implementation.
         num_layers: Number of backbone layers.
         orbital_readout: Monopole-harmonic readout parameterization.
-        dressing: Fixed or learned flux dressing configuration. ``type`` selects
-            Laughlin or full matrix pair factors; ``conditioning`` selects
-            constant or backbone-conditioned factors; and ``orbital_dependent``
-            and ``det_dependent`` control whether each orbital and each
-            determinant has its own pair factor.
+        dressing: Flux dressing configuration (see :class:`DressingConfig`).
         interaction_strength: Coulomb interaction scaling factor for the Jastrow.
         radius: Sphere radius used by the Jastrow cusp (runtime dep, wired by
             the workflow to match the estimators).

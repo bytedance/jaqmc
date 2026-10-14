@@ -12,21 +12,13 @@ from jaqmc.optimizer.kfac.tags import register_first_order_parameter
 class SphericalCoulombJastrow(nn.Module):
     """Coulomb-cusp Jastrow factor on the Haldane sphere.
 
-    Computes electron-electron Jastrow correlations using the physical
-    chord distance on the sphere. The short-range coefficients are the exact
-    two-dimensional Coulomb cusp values for antiparallel and parallel
-    spin pairs, scaled by the interaction strength used by the Hamiltonian.
-
-    The cusp condition is defined with respect to the physical
-    electron-electron separation, so the unit-sphere chord must be scaled
-    by the sphere radius; otherwise the Jastrow slope is off by ``1/radius``
-    and cannot cancel the Coulomb singularity of the Hamiltonian.
+    The cusp slope cancels the Coulomb singularity. Exact 2D Coulomb cusp
+    coefficients are scaled by ``interaction_strength``.
 
     Args:
         nspins: ``(n_up, n_down)`` electron counts.
         interaction_strength: Coulomb interaction scaling factor.
-        radius: Sphere radius used to convert unit-sphere chord distances to
-            physical electron-electron distances.
+        radius: Sphere radius.
     """
 
     nspins: tuple[int, int]
