@@ -27,13 +27,12 @@ Distance and displacement functions for open boundary conditions (molecules), pe
 
 ## Spherical geometry
 
-Coordinate charts, monopole spinors, and MCMC proposals for the Haldane sphere.
+Coordinate charts, spinor coordinates, and MCMC proposals on the sphere.
 
 ```{eval-rst}
 .. autofunction:: jaqmc.geometry.sphere.cartesian_from_spinor
 .. autofunction:: jaqmc.geometry.sphere.spinor_coordinates_from_angles
 .. autofunction:: jaqmc.geometry.sphere.stereographic_coordinates
 .. autofunction:: jaqmc.geometry.sphere.spinor_coordinates_from_stereographic
-.. autofunction:: jaqmc.geometry.sphere.stereographic_monopole_connection
 .. autofunction:: jaqmc.geometry.sphere.sphere_proposal
 ```

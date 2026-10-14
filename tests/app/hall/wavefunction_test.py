@@ -233,7 +233,9 @@ class TestFree:
         wf = _free((3, 0), flux=flux)
         params, _ = _init(wf, 3)
         estimator = SphericalKinetic(
-            monopole_strength=flux / 2, f_log_psi_from_spinor=wf.logpsi_from_spinor
+            monopole_strength=flux / 2,
+            radius=float(jnp.sqrt(flux / 2)),
+            f_log_psi_from_spinor=wf.logpsi_from_spinor,
         )
         stats = _batch_eval(estimator, params, _sample(jax.random.PRNGKey(42), 4, 3))
         np.testing.assert_allclose(stats["energy:kinetic"], 1.5, atol=1e-3)
@@ -263,7 +265,9 @@ class TestLaughlin:
         wf = _laughlin((nelec, 0), flux=int(2 * Q), excitation_lz=excitation_lz)
         params, _ = _init(wf, nelec)
         estimator = SphericalKinetic(
-            monopole_strength=Q, f_log_psi_from_spinor=wf.logpsi_from_spinor
+            monopole_strength=Q,
+            radius=float(jnp.sqrt(Q)),
+            f_log_psi_from_spinor=wf.logpsi_from_spinor,
         )
         electrons = _sample(jax.random.PRNGKey(1898), 2, nelec)
         stats = _batch_eval(estimator, params, electrons)
@@ -303,7 +307,9 @@ class TestLaughlin:
         params, _ = _init(wf, nelec)
         electrons = _sample(jax.random.PRNGKey(1898), 1, nelec)[0]
         estimator = SphericalKinetic(
-            monopole_strength=Q, f_log_psi_from_spinor=wf.logpsi_from_spinor
+            monopole_strength=Q,
+            radius=float(jnp.sqrt(Q)),
+            f_log_psi_from_spinor=wf.logpsi_from_spinor,
         )
 
         for theta in (1e-3, 1e-5, 1e-7):
@@ -328,7 +334,9 @@ class TestMHPO:
         wf = _mhpo((2, 0), flux=flux)
         params, electrons = _init(wf, 2, seed=81)
         estimator = SphericalKinetic(
-            monopole_strength=flux / 2, f_log_psi_from_spinor=wf.logpsi_from_spinor
+            monopole_strength=flux / 2,
+            radius=float(jnp.sqrt(flux / 2)),
+            f_log_psi_from_spinor=wf.logpsi_from_spinor,
         )
 
         control = _kinetic_near_pole(estimator, params, electrons, 1e-3)

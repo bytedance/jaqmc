@@ -1,7 +1,7 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-r"""Angular-momentum estimators on a Haldane sphere.
+r"""Angular-momentum estimators on a sphere, with or without a monopole.
 
 Provides local :math:`L_z`, :math:`L_z^2`, and :math:`L^2` observables, and a
 projection onto total-angular-momentum sectors.
@@ -68,7 +68,7 @@ def _first_and_second_derivative(
 
 @configurable_dataclass
 class SphericalAngularMomentum(PerWalkerEstimator):
-    r"""Local total-angular-momentum estimator on a Haldane sphere.
+    r"""Local total-angular-momentum estimator on a sphere.
 
     The estimator differentiates one scalar SU(2) dummy rotation per Cartesian
     axis, applied globally to all monopole spinors. If ``g_a(t) = log psi(U_a(t)
@@ -80,7 +80,9 @@ class SphericalAngularMomentum(PerWalkerEstimator):
             -\sum_a (g_a')^2 - \sum_a g_a''.
 
     This evaluates the conserved total angular momentum directly in spinor
-    coordinates, avoiding coordinate singularities at the poles.
+    coordinates, avoiding coordinate singularities at the poles. The SU(2)
+    action on spinors is independent of the monopole strength, so the same
+    estimator covers the field-free sphere and the Haldane sphere.
 
     Args:
         f_log_psi_from_spinor: Complex log-psi ``(params, u, v)`` (runtime dep).
@@ -160,7 +162,7 @@ def _angular_momentum_characters(
 
 @configurable_dataclass
 class SphericalAngularMomentumProjection(PerWalkerEstimator):
-    r"""Project a Hall wavefunction onto total-angular-momentum sectors.
+    r"""Project a spherical wavefunction onto total-angular-momentum sectors.
 
     Averages character-weighted rotational overlaps over Haar rotations
     :math:`g\in SU(2)` (:math:`U(g)` rotates every electron's monopole

@@ -1,10 +1,10 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-"""Spherical geometry utilities for the Haldane sphere.
+"""Geometry utilities for the unit two-sphere.
 
-Covers coordinate charts, monopole spinors, Haar rotation samples, the monopole
-connection, and MCMC proposals for the Haldane sphere.
+Covers coordinate charts, SU(2) spinor coordinates, Haar rotation samples, and
+MCMC proposals. Nothing here depends on a monopole flux.
 """
 
 import jax
@@ -180,31 +180,6 @@ def spinor_coordinates_from_stereographic(
     u = jnp.where(is_north, north_u, south_u)
     v = jnp.where(is_north, north_v, south_v)
     return u, v
-
-
-def stereographic_monopole_connection(
-    plane: jnp.ndarray, is_north: jnp.ndarray, monopole_strength: float
-) -> jnp.ndarray:
-    r"""Monopole connection :math:`A\propto(-y,x)` in the local chart.
-
-    This is the regular local gauge matching the spinors returned by
-    :func:`spinor_coordinates_from_stereographic`: it is the symmetric-gauge
-    potential :math:`A^{\mathrm{sym}}_\phi = Q\cos\theta/\sin\theta` shifted by
-    the gauge transformation :math:`\mp Q\phi` that removes the Dirac string
-    from the chart's own pole.
-
-    Args:
-        plane: Local stereographic coordinates with trailing ``(x, y)`` axis.
-        is_north: Whether the north chart was selected per electron.
-        monopole_strength: Monopole strength :math:`Q = \mathrm{flux}/2`.
-
-    Returns:
-        Connection one-form with the same ``(..., 2)`` shape as ``plane``.
-    """
-    x, y = plane[..., 0], plane[..., 1]
-    chart_sign = jnp.where(is_north, -1.0, 1.0)
-    scale = 2 * chart_sign * monopole_strength / (1 + x**2 + y**2)
-    return jnp.stack([-scale * y, scale * x], axis=-1)
 
 
 def _sphere_move(rngs: PRNGKey, x: jnp.ndarray, stddev: float | jnp.ndarray):

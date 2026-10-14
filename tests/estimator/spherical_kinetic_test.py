@@ -1,7 +1,7 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-"""Exact-value tests for the spherical (Haldane sphere) kinetic estimator."""
+"""Exact-value tests for the spherical kinetic estimator."""
 
 import jax
 import pytest
@@ -70,6 +70,7 @@ def test_lowest_landau_level(nelec, Q, mode):
 
     estimator = SphericalKinetic(
         monopole_strength=float(Q),
+        radius=float(jnp.sqrt(Q)),
         mode=mode,
         f_log_psi_from_spinor=_slater_logpsi(lll_orbitals),
     )

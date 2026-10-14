@@ -1,6 +1,6 @@
 # Angular momentum
 
-JaQMC provides angular-momentum estimators only for the Haldane sphere.
+JaQMC provides angular-momentum estimators for spherical geometry.
 [`SphericalAngularMomentum`](../../api-reference/estimators.md) reports local
 $L_z$, $L_z^2$, and $L^2$ during training and evaluation. Those averages do
 not give the weight in each total-$L$ sector;
@@ -8,6 +8,27 @@ not give the weight in each total-$L$ sector;
 reconstructs those weights during Hall evaluation.
 
 ## Local $L_z$ and $L^2$
+
+The estimator treats the wavefunction as a function of spinors
+$z_i=(u_i,v_i)$, where
+
+$$
+u_i = \cos(\theta_i/2)\,e^{i\phi_i/2},
+\qquad
+v_i = \sin(\theta_i/2)\,e^{-i\phi_i/2}.
+$$
+
+A spinor encodes the electron's position on the sphere together with the
+gauge phase it carries in the monopole field. A rotation of the system is then
+a linear SU(2) map applied to every $z_i$, which moves each electron and
+applies the required gauge transformation in one step.
+
+Spinors are used for numerical stability. In $(\theta,\phi)$, the
+angular-momentum operators contain $1/\sin\theta$ and $\cot\theta$, which
+diverge at the poles. Cartesian coordinates remove those factors, but rotating
+a wavefunction in a fixed monopole gauge needs a compensating phase that is
+singular along the Dirac string. Differentiating along a spinor
+rotation involves neither, anywhere on the sphere.
 
 The estimator applies one scalar SU(2) rotation per Cartesian axis to every
 electron spinor,
@@ -17,15 +38,7 @@ U_a(t) = e^{-it\sigma_a/2},
 $$
 
 where $\sigma_a$ are the Pauli matrices and $t$ is the dummy rotation angle
-about axis $a$.
-
-On the sphere, the wavefunction can be treated as a function of monopole spinors
-$z_i=(u_i,v_i)$ rather than of the bare angles $(\theta_i,\phi_i)$. A spinor
-encodes the electron's position on the sphere together with the gauge phase it
-carries in the monopole field, so multiplying each spinor by $U_a(t)$
-performs the complete rotation in one step: it moves the electron on the
-sphere and simultaneously applies the gauge transformation required by the
-monopole background. With $U_a(t)$ acting on every spinor, define
+about axis $a$. Define
 $$
 g_a(t)=\log\psi\left(U_a(t)z_1,\ldots,U_a(t)z_N\right).
 $$
@@ -62,7 +75,7 @@ K_H(g)=
 \frac{\langle\psi|H U(g)|\psi\rangle}{\langle\psi|\psi\rangle}.
 $$
 
-$U(g)$ rotates every electron's monopole spinor. Integrating against the
+$U(g)$ rotates every electron's spinor. Integrating against the
 character $\chi_L(g)$ of angular momentum $L$ gives the sector weight $p_L$
 and the energy kernel $h_L$:
 
