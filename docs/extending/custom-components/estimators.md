@@ -366,7 +366,7 @@ jaqmc molecule evaluate --yml water.yml workflow.save_path=./runs/water-dipole-e
 Quick checks:
 
 1. `train_stats.csv` contains `dipole_x`, `dipole_y`, `dipole_z` columns.
-2. `evaluation_stats.h5` contains the same keys.
+2. `evaluation_stats.npy` contains the same keys.
 3. `evaluation_digest.npz` includes the expected final values when the
    estimator finalizes stats or state.
 

@@ -17,7 +17,7 @@ This tutorial demonstrates how to read and visualize training statistics from Ja
 
 1. **Run a computation** and understand the output directory structure
 2. **Read statistics from CSV** for quick analysis
-3. **Read statistics from HDF5** for full data access
+3. **Read statistics from NPY** for full data access
 4. **Visualize training progress** with plots
 
 We'll use a simple hydrogen atom as our example system.
@@ -25,14 +25,14 @@ We'll use a simple hydrogen atom as our example system.
 ````{admonition} Extra Packages
 :class: note
 
-This tutorial uses `pandas`, `h5py`, and `matplotlib` for data analysis and plotting.
+This tutorial uses `pandas` and `matplotlib` for data analysis and plotting.
 If you're working from a JaQMC repository clone:
 ```bash
 uv sync --group analysis
 ```
 If you're using JaQMC in your own environment:
 ```bash
-pip install pandas h5py matplotlib
+pip install pandas matplotlib
 ```
 ````
 
@@ -42,7 +42,7 @@ pip install pandas h5py matplotlib
 
 First, let's import the necessary modules. We'll need:
 - **pandas** for reading CSV files
-- **h5py** for reading HDF5 files
+- **numpy** for reading `.npy` files
 - **matplotlib** for visualization
 - **JaQMC modules** for running computations
 
@@ -56,8 +56,8 @@ First, let's import the necessary modules. We'll need:
 import shutil
 from pathlib import Path
 
-import h5py
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 from jaqmc.app.molecule import MoleculeTrainWorkflow
@@ -129,7 +129,7 @@ show_tree(WORKING_DIR)
 **Key outputs:**
 - `train_config.yaml` - The resolved configuration used for this run
 - `train_ckpt_*.npz` - Checkpoint files containing parameters and walker states
-- `train_stats.h5` - HDF5 file with training statistics (energy, variance, etc.)
+- `train_stats.npy` - Structured NumPy array file with training statistics (energy, variance, etc.)
 - `train_stats.csv` - CSV file with the same statistics for easy analysis
 
 +++
@@ -155,19 +155,19 @@ print(f"  Final energy variance: {stats_csv['total_energy_var'].iloc[-1]:.6f} Ha
 print(f"\n  (Exact H atom: -0.5 Ha)")
 ```
 
-## 4. Reading from HDF5 (Full Data)
+## 4. Reading from NPY (Full Data)
 
-The HDF5 file contains the same data but is more efficient for large datasets and provides direct array access:
+The `.npy` file stores a 1D structured NumPy array containing all statistics (including array-valued fields) and provides direct array access:
 
 ```{code-cell} ipython3
-with h5py.File(WORKING_DIR / "train_stats.h5", "r") as f:
-    print("HDF5 datasets:")
-    for key in f.keys():
-        print(f"  {key}: shape={f[key].shape}, dtype={f[key].dtype}")
+stats_npy = np.load(WORKING_DIR / "train_stats.npy")
+print("NPY fields:")
+for key in stats_npy.dtype.names:
+    print(f"  {key}: shape={stats_npy[key].shape}, dtype={stats_npy[key].dtype}")
 
-    # Load specific datasets into memory
-    loss_history = f["loss"][:]
-    total_energy_history = f["total_energy"][:]
+# Load specific fields into memory
+loss_history = stats_npy["loss"]
+total_energy_history = stats_npy["total_energy"]
 ```
 
 ## 5. Visualizing Training Progress
@@ -262,7 +262,7 @@ In this tutorial, we learned how to:
 
 1. **Run a JaQMC computation** and locate the output files
 2. **Read CSV files** with pandas for quick data exploration
-3. **Read HDF5 files** for efficient access to large datasets
+3. **Read NPY files** for efficient access to large datasets
 4. **Visualize training progress** including energy convergence, variance, and MCMC acceptance rates
 
 For running evaluation with proper error bars, see <project:analyzing-evaluations.md>. For directly evaluating the wavefunction on custom configurations, see <project:analyzing-wavefunctions.md>.

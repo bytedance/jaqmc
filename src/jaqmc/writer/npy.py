@@ -9,60 +9,61 @@ import numpy as np
 from upath import UPath
 
 from jaqmc.utils.config import configurable_dataclass
-from jaqmc.utils.hdf5 import HDF5ReadWrite
+from jaqmc.utils.npy import NPYReadWrite
 from jaqmc.writer import Writer
 
-__all__ = ["HDF5Writer"]
+__all__ = ["NPYWriter"]
 
 
 @configurable_dataclass
-class HDF5Writer(Writer):
-    """Appends statistics, including array-valued fields, to an HDF5 file.
+class NPYWriter(Writer):
+    """Appends statistics, including array-valued fields, to a structured ``.npy`` file.
 
-    Writes ``{stage}_stats.h5`` in the working directory. Each
-    :meth:`write` call appends one entry per JAX array in ``stats``
-    (scalars and higher-rank arrays); other value types are skipped.
-    Each key is stored as a resizable dataset whose first axis grows by
-    one row per call.
+    Writes ``{stage}_stats.npy`` in the working directory as a 1D
+    structured NumPy array readable via :func:`numpy.load`. Each
+    :meth:`write` call appends one record containing all ``jax.Array``
+    entries in ``stats`` (scalars and higher-rank arrays); other value
+    types are skipped.
 
     On resume, :meth:`sync_history` copies the file from ``source_dir``
     into ``working_dir`` when those directories differ, then truncates
-    every dataset to ``steps`` rows. While the writer is open,
-    :meth:`read` returns the accumulated datasets as NumPy arrays.
+    the structured array to ``steps`` rows. While the writer is open,
+    :meth:`read` returns the accumulated fields as a dictionary of
+    NumPy arrays with a leading step dimension.
     """
 
-    path_template: ClassVar[str] = "{stage}_stats.h5"
+    path_template: ClassVar[str] = "{stage}_stats.npy"
 
     def __post_init__(self) -> None:
-        self._h5_writer: HDF5ReadWrite | None = None
+        self._npy_writer: NPYReadWrite | None = None
 
     @contextmanager
     def open(self, working_dir: UPath, stage_name: str):
         save_path = working_dir / self.path_template.format(stage=stage_name)
-        h5_writer = HDF5ReadWrite(save_path)
-        self._h5_writer = h5_writer
+        npy_writer = NPYReadWrite(save_path)
+        self._npy_writer = npy_writer
         try:
-            with h5_writer.open():
+            with npy_writer.open():
                 yield
         finally:
-            self._h5_writer = None
+            self._npy_writer = None
 
     def sync_history(
         self, source_dir: UPath, working_dir: UPath, stage_name: str, steps: int
     ) -> None:
         filename = self.path_template.format(stage=stage_name)
-        h5_path = source_dir / filename
+        npy_path = source_dir / filename
         if source_dir != working_dir:
-            h5_path = (
-                h5_path.copy_into(working_dir)
-                if h5_path.exists()
+            npy_path = (
+                npy_path.copy_into(working_dir)
+                if npy_path.exists()
                 else working_dir / filename
             )
-        if h5_path.exists():
-            HDF5ReadWrite(h5_path).truncate(steps)
+        if npy_path.exists():
+            NPYReadWrite(npy_path).truncate(steps)
 
     def write(self, step: int, stats: Mapping[str, Any]) -> None:
-        """Append one step of ``jax.Array`` statistics to the HDF5 file.
+        """Append one step of ``jax.Array`` statistics to the ``.npy`` file.
 
         Args:
             step: Current iteration step. Not stored; rows append in order.
@@ -72,12 +73,13 @@ class HDF5Writer(Writer):
         Raises:
             ValueError: If called outside the :meth:`open` context manager.
         """
-        if not self._h5_writer:
+        del step
+        if not self._npy_writer:
             raise ValueError("Writing on closed file.")
-        self._h5_writer.write(stats)
+        self._npy_writer.write(stats)
 
     def read(self) -> dict[str, np.ndarray]:
-        """Return all accumulated datasets as NumPy arrays.
+        """Return all accumulated fields as NumPy arrays.
 
         Returns:
             Mapping from stat name to an array with a leading step dimension.
@@ -85,6 +87,6 @@ class HDF5Writer(Writer):
         Raises:
             ValueError: If called outside the :meth:`open` context manager.
         """
-        if not self._h5_writer:
+        if not self._npy_writer:
             raise ValueError("Reading from closed file.")
-        return self._h5_writer.read()
+        return self._npy_writer.read()

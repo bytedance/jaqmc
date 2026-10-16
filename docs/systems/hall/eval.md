@@ -76,8 +76,8 @@ proposal.
 
 ## Writers (`writers.*`)
 
-The evaluation HDF5 writer is always enabled because its per-step statistics
-are required for digest computation. It writes to `evaluation_stats.h5`; other
+The evaluation NPY writer is always enabled because its per-step statistics
+are required for digest computation. It writes to `evaluation_stats.npy`; other
 root-level writer keys enable additional outputs.
 
 ### Console writer (`writers.console.*`)
@@ -170,7 +170,7 @@ estimators:
 The digest reports `angular_projection:angular_momentum` (requested $L$),
 `angular_projection:weight` ($p_L$), and `angular_projection:energy`
 ($E_L$). Block the per-step `angular_projection:weight` and
-`angular_projection:energy_weight` ($h_L$) series in `evaluation_stats.h5`
+`angular_projection:energy_weight` ($h_L$) series in `evaluation_stats.npy`
 the same way [Analyzing evaluations](../../guide/analyzing-evaluations.md)
 treats per-step energies.
 

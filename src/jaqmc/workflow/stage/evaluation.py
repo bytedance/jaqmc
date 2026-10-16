@@ -3,7 +3,7 @@
 
 """Evaluation work stage for sampling and observable estimation.
 
-Accumulates per-step statistics in an HDF5 file owned by the stage and produces a
+Accumulates per-step statistics in a ``.npy`` file owned by the stage and produces a
 ``digest.npz`` summary after all steps. Optionally logs preview digests.
 """
 
@@ -17,7 +17,7 @@ from jaqmc.array_types import PRNGKey
 from jaqmc.utils import parallel_jax
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.writer import Writers
-from jaqmc.writer.hdf5 import HDF5Writer
+from jaqmc.writer.npy import NPYWriter
 
 from .base import RunContext, WorkStageConfig
 from .sampling import SamplingStageBuilder, SamplingState, SamplingWorkStage
@@ -61,7 +61,7 @@ class EvalStageBuilder(SamplingStageBuilder):
             optional_writers = list(writers_map.values())
         else:
             optional_writers = list(writers)
-        self.stats_writer = HDF5Writer()
+        self.stats_writer = NPYWriter()
         self.writers = Writers([self.stats_writer, *optional_writers])
 
     def build(self) -> "EvaluationWorkStage":
@@ -102,7 +102,7 @@ class EvaluationWorkStage(SamplingWorkStage):
     config: EvaluationWorkStageConfig
     name: str
     writers: Writers
-    stats_writer: HDF5Writer
+    stats_writer: NPYWriter
 
     builder: ClassVar[type[EvalStageBuilder]] = EvalStageBuilder
 

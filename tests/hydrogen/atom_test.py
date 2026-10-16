@@ -1,7 +1,6 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-import h5py
 import jax
 import numpy as np
 import pytest
@@ -45,8 +44,8 @@ def test_simple_run(tmp_path, optimizer, lr):
     assert ckpts, "No checkpoints were created in the temporary directory"
 
     # Check that the average of the last 10 train/loss values is close to -0.5
-    with h5py.File(tmp_path / "train_stats.h5", "r") as f:
-        last_losses = f["loss"][-10:]
+    f = np.load(tmp_path / "train_stats.npy")
+    last_losses = f["loss"][-10:]
     assert np.isclose(last_losses.mean(), -0.5, atol=1e-3), (
         "Average of last 10 train/loss values is not close to -0.5"
     )
@@ -79,11 +78,11 @@ def test_evaluation_writes_per_step_stats_and_digest(tmp_path):
     )
     hydrogen_atom_eval_workflow(eval_cfg)()
 
-    # Per-step stats written to HDF5 with "evaluation_" prefix
-    with h5py.File(eval_dir / "evaluation_stats.h5", "r") as f:
-        assert "total_energy" in f
-        assert f["total_energy"].shape[0] == 5
-        expected_energy = np.nanmean(f["total_energy"], axis=0)
+    # Per-step stats written to NPY with "evaluation_" prefix
+    f = np.load(eval_dir / "evaluation_stats.npy")
+    assert "total_energy" in (f.dtype.names or ())
+    assert f["total_energy"].shape[0] == 5
+    expected_energy = np.nanmean(f["total_energy"], axis=0)
 
     with (eval_dir / "evaluation_stats.csv").open(encoding="utf8") as f:
         assert len(f.readlines()) == 6

@@ -128,7 +128,7 @@ class SamplingStageBuilder:
                 "writers",
                 defaults={
                     "console": "jaqmc.writer.console:ConsoleWriter",
-                    "hdf5": "jaqmc.writer.hdf5:HDF5Writer",
+                    "npy": "jaqmc.writer.npy:NPYWriter",
                     "csv": "jaqmc.writer.csv:CSVWriter",
                 },
                 context={"config": self.config, "name": self.name},

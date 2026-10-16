@@ -70,7 +70,7 @@ Set a writer to `null` in YAML to disable it:
 ```yaml
 train:
   writers:
-    hdf5: null  # Disable HDF5 output
+    npy: null  # Disable NPY output
 ```
 
 (swappable-modules)=

@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, cast
 from zipfile import BadZipFile
 
-import h5py
 import jax
 import numpy as np
 from jax import numpy as jnp
@@ -238,13 +237,13 @@ def tree_to_npz(tree: Any) -> dict[str, ArrayLike]:
 
 
 def from_npz[ValueT](
-    name: str, npf: Mapping[str, np.ndarray | h5py.Group], ref_val: ValueT
+    name: str, npf: Mapping[str, ArrayLike], ref_val: ValueT
 ) -> ValueT:
-    """Restore a single value from an NPZ or HDF5 group.
+    """Restore a single value from an NPZ archive.
 
     Args:
-        name: Name of the stored array or dataset.
-        npf: Mapping-like object representing the opened storage file.
+        name: Name of the stored array.
+        npf: Mapping-like object representing the opened NPZ file.
         ref_val: Reference value whose type determines the return type and
             device placement.
 
@@ -271,11 +270,11 @@ def from_npz[ValueT](
         return cast(ValueT, val.item())
 
 
-def tree_from_npz(npf: Mapping[str, np.ndarray | h5py.Group], ref_pytree: Any) -> Any:
-    """Restore a PyTree from NPZ or HDF5 storage.
+def tree_from_npz(npf: Mapping[str, ArrayLike], ref_pytree: Any) -> Any:
+    """Restore a PyTree from NPZ storage.
 
     Args:
-        npf: Mapping-like object for the opened storage file.
+        npf: Mapping-like object for the opened NPZ file.
         ref_pytree: Reference PyTree whose structure is used to rebuild the
             restored values.
 

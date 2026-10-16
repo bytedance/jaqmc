@@ -5,7 +5,6 @@ import copy
 from dataclasses import dataclass
 from typing import Any
 
-import h5py
 import jax
 import numpy as np
 import pytest
@@ -552,13 +551,13 @@ def test_forward_laplacian_vs_scan_molecule_workflow(tmp_path):
     hydrogen_atom_train_workflow(cfg_fwd_lap)()
 
     # Compare results
-    with h5py.File(tmp_path / "scan" / "train_stats.h5", "r") as f_std:
-        ke_scan = f_std["energy:kinetic"][:]
-        loss_scan = f_std["loss"][:]
+    f_std = np.load(tmp_path / "scan" / "train_stats.npy")
+    ke_scan = f_std["energy:kinetic"][:]
+    loss_scan = f_std["loss"][:]
 
-    with h5py.File(tmp_path / "forward_laplacian" / "train_stats.h5", "r") as f_fwd_lap:
-        ke_fwd_lap = f_fwd_lap["energy:kinetic"][:]
-        loss_fwd_lap = f_fwd_lap["loss"][:]
+    f_fwd_lap = np.load(tmp_path / "forward_laplacian" / "train_stats.npy")
+    ke_fwd_lap = f_fwd_lap["energy:kinetic"][:]
+    loss_fwd_lap = f_fwd_lap["loss"][:]
 
     # Kinetic energies should be very similar across all iterations
     # (not necessarily identical due to different compilation/execution paths)

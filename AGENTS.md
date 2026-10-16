@@ -22,7 +22,7 @@ Use this structure to locate existing code and place new files where they belong
 │   ├── optimizer/    # Optimizers & natural-gradient preconditioners (KFAC, SR/JASR, Optax wrappers, schedules)
 │   ├── sampler/      # MCMC samplers
 │   ├── geometry/     # Coordinate systems and boundary conditions (OBC, PBC, spherical)
-│   ├── writer/       # Output sinks (console, HDF5, CSV, W&B)
+│   ├── writer/       # Output sinks (console, NPY, CSV, W&B)
 │   └── utils/        # Cross-cutting utilities (config/CLI resolution, checkpointing, JAX parallelism, atomic/PySCF helpers, units)
 ├── contrib/          # Standalone or third-party extensions (`jaqmc-contrib-*`) with separate dependencies
 ├── tests/            # Unit tests in `tests/<subpackage>/*_test.py` mirroring `src/jaqmc/`, plus end-to-end/multi-device tests in `tests/integration/`

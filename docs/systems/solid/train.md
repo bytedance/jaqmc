@@ -157,7 +157,7 @@ The main VMC optimization loop. Samples electron configurations, computes energy
 (solid-train-writers)=
 ### Writers (`train.writers.*`)
 
-The train stage enables `console`, `csv`, and `hdf5` writers by default.
+The train stage enables `console`, `csv`, and `npy` writers by default.
 
 #### Console writer (`train.writers.console.*`)
 
@@ -173,11 +173,11 @@ The train stage enables `console`, `csv`, and `hdf5` writers by default.
    :prefix: train.writers.csv
 ```
 
-#### HDF5 writer (`train.writers.hdf5.*`)
+#### NPY writer (`train.writers.npy.*`)
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.writer.hdf5.HDF5Writer
-   :prefix: train.writers.hdf5
+.. config-defaults:: jaqmc.writer.npy.NPYWriter
+   :prefix: train.writers.npy
 ```
 
 (solid-train-grads)=
@@ -226,7 +226,7 @@ pretrain sampling. `0.0` is pure neural, `1.0` (the default) is pure reference.
 
 ### Writers (`pretrain.writers.*`)
 
-The pretrain stage enables `console`, `csv`, and `hdf5` writers by default.
+The pretrain stage enables `console`, `csv`, and `npy` writers by default.
 
 #### Console writer (`pretrain.writers.console.*`)
 
@@ -242,11 +242,11 @@ The pretrain stage enables `console`, `csv`, and `hdf5` writers by default.
    :prefix: pretrain.writers.csv
 ```
 
-#### HDF5 writer (`pretrain.writers.hdf5.*`)
+#### NPY writer (`pretrain.writers.npy.*`)
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.writer.hdf5.HDF5Writer
-   :prefix: pretrain.writers.hdf5
+.. config-defaults:: jaqmc.writer.npy.NPYWriter
+   :prefix: pretrain.writers.npy
 ```
 
 ### Loss gradients

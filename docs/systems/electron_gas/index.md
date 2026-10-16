@@ -56,7 +56,7 @@ jaqmc electron-gas evaluate \
 ```
 
 For statistically meaningful energies, reblock the saved
-`evaluation_stats.h5` series instead of treating consecutive samples as
+`evaluation_stats.npy` series instead of treating consecutive samples as
 independent. See [Running Workflows](../../guide/running-workflows.md) for
 checkpoint and evaluation mechanics.
 

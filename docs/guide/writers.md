@@ -4,20 +4,20 @@ Writers record per-step statistics. The built-in writers are:
 
 - **Console** — Prints selected fields to the terminal.
 - **CSV** — Appends scalar statistics to a CSV file (e.g., `train_stats.csv`) in the output directory.
-- **HDF5** — Appends all statistics (including array-valued fields) to an HDF5 file (e.g., `train_stats.h5`) in the output directory.
+- **NPY** — Appends all statistics (including array-valued fields) to a structured `.npy` file (e.g., `train_stats.npy`) in the output directory.
 - **W&B** — Sends scalar statistics to Weights & Biases.
 
 Which configurable writers are active depends on the workflow. Use `--dry-run`
 to see them in the resolved `writers` section. To disable a configurable writer,
 set it to `null`; to re-enable one that isn't active, set its module path.
 
-Evaluation writes `evaluation_stats.h5` as a required analysis file, not through
-the configurable HDF5 writer. Console and CSV stay off during evaluation unless
+Evaluation writes `evaluation_stats.npy` as a required analysis file, not through
+the configurable NPY writer. Console and CSV stay off during evaluation unless
 you enable them at the config root (`writers.console.*`, `writers.csv.*`), not
 under `train.writers.*`.
 
 ```bash
-train.writers.hdf5=null                               # disable HDF5 for train
+train.writers.npy=null                                # disable NPY for train
 train.writers.csv.module=jaqmc.writer.csv             # enable CSV for train
 train.writers.wandb.module=jaqmc.writer.wandb         # enable W&B for train
 pretrain.writers.console.interval=10                  # configure pretrain's console writer
@@ -60,7 +60,7 @@ If you're unsure which key to use, inspect an existing run's output files. The C
 head -n 1 runs/my-run/train_stats.csv
 ```
 
-Array-valued outputs, such as histograms, do not appear in CSV and cannot be printed in the console. Use the HDF5 file to inspect those keys instead.
+Array-valued outputs, such as histograms, do not appear in CSV and cannot be printed in the console. Use the `.npy` file to inspect those keys instead.
 
 ## Weights & Biases
 
@@ -90,7 +90,7 @@ already active before JaQMC starts the stage, the writer reuses that run.
 
 ## Output Files
 
-CSV and HDF5 writers produce files in the `workflow.save_path` directory. CSV captures scalar statistics; HDF5 captures all statistics including array-valued fields. Their output files are named `{stage}_stats.csv` and `{stage}_stats.h5`.
+CSV and NPY writers produce files in the `workflow.save_path` directory. CSV captures scalar statistics; NPY captures all statistics including array-valued fields. Their output files are named `{stage}_stats.csv` and `{stage}_stats.npy`.
 
 For resume and branch behavior, see
 {ref}`recipe-resume-evaluate`. For reading the files,
