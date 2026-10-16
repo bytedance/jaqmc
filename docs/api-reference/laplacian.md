@@ -118,7 +118,7 @@ The sparse Jacobian types describe the structured owner-local storage used when
 the transform can preserve sparsity exactly.
 
 Sparse block payloads always use the full output layout:
-`blocks.shape[:-2] == output_shape == LapTuple.x.shape`. Broadcasting therefore
+`blocks.shape[2:] == output_shape == LapTuple.x.shape`. Broadcasting therefore
 uses full blocks produced by `jnp.broadcast_to`; the sparse API has no separate
 compressed or logical output-shape metadata.
 

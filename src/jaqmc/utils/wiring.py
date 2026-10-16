@@ -13,7 +13,7 @@ Components have two kinds of fields:
 
 Runtime deps can be set in two ways:
 1. **Programmatically**: Pass directly in the constructor.
-2. **From context**: Use ``wire(component, context)`` to inject from a dict.
+2. **From context**: Use ``wire(component, **context)`` to inject keyword args.
 
 Example:
     Programmatic use::

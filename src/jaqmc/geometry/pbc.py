@@ -321,7 +321,7 @@ def nu_distance(
 
     Args:
         xea: Relative coordinates between electrons and atoms.
-            Shape (..., n_electrons, n_atoms).
+            Shape ``(..., n_electrons, n_atoms, ndim)``.
         a: (Over complete set of) primitive cell lattice vectors.
         b: (Over complete set of) reciprocal lattice vectors.
 
@@ -429,7 +429,8 @@ def get_symmetry_lat(
         sym_type: The type of symmetry to apply.
 
     Returns:
-        A new Cell object with updated reciprocal_lattice.
+        Tuple ``(av, bv)`` of expanded direct/pseudoinverse and reciprocal
+        lattice vectors.
     """
     ndim = lattice.shape[-1]
     bv_base = 2 * jnp.pi * jnp.linalg.inv(lattice).T

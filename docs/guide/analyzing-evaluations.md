@@ -37,7 +37,7 @@ uv sync --group analysis
 If you're using JaQMC in your own environment:
 
 ```bash
-pip install pandas h5py matplotlib
+pip install pandas h5py matplotlib pyblock
 ```
 ````
 
@@ -82,7 +82,7 @@ WORKING_DIR.mkdir(parents=True)
 We run a very short VMC training (10 iterations) to create an undertrained checkpoint. This keeps the energy variance high, making the error analysis more illustrative. If you prefer the CLI, the equivalent command would look like:
 
 ```bash
-jaqmc hydrogen_atom train --yml tutorial-train.yml
+jaqmc hydrogen-atom train --yml tutorial-train.yml
 ```
 
 Here, `tutorial-train.yml` stands for a YAML config with the same settings as the Python `ConfigManager(...)` configuration shown below. Here we use the Python API which is more convenient in notebooks.
@@ -110,7 +110,7 @@ train_workflow()
 Evaluation uses a separate workflow — `hydrogen_atom_eval_workflow` — that loads trained parameters from a checkpoint and runs MCMC sampling without updating the wavefunction. The key config difference is `workflow.source_path`, which points to the training run directory (or a specific checkpoint file). If you prefer the CLI, the equivalent command would look like:
 
 ```bash
-jaqmc hydrogen_atom evaluate --yml tutorial-eval.yml
+jaqmc hydrogen-atom evaluate --yml tutorial-eval.yml
 ```
 
 Here, `tutorial-eval.yml` stands for a YAML config with the same settings as the Python `ConfigManager(...)` configuration shown below.
@@ -171,7 +171,7 @@ show_tree(WORKING_DIR / "eval")
 - **`evaluation_digest.npz`** — Final observables averaged over all evaluation steps. This is the main result.
 - **`evaluation_stats.h5`** — Per-step statistics written by the mandatory HDF5 writer. Used for digest computation and for the block analysis shown below.
 - **`evaluation_ckpt_*.npz`** — Checkpoint for resuming an interrupted evaluation.
-- **`config.yaml`** — The resolved configuration.
+- **`evaluation_config.yaml`** — The resolved configuration.
 
 ## 4. Loading the Digest
 

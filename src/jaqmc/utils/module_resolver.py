@@ -112,7 +112,7 @@ def resolve_object(name: str, package: str | None = None) -> Any:
             - ``"module:object"``: Explicitly resolve ``module.object``
               (e.g., ``"optax:adam"`` resolves to ``optax.adam``).
             - ``"module"``: Resolve default object from ``module.__all__[0]``
-              (e.g., ``"jaqmc.optimizer.kfac"`` resolves to ``kfac``).
+              (e.g., ``"jaqmc.optimizer.kfac"`` resolves to ``KFACOptimizer``).
         package: Base package for relative imports. When specified, tries
             relative import first, then falls back to absolute import.
             If ``None``, only absolute imports are attempted.

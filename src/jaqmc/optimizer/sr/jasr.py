@@ -210,7 +210,7 @@ class FisherInverseState(NamedTuple):
 
     Attributes:
         counter: Number of update steps taken.
-        prev_grad: Flattened previous preconditioned update (delta_{k-1}).
+        prev_delta: Flattened previous preconditioned update (delta_{k-1}).
         acc_var: Accumulated variance used by the MARCH metric.
     """
 
@@ -294,8 +294,8 @@ def scale_by_fisher_inverse(  # noqa: C901
         score_in_axes: Axes for score computation that will be passed to vmap
             when computing the score matrix.
         score_chunk_size: Chunk size for the score matrix computation.
-            If ``None``, use vmap, otherwise use lax.map to reduce memory
-            footprint.
+            If ``None``, use vmap, otherwise use ``chunked_vmap`` (``lax.scan``)
+            to reduce memory footprint.
         score_norm_clip: Optional clip value for the mean of absolute values of
             each row of the score matrix. If ``None``, no clipping is applied.
         gram_num_chunks: Number of chunks for the gram matrix computation.
@@ -387,7 +387,7 @@ def scale_by_fisher_inverse(  # noqa: C901
                     )
 
         # Build raw score matrix (shape: [n_batch, n_params])
-        # Use lax.map to reduce memory footprint when chunk_size is given.
+        # Use chunked_vmap to reduce memory footprint when chunk_size is given.
         score_tree = chunked_vmap(
             lambda sample: grad_log_psi(paxis.pvary(params), sample),
             in_axes=score_in_axes,

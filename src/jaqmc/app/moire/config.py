@@ -27,7 +27,7 @@ class MoireConfig:
     primitive cell. Override any ``system.*`` field (via YAML or CLI) to select
     a different system.
 
-    Attributes:
+    Args:
         electron_spins: Number of electrons in the two physical-spin channels
             ``(n_up, n_down)``. This is the fixed physical electron spin, not
             the sampled layer pseudospin (see ``MoireData.spin_coords``).

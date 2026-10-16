@@ -68,12 +68,13 @@ full many-body Hamiltonian adds the electron-electron Coulomb interaction in a
 uniform neutralizing background,
 
 $$
-H_{\text{total}} = \sum_i \left[ H_\uparrow(\mathbf{r}_i) + H_\downarrow(\mathbf{r}_i) \right]
+H_{\text{total}} = \sum_i H_{\sigma_i}(\mathbf{r}_i)
   + \frac{1}{2}\sum_{i \neq j} v_E(\mathbf{r}_i - \mathbf{r}_j)
   + \frac{N_e}{2} v_M,
 $$
 
-where $v_E$ is the 2D Ewald-summed Coulomb interaction with relative dielectric
+where $\sigma_i \in \{\uparrow, \downarrow\}$ is the physical spin channel of
+electron $i$, $v_E$ is the 2D Ewald-summed Coulomb interaction with relative dielectric
 constant $\epsilon$, and $v_M$ is the Madelung constant (image self-interaction).
 The default model parameters for tMoTe₂ are $a_0 = 0.352$ nm, $m = 0.62\,m_e$,
 $V = 11.2$ meV, $\omega = -13.3$ meV, $\delta = -91^\circ$, and $\epsilon = 10$.
@@ -116,7 +117,7 @@ from a triangular primitive cell. Select a different system by overriding
 `system.*` fields. Some representative systems:
 
 - integer filling $n=-2$: an 18-electron $3\times3$ supercell built from a
-  rectangular primitive cell
+  triangular primitive cell
   (`system.electron_spins="[9,9]" system.nelec=18 system.supercell_matrix="[[3,0],[0,3]]"`)
 - fractional filling $n=-1/3$: a 9-electron spin-polarized non-diagonal
   $(3\sqrt{3})\times(3\sqrt{3})$ supercell, $\det S = 27$
@@ -301,7 +302,7 @@ FCI translation symmetrization is controlled by a single wavefunction knob,
 - **Default (unset / `null`): $(0,0)$.** When running through the moire
   workflow, leaving `wf.k_com` unset selects the $\Gamma$-point FCI sector, so
   translation projection is always on for fractional filling. (Integer-filling
-  CI runs use `singlephase` mode and ignore `wf.k_com` entirely.)
+  CI runs use `singlephase` mode and require `wf.k_com` to remain unset/`null`.)
 - **`wf.k_com: [kx, ky]` selects another sector.** Set it from YAML (a
   `k_com: [1.0, 1.0]` entry under the top-level `wf:` mapping) or as a CLI
   override (`wf.k_com=[1.0,1.0]`) to build the symmetrized wavefunction for
@@ -324,7 +325,7 @@ For the physics and derivations behind each estimator, see
 
 ## Recommended Hyperparameters
 
-The train preset is production-oriented: 50,000 iterations with a gradient
+The train preset is production-oriented: 200,000 iterations with a gradient
 clipping window of 20, KFAC with learning rate $3\times10^{-3}$ and damping
 $3\times10^{-4}$, and a joint MCMC sampler tuned for moire units (20 steps
 between iterations, initial move width 0.02). A single determinant is used

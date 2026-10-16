@@ -16,7 +16,7 @@ we expand $S_- S_+ = \sum_{k,l} s_k^- s_l^+$ in first quantization, where $s_l^+
 
 **Diagonal terms** ($k = l$): $s_l^- s_l^+$ is the identity on each $\downarrow$ electron, contributing $+n_\downarrow$ total.
 
-**Off-diagonal terms** ($k \ne l$, with $k \in \uparrow$ and $l \in \downarrow$): applying $s_l^+$ then $s_k^-$ swaps the spin labels of electrons $k$ and $l$. For an antisymmetric wavefunction whose first $n_\uparrow$ coordinates are spin-up, this is equivalent to swapping the spatial coordinates of electrons $k$ and $l$. Antisymmetry gives a factor of $-1$, which cancels the minus sign in the $-S_-S_+$ contribution, producing the positive ratios $\Psi(\mathbf{r}_{k\leftrightarrow l})/\Psi(\mathbf{r})$ in the formula below.
+**Off-diagonal terms** ($k \ne l$, with $k \in \uparrow$ and $l \in \downarrow$): applying $s_l^+$ then $s_k^-$ swaps the spin labels of electrons $k$ and $l$. For an antisymmetric wavefunction whose first $n_\uparrow$ coordinates are spin-up, this is equivalent to swapping the spatial coordinates of electrons $k$ and $l$ up to a minus sign from antisymmetry, so each swap ratio $\Psi(\mathbf{r}_{k\leftrightarrow l})/\Psi(\mathbf{r})$ enters with a negative sign relative to the $+n_\downarrow$ diagonal terms.
 
 Combining gives the local estimator:
 

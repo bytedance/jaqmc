@@ -51,7 +51,7 @@ class LossAndGrad(PerWalkerEstimator):
        robustness, then forms the per-walker product
        :math:`\operatorname{Re}[(\nabla\log\psi)^*
        E_L^{\text{clipped}}]`.
-    3. ``finalize`` — averages over walkers and subtracts the baseline
+    3. ``finalize_stats`` — averages over walkers and subtracts the baseline
        :math:`\operatorname{Re}[(\langle\nabla\log\psi\rangle)^*
        \langle E_L^{\text{clipped}} \rangle]` to assemble the final
        gradient.

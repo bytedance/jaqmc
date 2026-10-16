@@ -48,9 +48,6 @@ class HDF5ReadWrite:
 
     Args:
         stats_path: Path of the HDF5 file.
-        truncate_to: If given, all datasets are truncated to at most this
-            many rows upon :meth:`open`, so resumed runs discard stale rows
-            left by a previous interrupted run. If None, rows are kept.
     """
 
     def __init__(self, stats_path: UPath) -> None:
@@ -69,7 +66,7 @@ class HDF5ReadWrite:
                 self.close()
 
     def truncate(self, steps: int) -> None:
-        """Truncate all datasets to ``truncate_to`` rows, if set."""
+        """Truncate all datasets to at most ``steps`` rows."""
         with ExitStack() as stack:
             h5_file = (
                 self._h5_file

@@ -38,7 +38,7 @@ def _samplers_compatible(from_stage: VMCWorkStage, to_stage: VMCWorkStage) -> bo
 
 
 class VMCWorkflow(Workflow):
-    """VMC workflow with pretrain -> train -> eval pipeline.
+    """VMC workflow with pretrain -> train pipeline.
 
     Subclass and set stages in ``__init__``::
 
@@ -89,10 +89,10 @@ class VMCWorkflow(Workflow):
             )
 
     def run(self) -> None:
-        """Execute the pretrain -> train -> eval pipeline.
+        """Execute the pretrain -> train pipeline.
 
         Override in subclasses to inject pre-run logic (e.g. SCF),
-        then call ``super().run(context, rngs)``.
+        then call ``super().run()``.
         """
         # We must use the same seed across all processes to ensure that replicated
         # parameters are initialized identically. Generation of different keys on
