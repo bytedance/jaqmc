@@ -32,7 +32,7 @@ jaqmc hydrogen-atom train
 ```bash
 ruff check . && ruff format .    # Lint and format
 mypy .                           # Type checking
-pytest -n 8                      # Run all tests
+pytest                           # Run all tests (or pytest -n <workers> to parallelize)
 prek run --all-files             # All hooks at once
 ```
 

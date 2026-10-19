@@ -27,7 +27,7 @@ Multiple files are merged left to right — if the same key appears in more than
 
 Because the available config keys depend on which modules you select (e.g., KFAC and Adam expose different parameters), it can be helpful to see what configuration the system is actually using:
 
-- **`--dry-run`**: Loads the configuration and initializes the workflow but stops before the expensive training loop. The full resolved config is printed to the terminal; `config.yaml` is written to the output directory on real runs.
+- **`--dry-run`**: Loads the configuration and initializes the workflow but stops before the expensive training loop. The full resolved config is printed to the terminal; `train_config.yaml` (or `evaluation_config.yaml` for evaluation runs) is written to the output directory on real runs.
 - **Source location comments**: The output includes `# Defined in ...` comments pointing to where each parameter is defined in source code.
 - **`workflow.config.verbose=true`**: Also includes docstrings for each configured class, helping you understand what each parameter does.
 
@@ -53,7 +53,7 @@ The `optax:adam` syntax is a module path — see [Swappable Modules](#swappable-
 
 ```bash
 # More MCMC steps between training steps
-jaqmc molecule train train.sampler.steps=20
+jaqmc molecule train sampler.steps=20
 ```
 
 ### Customizing writers
@@ -92,11 +92,11 @@ where `name` is the specific class or function to import from the module. If the
 package.subpackage.module
 ```
 
-For example, these two are equivalent because `adam` is the primary export of `jaqmc.optimizer.optax`:
+For example, these two are equivalent because `SROptimizer` is the primary export of `jaqmc.optimizer.sr`:
 
 ```bash
-train.optim.module=jaqmc.optimizer.optax:adam
-train.optim.module=jaqmc.optimizer.optax
+train.optim.module=jaqmc.optimizer.sr:SROptimizer
+train.optim.module=jaqmc.optimizer.sr
 ```
 
 ### Relative resolution

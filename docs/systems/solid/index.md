@@ -205,7 +205,7 @@ complete workflow is described in <project:reference.md>.
 The `supercell_matrix` field expands the primitive cell into a larger
 simulation cell: $\mathbf{A}_\text{super} = S \cdot \mathbf{A}_\text{prim}$,
 where $S$ is a $3 \times 3$ integer matrix. The number of primitive cells in
-the supercell is $\det(S)$, and all quantities such as electrons, atoms, and
+the supercell is $|\det(S)|$, and all quantities such as electrons, atoms, and
 k-points scale accordingly.
 
 For example, adding `supercell_matrix: [[2,0,0],[0,2,0],[0,0,2]]` to the LiH

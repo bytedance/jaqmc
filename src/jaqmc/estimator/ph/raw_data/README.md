@@ -10,7 +10,7 @@ both the local PH potential `tilde_v_loc` and the `L^2` channel
 
 ## Files and supported elements
 
-The supported set tracks `jaqmc.estimator.ph.SUPPORTED_PH_ELEMENTS`
+The supported set tracks `jaqmc.utils.atomic.pp.SUPPORTED_PH_ELEMENTS`
 exactly. Each element below has a single corresponding XML file:
 
 | Element | File          | Reference type   | Valence (Z) |
@@ -22,7 +22,9 @@ exactly. Each element below has a single corresponding XML file:
 | Ni      | `TM/Ni.hf.xml`| HF-anchored      | 18          |
 | Cu      | `TM/Cu.hf.xml`| HF-anchored      | 19          |
 | Zn      | `TM/Zn.cc.xml`| CCSD(T)-anchored | 20          |
+| P       | `MG/P.cc.xml` | CCSD(T)-anchored | 5           |
 | S       | `MG/S.cc.xml` | CCSD(T)-anchored | 6           |
+| Cl      | `MG/Cl.cc.xml`| CCSD(T)-anchored | 7           |
 
 The `cc` / `hf` filename suffix above is selected by the
 `_PH_XML_INFO` table in `jaqmc.estimator.ph.data`, which also
@@ -69,6 +71,6 @@ tabulated channels.
 - Fu, W. *et al.*, "Local Pseudopotential Unlocks the True Potential
   of Neural Network-based Quantum Monte Carlo,"
   [arXiv:2505.19909](https://arxiv.org/abs/2505.19909) (2025) —
-  adds the sulfur PH parameterization and describes the
+  adds the main-group PH parameterizations (`P`, `S`, `Cl`) and describes the
   NNQMC + PH + Forward Laplacian integration built on top of these
   tables.

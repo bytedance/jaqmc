@@ -299,9 +299,9 @@ class PBCAtomicOrbitalEvaluator:
     Attributes:
         eval_aos: The underlying :class:`AtomicOrbitalEvaluator` for computing
             localized atomic orbitals.
-        lattice_vectors: Array of shape ``[L, 3]`` containing lattice translation
-            vectors :math:`\mathbf{L}` used in the Bloch sum, sorted by distance
-            from the origin.
+        image_translation_vectors: Array of shape ``[L, 3]`` containing lattice
+            translation vectors :math:`\mathbf{L}` used in the Bloch sum, sorted
+            by distance from the origin.
 
     Example::
 

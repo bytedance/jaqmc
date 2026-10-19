@@ -189,12 +189,12 @@ def phase_logpsi(self, params, data):
     return out["sign_logpsi"], out["logpsi"]
 ```
 
-:::{admonition} Molecule wavefunction protocol
+:::{admonition} Molecule and solid wavefunction contracts
 :class: note
 
-The molecule and solid apps define a protocol that formalizes which extraction
-methods they expect. The workflow validates it at startup — if you forget a
-method, you'll get a clear error. The protocol also includes an `orbitals`
+The molecule app defines a protocol ({class}`~jaqmc.app.molecule.wavefunction.base.MoleculeWavefunction`) and the solid app defines a base class ({class}`~jaqmc.app.solid.wavefunction.SolidWavefunction`) that formalize which extraction
+methods they expect. The workflow validates the contract at startup — if you forget a
+method, you'll get a clear error. Both also include an `orbitals`
 method for pretraining against Hartree-Fock references — see
 {ghsrc}`src/jaqmc/app/molecule/wavefunction/ferminet.py` for the implementation
 pattern.

@@ -127,7 +127,7 @@ show_tree(WORKING_DIR)
 ```
 
 **Key outputs:**
-- `config.yaml` - The resolved configuration used for this run
+- `train_config.yaml` - The resolved configuration used for this run
 - `train_ckpt_*.npz` - Checkpoint files containing parameters and walker states
 - `train_stats.h5` - HDF5 file with training statistics (energy, variance, etc.)
 - `train_stats.csv` - CSV file with the same statistics for easy analysis

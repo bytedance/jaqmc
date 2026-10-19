@@ -130,7 +130,7 @@ class EvaluationWorkStage(SamplingWorkStage):
         """Sample and estimate observables (no parameter update).
 
         Returns:
-            Tuple of (updated state, per-walker local stats).
+            Tuple of (updated state, reduced step statistics).
         """
         sampler_rngs, est_rngs = jax.random.split(rngs, 2)
         data, _, sampler_state = self.sample_plan.step(

@@ -147,11 +147,11 @@ When you run a simulation, you'll see output like this:
 
 ```text
 I | 12-18 16:53:49 |checkpoint| No checkpoint to restore in: runs/jaqmc_20251218_165349
-I | 12-18 16:53:50 |  train   | step=0, pmove=0.52, loss=-0.5046
-I | 12-18 16:53:50 |  train   | step=1, pmove=0.53, loss=-0.5016
-I | 12-18 16:53:50 |  train   | step=2, pmove=0.54, loss=-0.4983
+I | 12-18 16:53:50 |  train   | step=0, pmove=0.52, energy=-0.5046, variance=0.0521
+I | 12-18 16:53:50 |  train   | step=1, pmove=0.53, energy=-0.5016, variance=0.0489
+I | 12-18 16:53:50 |  train   | step=2, pmove=0.54, energy=-0.4983, variance=0.0453
 ...
-I | 12-18 16:53:50 |  train   | step=99, pmove=0.57, loss=-0.5000
+I | 12-18 16:53:50 |  train   | step=99, pmove=0.57, energy=-0.5000, variance=0.0001
 I | 12-18 16:53:50 |checkpoint| Saving checkpoint runs/jaqmc_20251218_165349/train_ckpt_000099.npz
 I | 12-18 16:53:50 |  train   | Time per step: 0.003s
 ```
@@ -159,7 +159,8 @@ I | 12-18 16:53:50 |  train   | Time per step: 0.003s
 Here's what the key columns mean:
 
 - **`pmove`** — The MCMC acceptance rate, i.e., the fraction of proposed electron moves that were accepted. Values around 0.5 are typical and healthy.
-- **`loss`** — The variational energy estimate. In VMC, this is the mean total energy of the system. Lower is better — for the hydrogen atom, it should converge toward −0.5 Ha (the exact ground-state energy).
+- **`energy`** — The variational energy estimate (`total_energy`). Lower is better — for the hydrogen atom, it should converge toward −0.5 Ha (the exact ground-state energy).
+- **`variance`** — The variance of the local energy across walkers (`total_energy_var`). Lower values indicate a more accurate wavefunction.
 
 In addition to the terminal output, the training workflow saves detailed statistics to `train_stats.csv` and `train_stats.h5` under `workflow.save_path`. If you do not set `workflow.save_path` explicitly, JaQMC creates a timestamped output directory under `runs/`. If the current working directory is inside the source repo, that means the repo-level `runs/` directory; outside the repo, it means `./runs/` in your current working directory. These files live alongside checkpoint files such as `train_ckpt_000099.npz`.
 

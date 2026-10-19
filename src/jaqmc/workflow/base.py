@@ -234,7 +234,7 @@ def init_batched_data(
             ``data_init`` returns a plain :class:`~jaqmc.data.Data` instance.
 
     Returns:
-        Tuple of (sharded_batched_data, local_batched_data).
+        Sharded BatchedData instance.
 
     Raises:
         ValueError: If batch size is not divisible by number of processes.

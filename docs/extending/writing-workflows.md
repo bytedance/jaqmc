@@ -62,7 +62,7 @@ The signature ``(params, data, stats, state, rngs)`` is the standard estimator i
 
 The ``energy:`` prefix is a naming convention: any estimator that returns a key starting with ``energy:`` contributes to the total energy, which becomes the VMC optimization target. A {class}`~jaqmc.estimator.total_energy.TotalEnergy` estimator auto-sums all ``energy:``-prefixed keys into a ``total_energy`` value — you'll use it in Step 5.
 
-Pass the function directly in the estimators dict — JaQMC wraps it automatically. For estimators that need configuration fields, subclass {class}`~jaqmc.estimator.base.Estimator` instead — see <project:custom-components/index.md>.
+Pass the function directly in the estimators dict — JaQMC wraps it automatically. For estimators that need configuration fields, subclass {class}`~jaqmc.estimator.base.PerWalkerEstimator` (or {class}`~jaqmc.estimator.base.Estimator` for full-batch estimators) instead — see <project:custom-components/index.md>.
 
 ## Step 4: Initialize Walker Data
 

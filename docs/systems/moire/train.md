@@ -52,7 +52,7 @@ automatically from the filling and is not set directly. The main user-facing
 knob is `wf.k_com`, the FCI center-of-mass momentum in simulation-cell
 reciprocal fractional coordinates:
 
-- Integer-filling CI: leave `wf.k_com` unset (it is ignored in `singlephase`).
+- Integer-filling CI: leave `wf.k_com` unset/`null` (setting `wf.k_com` in `singlephase` mode raises an error).
 - Fractional-filling FCI: `wf.k_com` defaults to `[0.0, 0.0]` (the $\Gamma$
   sector) when unset, so translation projection is on by default. Select a
   different sector from YAML (a `k_com: [1.0, 1.0]` entry under the top-level

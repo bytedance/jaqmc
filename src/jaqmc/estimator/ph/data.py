@@ -8,9 +8,9 @@ files bundled inside this package at ``raw_data/{TM,MG}/``. The
 tabulated data follows the ``r * V`` semilocal convention used by the
 original PH library accompanying Bennett et al. (2022) and its
 locality-error-free follow-up Ichibha et al. (2023) for 3d transition
-metals, and Fu et al. (2025) for sulfur. PH valence electron counts and
-the supported-element set live in :mod:`jaqmc.utils.atomic.pp` (the
-pseudopotential vocabulary layer).
+metals, and Fu et al. (2025) for main-group elements (P, S, Cl). PH
+valence electron counts and the supported-element set live in
+:mod:`jaqmc.utils.atomic.pp` (the pseudopotential vocabulary layer).
 
 References:
     Bennett, M. C., Reboredo, F. A., Mitas, L., Krogel, J. T.,

@@ -69,7 +69,7 @@ system.
 Try these checks first:
 
 - If `pmove` stays far from 0.5 for many steps, tune
-  `train.sampler.initial_width` first. Persistent mismatch usually means the
+  `sampler.initial_width` first. Persistent mismatch usually means the
   proposal scale is off.
 - If your workflow includes pretraining, increase it. For molecular systems,
   1,000-10,000 pretraining steps is a common starting range, and a pretrain
@@ -88,7 +88,7 @@ show up for other observables as well.
 - Check the system definition and make sure you are comparing the same physical
   system as the reference.
 - If `pmove` stays far from 0.5 for many steps, fix
-  `train.sampler.initial_width` before trusting the estimate.
+  `sampler.initial_width` before trusting the estimate.
 - Inspect walker trajectories or checkpointed walker configurations. Walkers
   that stay spatially localized, break an expected symmetry, or get stuck in an
   unexpected spin arrangement usually indicate insufficient sampling. In that
@@ -125,7 +125,7 @@ Short transients at the start of a run are normal. Persistent extremes are the
 signal to act.
 
 If `pmove` stays very high, for example above `0.8`, increase the starting
-proposal width: `train.sampler.initial_width=...` for training or
+proposal width: `sampler.initial_width=...` for training or
 `sampler.initial_width=...` for evaluation. If `pmove` stays very low, reduce
 the width instead.
 

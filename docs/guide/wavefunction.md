@@ -40,7 +40,7 @@ wf:
 
 **Systems**: molecules
 
-LapNet is a lower-cost alternative to Psiformer with similar accuracy on the reported benchmarks. It uses the same molecule input features and Slater-determinant output path as the other built-in molecular ansatzes, so switching from FermiNet is mostly a matter of changing `wf.module`.
+LapNet is a lower-cost alternative to Psiformer with similar accuracy on the reported benchmarks. It uses the same molecule input features, Slater-determinant output path, and built-in electron-electron Jastrow factor (`wf.jastrow`) as Psiformer, so switching from FermiNet is mostly a matter of changing `wf.module`.
 
 - **Paper**: [A computational framework for neural network-based variational Monte Carlo with Forward Laplacian](https://doi.org/10.1038/s42256-024-00794-x)
 
@@ -74,7 +74,7 @@ wf:
 
 Psiformer replaces FermiNet's explicit pairwise stream with **multi-head self-attention**, capturing electron-electron correlations implicitly through attention rather than explicit features. This tends to be more accurate on larger molecules — in the original paper, a small Psiformer outperformed a large FermiNet despite having fewer parameters, with the advantage growing with system size.
 
-As with FermiNet, the output features are projected into enveloped orbitals and combined via a log-sum-of-determinants. Psiformer additionally includes an electron-electron **Jastrow factor** that enforces the exact cusp condition (see the paper for details).
+As with FermiNet and LapNet, the output features are projected into enveloped orbitals and combined via a log-sum-of-determinants. Like LapNet, Psiformer includes an electron-electron **Jastrow factor** (`wf.jastrow`) that enforces the exact cusp condition (see the paper for details).
 
 - **Paper**: [Self-Attention Ansatz for Ab-Initio Quantum Chemistry](https://openreview.net/forum?id=xveTeHVlF7j)
 
