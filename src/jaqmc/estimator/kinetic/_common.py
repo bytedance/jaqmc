@@ -79,7 +79,10 @@ def hessian_diagonal_laplacian(
         return jnp.sum(weights * diagonal)
     if mode == LaplacianMode.fori_loop:
         return jax.lax.fori_loop(
-            0, n, lambda i, val: val + weights[i] * jvp(eye[i])[i], 0.0
+            0,
+            n,
+            lambda i, val: val + weights[i] * jvp(eye[i])[i],
+            parallel_jax.pvary(0.0),
         )
     raise ValueError(f"Unsupported Hessian-diagonal Laplacian mode {mode}.")
 

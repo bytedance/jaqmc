@@ -16,8 +16,9 @@ from jaqmc.app.molecule.data import MoleculeData
 from jaqmc.app.molecule.wavefunction.ferminet import FermiNetWavefunction
 from jaqmc.app.molecule.wavefunction.lapnet import LapNetWavefunction
 from jaqmc.app.molecule.wavefunction.psiformer import PsiformerWavefunction
-from jaqmc.data import Data
+from jaqmc.data import BatchedData, Data
 from jaqmc.estimator.kinetic import EuclideanKinetic, LaplacianMode
+from jaqmc.utils import parallel_jax
 from jaqmc.utils.config import ConfigManager
 
 
@@ -572,11 +573,32 @@ def test_forward_laplacian_vs_scan_molecule_workflow(tmp_path):
     )
 
 
-@pytest.mark.parametrize("mode", [LaplacianMode.scan, LaplacianMode.forward_laplacian])
+LAPLACIAN_MODES = (
+    LaplacianMode.scan,
+    LaplacianMode.fori_loop,
+    LaplacianMode.forward_laplacian,
+)
+
+
+def _eval_sharded(estimator: EuclideanKinetic, params, positions: jnp.ndarray):
+    batched = BatchedData(SimpleData(positions=positions), ["positions"])
+    sharding = parallel_jax.make_sharding(batched.partition_spec)
+    key = jax.device_put(
+        jax.random.split(jax.random.PRNGKey(0), jax.device_count()).flatten(),
+        parallel_jax.make_sharding(parallel_jax.DATA_PARTITION),
+    )
+    run = parallel_jax.jit_sharded(
+        lambda b, k: estimator.evaluate_batch_walkers(params, b, {}, None, k)[0],
+        in_specs=(batched.partition_spec, parallel_jax.DATA_PARTITION),
+        out_specs=parallel_jax.DATA_PARTITION,
+    )
+    return run(jax.device_put(batched, sharding), key)
+
+
+@pytest.mark.parametrize("mode", LAPLACIAN_MODES)
 def test_prefactor_scales_kinetic_energy(mode):
     """The prefactor rescales the kinetic energy, including complex log-psi."""
     if mode == LaplacianMode.forward_laplacian:
-        pytest.importorskip("folx")
         pytest.importorskip("jax", minversion="0.7.1")
 
     # Complex log-psi exercises the same code path the moire spinor model uses.
@@ -586,7 +608,7 @@ def test_prefactor_scales_kinetic_energy(mode):
         return 0.7 * jnp.sum(positions**2) + 0.2j * jnp.sum(positions)
 
     key = jax.random.key(2024)
-    data = SimpleData(positions=jax.random.normal(key, (3, 2)))
+    positions = jax.random.normal(key, (jax.device_count() * 2, 3, 2))
     params: dict[str, jnp.ndarray] = {}
 
     prefactor = 12.5 / 0.8
@@ -595,8 +617,8 @@ def test_prefactor_scales_kinetic_energy(mode):
         mode=mode, f_log_psi=log_psi, data_field="positions", prefactor=prefactor
     )
 
-    base_stats, _ = base.evaluate_single_walker(params, data, {}, None, key)
-    scaled_stats, _ = scaled.evaluate_single_walker(params, data, {}, None, key)
+    base_stats = _eval_sharded(base, params, positions)
+    scaled_stats = _eval_sharded(scaled, params, positions)
 
     np.testing.assert_allclose(
         scaled_stats["energy:kinetic"],
@@ -627,11 +649,10 @@ def _reference_weighted_kinetic(log_psi, params, positions, weights):
     return -0.5 * jnp.sum(jnp.asarray(weights) * per_particle)
 
 
-@pytest.mark.parametrize("mode", [LaplacianMode.scan, LaplacianMode.forward_laplacian])
+@pytest.mark.parametrize("mode", LAPLACIAN_MODES)
 def test_per_particle_prefactor_matches_reference(mode):
     """An array prefactor applies a distinct weight to each particle."""
     if mode == LaplacianMode.forward_laplacian:
-        pytest.importorskip("folx")
         pytest.importorskip("jax", minversion="0.7.1")
 
     # Complex log-psi with cross terms so the per-particle split is nontrivial.
@@ -642,8 +663,7 @@ def test_per_particle_prefactor_matches_reference(mode):
         return 0.7 * jnp.sum(positions**2) + 0.2j * jnp.sum(coeffs * positions)
 
     key = jax.random.key(7)
-    positions = jax.random.normal(key, (4, 2))
-    data = SimpleData(positions=positions)
+    positions = jax.random.normal(key, (jax.device_count() * 2, 4, 2))
     params: dict[str, jnp.ndarray] = {}
 
     weights = jnp.array([1.0, 2.5, 0.3, 4.0])  # per-particle prefactors (e.g. 1/m)
@@ -653,17 +673,18 @@ def test_per_particle_prefactor_matches_reference(mode):
         data_field="positions",
         prefactor=weights.tolist(),
     )
-    stats, _ = estimator.evaluate_single_walker(params, data, {}, None, key)
+    stats = _eval_sharded(estimator, params, positions)
 
-    expected = _reference_weighted_kinetic(log_psi, params, positions, weights)
+    expected = jax.vmap(
+        lambda pos: _reference_weighted_kinetic(log_psi, params, pos, weights)
+    )(positions)
     np.testing.assert_allclose(stats["energy:kinetic"], expected, rtol=1e-5, atol=1e-6)
 
 
-@pytest.mark.parametrize("mode", [LaplacianMode.scan, LaplacianMode.forward_laplacian])
+@pytest.mark.parametrize("mode", LAPLACIAN_MODES)
 def test_uniform_array_prefactor_matches_scalar(mode):
     """A constant array prefactor equals the scalar prefactor of the same value."""
     if mode == LaplacianMode.forward_laplacian:
-        pytest.importorskip("folx")
         pytest.importorskip("jax", minversion="0.7.1")
 
     def log_psi(params, data):
@@ -672,8 +693,7 @@ def test_uniform_array_prefactor_matches_scalar(mode):
         return 0.7 * jnp.sum(positions**2) + 0.2j * jnp.sum(positions)
 
     key = jax.random.key(99)
-    positions = jax.random.normal(key, (5, 3))
-    data = SimpleData(positions=positions)
+    positions = jax.random.normal(key, (jax.device_count() * 2, 5, 3))
     params: dict[str, jnp.ndarray] = {}
 
     value = 3.3
@@ -684,11 +704,11 @@ def test_uniform_array_prefactor_matches_scalar(mode):
         mode=mode,
         f_log_psi=log_psi,
         data_field="positions",
-        prefactor=[value] * positions.shape[0],
+        prefactor=[value] * positions.shape[1],
     )
 
-    scalar_stats, _ = scalar.evaluate_single_walker(params, data, {}, None, key)
-    array_stats, _ = array.evaluate_single_walker(params, data, {}, None, key)
+    scalar_stats = _eval_sharded(scalar, params, positions)
+    array_stats = _eval_sharded(array, params, positions)
 
     np.testing.assert_allclose(
         array_stats["energy:kinetic"],
