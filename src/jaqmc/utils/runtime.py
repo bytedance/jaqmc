@@ -6,7 +6,10 @@
 import logging
 import sys
 import time
+from dataclasses import field
 from typing import Literal
+
+import jax
 
 from jaqmc.utils.config import ConfigManagerLike, configurable_dataclass
 
@@ -64,35 +67,52 @@ class CategoryFormatter(logging.Formatter):
 class JaxConfig:
     """Configuration for JAX global runtime flags.
 
+    Fields default to the active ``jax.config`` state so standard ``JAX_*``
+    environment variables work as usual unless overridden in ``jax.*``, except
+    ``default_matmul_precision``, which defaults to ``"float32"`` when
+    ``JAX_DEFAULT_MATMUL_PRECISION`` is unset.
+
     Args:
-        enable_x64: Enable 64-bit types for JAX arrays that request them. Does not
-            upgrade existing parameters. In JaQMC wavefunctions (Flax modules), layer
-            weights stay ``float32`` by default and direct ``self.param`` calls use
-            ``float32`` by convention, so parameters remain ``float32`` even when
+        enable_x64: Whether to allow 64-bit JAX dtypes (``float64`` and
+            ``complex128``) instead of truncating them to 32-bit. Built-in
+            wavefunction parameters remain ``float32`` by default even when
             ``enable_x64=true``.
-        debug_infs: Add inf checks to every operation.
-            When an inf is detected on the output of a jit-compiled computation, call
-            into the un-compiled version in an attempt to more precisely identify the
-            operation which produced the inf.
-        debug_nans: Add nan checks to every operation.
-            When a nan is detected on the output of a jit-compiled computation, call
-            into the un-compiled version in an attempt to more precisely identify the
-            operation which produced the nan.
-        default_matmul_precision: Control the default matmul precision for 32bit inputs.
-            Leave unset to keep the JAX default.
-        disable_jit: Disable JIT compilation and just call original Python.
+        debug_infs: Whether to check every operation for ``inf`` values and
+            re-run failing JIT computations without compilation to pinpoint the
+            source operation.
+        debug_nans: Whether to check every operation for ``NaN`` values and
+            re-run failing JIT computations without compilation to pinpoint the
+            source operation.
+        disable_jit: Whether to disable JIT compilation and execute operations
+            in eager Python mode.
+        default_matmul_precision: Default matmul precision for 32-bit inputs
+            (such as ``"float32"`` / ``"highest"``, ``"tensorfloat32"`` /
+            ``"high"``, or ``"bfloat16"`` / ``"fastest"``). Defaults to
+            ``"float32"`` when ``JAX_DEFAULT_MATMUL_PRECISION`` is unset so GPUs
+            use full single-precision matmuls instead of TensorFloat-32 (TF32) on
+            NVIDIA Ampere and newer architectures.
     """
 
-    enable_x64: bool = False
-    debug_infs: bool = False
-    debug_nans: bool = False
-    disable_jit: bool = False
-    default_matmul_precision: str = "float32"
+    enable_x64: bool = field(
+        default_factory=lambda: bool(jax.config.values["jax_enable_x64"])
+    )
+    debug_infs: bool = field(
+        default_factory=lambda: bool(jax.config.values["jax_debug_infs"])
+    )
+    debug_nans: bool = field(
+        default_factory=lambda: bool(jax.config.values["jax_debug_nans"])
+    )
+    disable_jit: bool = field(
+        default_factory=lambda: bool(jax.config.values["jax_disable_jit"])
+    )
+    default_matmul_precision: str = field(
+        default_factory=lambda: (
+            jax.config.values["jax_default_matmul_precision"] or "float32"
+        )
+    )
 
     def apply(self) -> None:
         """Apply JAX global configuration flags."""
-        import jax
-
         jax.config.update("jax_enable_x64", self.enable_x64)
         jax.config.update("jax_debug_infs", self.debug_infs)
         jax.config.update("jax_debug_nans", self.debug_nans)
@@ -126,8 +146,6 @@ class DistributedConfig:
 
     def init_runtime(self) -> None:
         """Initialize JAX distributed runtime for multi-host training."""
-        import jax
-
         if self.coordinator_address is None or self.num_processes == 1:
             logger.info("Initialize a local runtime.")
             return
