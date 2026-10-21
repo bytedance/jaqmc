@@ -11,7 +11,8 @@ class Standard:
     r"""Standard learning rate schedule.
 
     .. math::
-        \text{lr}(t) = \text{rate} \cdot \left(
+        \text{lr}(t) = \text{rate} \cdot \min\!\left(1,\;
+            \frac{t}{\text{warmup}}\right) \cdot \left(
             \frac{1}{1+t/\text{delay}}\right
         )^\text{decay}
 
@@ -19,14 +20,19 @@ class Standard:
         rate: Initial learning rate.
         delay: Delay in steps before decay starts.
         decay: Decay rate exponent.
+        warmup: Linear warmup period in steps; 0 disables warmup.
     """
 
     rate: float = 0.05
     delay: float = 2000
     decay: float = 1
+    warmup: float = 0
 
     def __call__(self, t: int | jnp.ndarray) -> float | jnp.ndarray:
-        return self.rate * (1.0 / (1.0 + (t / self.delay))) ** self.decay
+        lr = self.rate * (1.0 / (1.0 + (t / self.delay))) ** self.decay
+        if self.warmup > 0:
+            lr = lr * jnp.minimum(1.0, t / self.warmup)
+        return lr
 
 
 @configurable_dataclass

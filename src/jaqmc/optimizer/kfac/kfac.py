@@ -123,7 +123,7 @@ class KFACOptimizer:
     def update(
         self,
         grads: optax.Updates,
-        state: optax.OptState,
+        state: KFACState,
         params: Params,
         *,
         batched_data: BatchedData,

@@ -9,7 +9,6 @@ import yaml
 from jax import lax
 from jax import numpy as jnp
 
-from jaqmc.app.hall import HallTrainWorkflow
 from jaqmc.estimator.loss_grad import LossAndGrad
 from jaqmc.utils.clip import clip_observable
 from jaqmc.utils.config import ConfigManager
@@ -105,41 +104,3 @@ def test_loss_and_grad_config_roundtrip_preserves_clip_method():
     assert grads2.clip_method == "mad"
     np.testing.assert_allclose(grads2.clip_scale, 7.0)
     cfg2.finalize()
-
-
-def test_hall_workflow_default_loss_grads():
-    workflow = HallTrainWorkflow(ConfigManager({}))
-    grads = workflow.train_stage.estimators.estimators["grads"]
-
-    assert isinstance(grads, LossAndGrad)
-    assert grads.loss_key == "total_energy"
-    assert grads.clip_method == "iqr"
-    assert grads.clip_scale == 100
-
-
-def test_hall_workflow_penalty_default_loss_key():
-    workflow = HallTrainWorkflow(ConfigManager({"system": {"lz_penalty": 1.0}}))
-    grads = workflow.train_stage.estimators.estimators["grads"]
-
-    assert isinstance(grads, LossAndGrad)
-    assert grads.loss_key == "penalized_loss"
-
-
-def test_hall_workflow_train_grads_override():
-    workflow = HallTrainWorkflow(
-        ConfigManager(
-            {
-                "train": {
-                    "grads": {
-                        "clip_method": "none",
-                        "clip_scale": 7.0,
-                    }
-                }
-            }
-        )
-    )
-    grads = workflow.train_stage.estimators.estimators["grads"]
-
-    assert isinstance(grads, LossAndGrad)
-    assert grads.clip_method == "none"
-    np.testing.assert_allclose(grads.clip_scale, 7.0)

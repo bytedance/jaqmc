@@ -1,10 +1,11 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-r"""Kinetic energy estimator on a sphere with magnetic monopole.
+r"""Kinetic energy estimator on a sphere, optionally with a magnetic monopole.
 
-Computes :math:`\Lambda^2 / (2R^2)` on a Haldane sphere with monopole
-strength :math:`Q`.
+Computes :math:`\Lambda^2 / (2R^2)` for monopole strength :math:`Q`. At
+:math:`Q = 0` this is the ordinary Laplace-Beltrami kinetic energy; at
+:math:`Q \neq 0` it is the covariant kinetic energy on the Haldane sphere.
 
 .. seealso:: :doc:`/guide/estimators/kinetic` for the full formulation.
 """
@@ -20,7 +21,6 @@ from jaqmc.estimator.base import PerWalkerEstimator
 from jaqmc.geometry.sphere import (
     spinor_coordinates_from_stereographic,
     stereographic_coordinates,
-    stereographic_monopole_connection,
 )
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.func_transform import grad_maybe_complex, linearize_maybe_complex
@@ -34,6 +34,31 @@ from ._common import (
 )
 
 
+def _stereographic_monopole_connection(
+    plane: jnp.ndarray, is_north: jnp.ndarray, monopole_strength: float
+) -> jnp.ndarray:
+    r"""Monopole connection :math:`A\propto(-y,x)` in the local chart.
+
+    This is the regular local gauge matching the spinors returned by
+    :func:`~jaqmc.geometry.sphere.spinor_coordinates_from_stereographic`: it is
+    the symmetric-gauge potential :math:`A^{\mathrm{sym}}_\phi =
+    Q\cos\theta/\sin\theta` shifted by the gauge transformation :math:`\mp Q\phi`
+    that removes the Dirac string from the chart's own pole.
+
+    Args:
+        plane: Local stereographic coordinates with trailing ``(x, y)`` axis.
+        is_north: Whether the north chart was selected per electron.
+        monopole_strength: Monopole strength :math:`Q = \mathrm{flux}/2`.
+
+    Returns:
+        Connection one-form with the same ``(..., 2)`` shape as ``plane``.
+    """
+    x, y = plane[..., 0], plane[..., 1]
+    chart_sign = jnp.where(is_north, -1.0, 1.0)
+    scale = 2 * chart_sign * monopole_strength / (1 + x**2 + y**2)
+    return jnp.stack([-scale * y, scale * x], axis=-1)
+
+
 @configurable_dataclass
 class SphericalKinetic(PerWalkerEstimator):
     r"""Local kinetic-energy estimator on a sphere.
@@ -42,8 +67,9 @@ class SphericalKinetic(PerWalkerEstimator):
     monopole gauge, making the calculation regular at the poles.
 
     Args:
-        monopole_strength: Monopole strength :math:`Q = \mathrm{flux}/2`.
-        radius: Sphere radius. Defaults to :math:`\sqrt{Q}` for ``Q > 0``.
+        monopole_strength: Monopole strength :math:`Q = \mathrm{flux}/2`. Zero
+            gives the field-free sphere.
+        radius: Sphere radius.
         mode: Laplacian computation strategy. ``forward_laplacian`` is the default
             for JAX 0.7.1 and later, ``scan`` for earlier versions. See
             :class:`LaplacianMode` for details.
@@ -51,8 +77,8 @@ class SphericalKinetic(PerWalkerEstimator):
         data_field: Electron-coordinate field name.
     """
 
-    monopole_strength: float = 1.0
-    radius: float | None = None
+    monopole_strength: float = 0.0
+    radius: float = 1.0
     mode: LaplacianMode = default_laplacian_mode()
     f_log_psi_from_spinor: Callable[[Params, jnp.ndarray, jnp.ndarray], jnp.ndarray] = (
         runtime_dep()
@@ -77,8 +103,8 @@ class SphericalKinetic(PerWalkerEstimator):
         plane, is_north = stereographic_coordinates(electrons)
         sqrt_metric = (1 + jnp.sum(plane**2, axis=-1)) / 2
         metric = sqrt_metric**2
-        radius = jnp.array(self.radius if self.radius is not None else jnp.sqrt(Q))
-        connection = stereographic_monopole_connection(plane, is_north, Q)
+        radius = jnp.array(self.radius)
+        connection = _stereographic_monopole_connection(plane, is_north, Q)
 
         def f(p: Params, x: jnp.ndarray) -> jnp.ndarray:
             u, v = spinor_coordinates_from_stereographic(x, is_north)

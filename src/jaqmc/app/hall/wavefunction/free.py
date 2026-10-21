@@ -71,10 +71,13 @@ class Free(HallWavefunction):
     Args:
         nspins: ``(n_up, n_down)`` electron counts.
         flux: Magnetic flux :math:`2Q`.
+        interaction_strength: Coulomb interaction scaling factor accepted for
+            shared Hall workflow wiring. The free wavefunction does not use it.
     """
 
     nspins: tuple[int, int] = runtime_dep()
     flux: int = runtime_dep()
+    interaction_strength: float = runtime_dep()
 
     def setup(self):
         orbitals = []

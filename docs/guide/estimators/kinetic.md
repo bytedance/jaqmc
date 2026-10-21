@@ -48,18 +48,22 @@ complex-number and primitive-handler contracts live. Continue to
 
 ## Spherical kinetic energy
 
-For the fractional quantum Hall (FQHE) workflow on a Haldane sphere with monopole
-strength $Q$, the local kinetic energy is
+On a sphere of radius $R$ with a magnetic monopole of strength $Q$ at its
+center, the local kinetic energy is
 
 $$
 E_\text{kin} = \frac{|\Lambda|^2 \psi}{2R^2 \psi}.
 $$
 
 Here $\Lambda = \vec r\times(-i\nabla-A)$ is the kinetic angular momentum and
-$R$ is the sphere radius (defaulting to $\sqrt{Q}$). The physics is
-straightforward (see section 3.10.3 of *Composite Fermions* by Jain); the
-difficulty is numerical. Two distinct singularities must be removed before the
-derivatives can be evaluated stably:
+$A$ is the monopole gauge potential. For $Q \neq 0$ this is the Haldane sphere
+of the fractional quantum Hall (FQHE) workflow, where $R$ defaults to
+$\sqrt{Q}$. For $Q = 0$, $A$ vanishes and $|\Lambda|^2/R^2$ reduces to minus
+the Laplace--Beltrami operator on the sphere.
+
+The operator itself is standard (see section 3.10.3 of *Composite Fermions* by
+Jain); the difficulty is numerical. Two distinct singularities must be removed
+before the derivatives can be evaluated stably:
 
 1. **Coordinate singularity.** In the usual polar-coordinate representation,
    measuring how rapidly the wavefunction changes per unit physical distance

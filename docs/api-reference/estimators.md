@@ -36,6 +36,7 @@ API reference for built-in estimators. For background, formulas, and configurati
 
 ```{eval-rst}
 .. autoclass:: jaqmc.estimator.angular_momentum.SphericalAngularMomentum
+.. autoclass:: jaqmc.estimator.angular_momentum.SphericalAngularMomentumProjection
 ```
 
 ### Ewald summation

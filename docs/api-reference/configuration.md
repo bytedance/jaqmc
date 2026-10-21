@@ -45,9 +45,3 @@ Components use {func}`~jaqmc.utils.wiring.runtime_dep` to declare dependencies t
 
 .. autofunction:: jaqmc.utils.yaml_format.annotate_yaml_with_sources
 ```
-
-## Config-facing enums
-
-```{eval-rst}
-.. autoclass:: jaqmc.app.hall.config.InteractionType
-```

@@ -1,14 +1,15 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-"""Spherical geometry utilities for the Haldane sphere.
+"""Geometry utilities for the unit two-sphere.
 
-Covers coordinate charts, monopole spinors, the monopole connection, and MCMC
-proposals for the Haldane sphere.
+Covers coordinate charts, SU(2) spinor coordinates, Haar rotation samples, and
+MCMC proposals. Nothing here depends on a monopole flux.
 """
 
 import jax
 from jax import numpy as jnp
+from jax.scipy.spatial.transform import Rotation
 
 from jaqmc.array_types import PRNGKey
 
@@ -33,6 +34,80 @@ def cartesian_from_spinor(u: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
         jnp.stack([2 * jnp.real(uv), -2 * jnp.imag(uv), u_abs2 - v_abs2], axis=-1)
         / norm_squared[..., None]
     )
+
+
+def _sample_haar_quaternions(
+    key: PRNGKey, n_samples: int, dtype: jnp.dtype
+) -> jnp.ndarray:
+    """Sample unit quaternions uniformly on the three-sphere.
+
+    Normalized isotropic Gaussians in four dimensions, in ``(x, y, z, w)``
+    component order.
+
+    Returns:
+        Quaternion components ``(x, y, z, w)`` with shape
+        ``(n_samples, 4)``.
+
+    Raises:
+        ValueError: If ``n_samples`` is negative.
+    """
+    if n_samples < 0:
+        raise ValueError("n_samples must be nonnegative.")
+    if n_samples == 0:
+        return jnp.empty((0, 4), dtype=dtype)
+    quaternions = jax.random.normal(key, (n_samples, 4), dtype=dtype)
+    return quaternions / jnp.linalg.norm(quaternions, axis=-1, keepdims=True)
+
+
+def sample_haar_su2(
+    key: PRNGKey, n_samples: int, dtype: jnp.dtype = jnp.float32
+) -> jnp.ndarray:
+    r"""Sample fundamental-representation matrices from Haar measure on :math:`SU(2)`.
+
+    Unit quaternions ``(x, y, z, w)`` map to
+    :math:`a=w+iz`, :math:`b=y+ix`, and
+    :math:`\left(\begin{smallmatrix}a&b\\-b^*&a^*\end{smallmatrix}\right)`.
+
+    Args:
+        key: PRNG key.
+        n_samples: Number of matrices to draw. Zero returns an empty batch.
+        dtype: Real dtype of the quaternion sample; the matrices are complex.
+
+    Returns:
+        Complex matrices with shape ``(n_samples, 2, 2)``.
+    """
+    quaternions = _sample_haar_quaternions(key, n_samples, dtype)
+    x, y, z, w = jnp.moveaxis(quaternions, -1, 0)
+    a = w + 1j * z
+    b = y + 1j * x
+    return jnp.stack(
+        [
+            jnp.stack([a, b], axis=-1),
+            jnp.stack([-jnp.conj(b), jnp.conj(a)], axis=-1),
+        ],
+        axis=-2,
+    )
+
+
+def sample_haar_so3(
+    key: PRNGKey, n_samples: int, dtype: jnp.dtype = jnp.float32
+) -> jnp.ndarray:
+    r"""Sample rotation matrices from Haar measure on :math:`SO(3)`.
+
+    Unit quaternions uniform on the three-sphere map to Haar-uniform rotations.
+
+    Args:
+        key: PRNG key.
+        n_samples: Number of matrices to draw. Zero returns an empty batch.
+        dtype: Floating-point dtype of the returned matrices.
+
+    Returns:
+        Real matrices with shape ``(n_samples, 3, 3)``.
+    """
+    if n_samples == 0:
+        return jnp.empty((0, 3, 3), dtype=dtype)
+    quaternions = _sample_haar_quaternions(key, n_samples, dtype)
+    return Rotation.from_quat(quaternions).as_matrix()
 
 
 def spinor_coordinates_from_angles(
@@ -105,31 +180,6 @@ def spinor_coordinates_from_stereographic(
     u = jnp.where(is_north, north_u, south_u)
     v = jnp.where(is_north, north_v, south_v)
     return u, v
-
-
-def stereographic_monopole_connection(
-    plane: jnp.ndarray, is_north: jnp.ndarray, monopole_strength: float
-) -> jnp.ndarray:
-    r"""Monopole connection :math:`A\propto(-y,x)` in the local chart.
-
-    This is the regular local gauge matching the spinors returned by
-    :func:`spinor_coordinates_from_stereographic`: it is the symmetric-gauge
-    potential :math:`A^{\mathrm{sym}}_\phi = Q\cos\theta/\sin\theta` shifted by
-    the gauge transformation :math:`\mp Q\phi` that removes the Dirac string
-    from the chart's own pole.
-
-    Args:
-        plane: Local stereographic coordinates with trailing ``(x, y)`` axis.
-        is_north: Whether the north chart was selected per electron.
-        monopole_strength: Monopole strength :math:`Q = \mathrm{flux}/2`.
-
-    Returns:
-        Connection one-form with the same ``(..., 2)`` shape as ``plane``.
-    """
-    x, y = plane[..., 0], plane[..., 1]
-    chart_sign = jnp.where(is_north, -1.0, 1.0)
-    scale = 2 * chart_sign * monopole_strength / (1 + x**2 + y**2)
-    return jnp.stack([-scale * y, scale * x], axis=-1)
 
 
 def _sphere_move(rngs: PRNGKey, x: jnp.ndarray, stddev: float | jnp.ndarray):

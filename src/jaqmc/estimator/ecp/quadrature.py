@@ -10,11 +10,10 @@ polyhedron-based quadrature rules (icosahedral and octahedral).
 from enum import StrEnum
 from typing import ClassVar
 
-import jax
 from jax import numpy as jnp
-from jax.scipy.spatial.transform import Rotation
 
 from jaqmc.array_types import PRNGKey
+from jaqmc.geometry.sphere import sample_haar_so3
 
 __all__ = [
     "ECPQuadrature",
@@ -90,7 +89,7 @@ class Quadrature:
         *,
         dtype: jnp.dtype = jnp.float32,
     ) -> jnp.ndarray:
-        """Sample random rotation matrices for unbiased integration.
+        """Sample Haar-uniform rotation matrices for unbiased integration.
 
         Args:
             n_samples: Number of rotation matrices to sample.
@@ -100,13 +99,7 @@ class Quadrature:
         Returns:
             Rotation matrices of shape (n_samples, 3, 3).
         """
-        if n_samples == 0:
-            return jnp.empty((0, 3, 3), dtype=dtype)
-
-        # Normalizing an isotropic Gaussian vector gives a uniform point on
-        # S^3, whose unit-quaternion map to SO(3) is Haar-uniform.
-        quaternions = jax.random.normal(key, shape=(n_samples, 4), dtype=dtype)
-        return Rotation.from_quat(quaternions).as_matrix()
+        return sample_haar_so3(key, n_samples, dtype)
 
     def sample_rotated_points(self, n_samples: int, key: PRNGKey) -> jnp.ndarray:
         """Generate randomly rotated quadrature points for unbiased integration.
