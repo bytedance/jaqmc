@@ -192,7 +192,7 @@ estimators = {
 }
 
 pipeline = EstimatorPipeline(estimators)
-estimator_state = pipeline.init(batched_data, jax.random.PRNGKey(0))
+estimator_state = pipeline.init(batched_data, jax.random.key(0))
 ```
 
 ### Using `shard_map` for device-parallel evaluation
@@ -232,7 +232,7 @@ evaluate = parallel_jax.jit_sharded(
 )
 
 mean_stats, estimator_state = evaluate(
-    params, batched_data, estimator_state, jax.random.PRNGKey(1)
+    params, batched_data, estimator_state, jax.random.key(1)
 )
 
 # finalize_stats() expects a leading step dimension — add one for single-step use
@@ -269,9 +269,9 @@ slideshow:
 ---
 def compute_local_energy(params, data):
     kinetic_stats, _ = kinetic_est.evaluate_single_walker(
-        params, data, {}, None, jax.random.PRNGKey(0)
+        params, data, {}, None, jax.random.key(0)
     )
-    potential_stats, _ = potential_energy(params, data, {}, None, jax.random.PRNGKey(0))
+    potential_stats, _ = potential_energy(params, data, {}, None, jax.random.key(0))
     return kinetic_stats["energy:kinetic"] + potential_stats["energy:potential"]
 
 compute_local_energies = parallel_jax.jit_sharded(

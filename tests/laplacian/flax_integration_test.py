@@ -25,7 +25,7 @@ class TestFlaxModuleApply:
 
         module = TinyModule()
         x = jnp.array([0.5, -0.3, 1.2], dtype=jnp.float32)
-        params = module.init(jax.random.PRNGKey(0), x)
+        params = module.init(jax.random.key(0), x)
 
         fn = lambda value: module.apply(params, value)
         check_with_brute_force(fn, x, rtol=1e-4)
@@ -49,7 +49,7 @@ class TestFlaxCustomRuleRegistration:
 
         module = SquareModule()
         params = module.init(
-            jax.random.PRNGKey(0),
+            jax.random.key(0),
             jnp.array([1.0], dtype=jnp.float32),
             method=module.square,
         )
@@ -84,7 +84,7 @@ class TestFlaxCustomRuleRegistration:
 
         module = SquareModule()
         params = module.init(
-            jax.random.PRNGKey(0),
+            jax.random.key(0),
             jnp.array([1.0], dtype=jnp.float32),
             method=module.square,
         )

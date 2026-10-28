@@ -32,7 +32,7 @@ def _sample(key, batch, nelec):
 def _kinetic(estimator, electrons):
     def single(x):
         stats, _ = estimator.evaluate_single_walker(
-            {}, {"electrons": x}, {}, None, jax.random.PRNGKey(0)
+            {}, {"electrons": x}, {}, None, jax.random.key(0)
         )
         return stats["energy:kinetic"]
 
@@ -56,7 +56,7 @@ def test_filled_l1_shell_without_monopole(mode):
         mode=mode,
         f_log_psi_from_spinor=_slater_logpsi(cartesian_from_spinor),
     )
-    kinetic = _kinetic(estimator, _sample(jax.random.PRNGKey(1898), 2, nelec=3))
+    kinetic = _kinetic(estimator, _sample(jax.random.key(1898), 2, nelec=3))
     assert jnp.allclose(kinetic, 3, atol=1e-3)
 
 
@@ -74,5 +74,5 @@ def test_lowest_landau_level(nelec, Q, mode):
         mode=mode,
         f_log_psi_from_spinor=_slater_logpsi(lll_orbitals),
     )
-    kinetic = _kinetic(estimator, _sample(jax.random.PRNGKey(1898), 2, nelec))
+    kinetic = _kinetic(estimator, _sample(jax.random.key(1898), 2, nelec))
     assert jnp.allclose(kinetic, nelec / 2, atol=1e-3)

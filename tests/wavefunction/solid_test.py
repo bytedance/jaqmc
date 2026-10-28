@@ -23,7 +23,7 @@ PRIMITIVE_LATTICE = jnp.eye(NDIM) * 5.0
 class TestSolidModules:
     @pytest.fixture(autouse=True)
     def setup_data(self):
-        self.key = jax.random.PRNGKey(0)
+        self.key = jax.random.key(0)
         self.electrons = jax.random.normal(self.key, (NELEC, NDIM))
         self.atoms = jax.random.normal(self.key, (NATOM, NDIM))
 

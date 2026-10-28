@@ -583,10 +583,7 @@ LAPLACIAN_MODES = (
 def _eval_sharded(estimator: EuclideanKinetic, params, positions: jnp.ndarray):
     batched = BatchedData(SimpleData(positions=positions), ["positions"])
     sharding = parallel_jax.make_sharding(batched.partition_spec)
-    key = jax.device_put(
-        jax.random.split(jax.random.PRNGKey(0), jax.device_count()).flatten(),
-        parallel_jax.make_sharding(parallel_jax.DATA_PARTITION),
-    )
+    key = parallel_jax.shard_rngs(jax.random.key(0))
     run = parallel_jax.jit_sharded(
         lambda b, k: estimator.evaluate_batch_walkers(params, b, {}, None, k)[0],
         in_specs=(batched.partition_spec, parallel_jax.DATA_PARTITION),

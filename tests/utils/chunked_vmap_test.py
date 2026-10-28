@@ -58,7 +58,7 @@ def test_chunked_vmap_preserves_none_output_leaf():
     data = jnp.arange(10.0)
     prev_walker_stats: dict[str, Any] = {}
     state = None
-    rngs = jax.random.split(jax.random.PRNGKey(0), 10)
+    rngs = jax.random.split(jax.random.key(0), 10)
     in_axes = (None, 0, 0, None, 0)
 
     y_ref = jax.vmap(evaluate_single_walker, in_axes=in_axes)(

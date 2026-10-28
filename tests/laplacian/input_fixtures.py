@@ -37,7 +37,7 @@ def random_array(
         return random_array("real", shape, key) + 1j * random_array(
             "real", shape, key + 1
         )
-    rng = jax.random.PRNGKey(1234 + key)
+    rng = jax.random.key(1234 + key)
     bounds = DOMAIN_BOUNDS[domain]
     if bounds is None:
         return jax.random.normal(rng, shape)

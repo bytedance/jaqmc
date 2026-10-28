@@ -4,6 +4,7 @@
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+import jax
 import numpy as np
 from jax import numpy as jnp
 from jax.typing import ArrayLike
@@ -19,7 +20,15 @@ type ArrayLikeTree = ArrayLike | Sequence[ArrayLikeTree] | Mapping[str, ArrayLik
 type ArrayDict = dict[str, jnp.ndarray]
 type NumpyArrayDict = dict[str, np.ndarray]
 
-type PRNGKey = jnp.ndarray
+type PRNGKey = jax.Array
+"""Random key array created by :func:`jax.random.key`."""
 
 type Params = ArrayTree
 """Parameter PyTree for wavefunction."""
+
+
+def is_jax_key(x: Any) -> bool:
+    """Return whether ``x`` is a typed JAX random key array."""
+    return isinstance(x, jax.Array) and jax.dtypes.issubdtype(
+        x.dtype, jax.dtypes.prng_key
+    )

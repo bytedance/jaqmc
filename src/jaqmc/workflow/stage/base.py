@@ -158,10 +158,7 @@ class WorkStage[StateT: StageState](ABC):
         if self.config.iterations <= initial_step:
             return state
 
-        rngs = jax.device_put(
-            jax.random.split(rngs, jax.device_count()).flatten(),
-            parallel_jax.make_sharding(parallel_jax.DATA_PARTITION),
-        )
+        rngs = parallel_jax.shard_rngs(rngs)
 
         def save(step: int, st: StateT) -> None:
             gathered = st.process_allgather()

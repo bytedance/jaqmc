@@ -32,7 +32,7 @@ from tests.laplacian.helpers import check_with_brute_force
 from tests.utils.reference_fixtures import write_molecule_pyscf_reference
 
 # Shared test key
-TEST_KEY = jax.random.PRNGKey(42)
+TEST_KEY = jax.random.key(42)
 
 
 def make_test_data(nspins: tuple[int, int], key: jax.Array = TEST_KEY) -> MoleculeData:
@@ -69,7 +69,7 @@ class TestAntisymmetry:
         """Swapping two same-spin electrons must flip the sign and preserve |psi|."""
         wf = wf_cls(nspins=(2, 0), **wf_kwargs)
 
-        key = jax.random.PRNGKey(42)
+        key = jax.random.key(42)
         electrons = jax.random.normal(key, (2, 3))
         data = MoleculeData(electrons, jnp.array([[0.0, 0.0, 0.0]]), jnp.array([2.0]))
         params = wf.init_params(data, key)
@@ -107,7 +107,7 @@ class TestAntisymmetry:
         """
         wf = wf_cls(nspins=(1, 1), **wf_kwargs)
 
-        key = jax.random.PRNGKey(42)
+        key = jax.random.key(42)
         electrons = jax.random.normal(key, (2, 3))
         data = MoleculeData(electrons, jnp.array([[0.0, 0.0, 0.0]]), jnp.array([2.0]))
         params = wf.init_params(data, key)
@@ -294,7 +294,7 @@ class TestGradientFlow:
         num_heads = 2
         head_dim = 4
         nelec = 3
-        key = jax.random.PRNGKey(7)
+        key = jax.random.key(7)
         q_key, k_key, value_key = jax.random.split(key, 3)
         query = jax.random.normal(q_key, (nelec, num_heads, head_dim))
         key_features = jax.random.normal(k_key, (nelec, num_heads, head_dim))
@@ -316,7 +316,7 @@ class TestGradientFlow:
         num_heads = 2
         head_dim = 8
         nelec = 2
-        key = jax.random.PRNGKey(11)
+        key = jax.random.key(11)
         q_key, k_key, value_key = jax.random.split(key, 3)
         query = jax.random.normal(q_key, (nelec, num_heads, head_dim))
         key_features = jax.random.normal(k_key, (nelec, num_heads, head_dim))
@@ -586,7 +586,7 @@ class TestCuspCondition:
             envelope=envelope,
         )
 
-        key = jax.random.PRNGKey(42)
+        key = jax.random.key(42)
         key1, key2, key3 = jax.random.split(key, 3)
         init_data = make_test_data(nspins, key1)
         params = wf.init_params(init_data, key2)

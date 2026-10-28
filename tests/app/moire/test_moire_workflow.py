@@ -69,7 +69,7 @@ def test_joint_proposal_moves_positions_and_spin_coords_together():
     sampler.configure(lattice)
     proposal = sampler.sampling_proposal
     data = {"positions": jnp.zeros((32, 2, 2)), "spin_coords": jnp.zeros((32, 2))}
-    out = proposal(jax.random.PRNGKey(0), data, jnp.array(0.2))
+    out = proposal(jax.random.key(0), data, jnp.array(0.2))
     assert out["positions"].shape == data["positions"].shape
     assert out["spin_coords"].shape == data["spin_coords"].shape
     pos_step = np.asarray(out["positions"] - data["positions"])

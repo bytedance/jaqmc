@@ -3,8 +3,12 @@
 
 import logging
 from contextlib import suppress
+from functools import wraps
 
 import jax
+from jax import numpy as jnp
+
+from jaqmc.array_types import PRNGKey, is_jax_key
 
 logger = logging.LoggerAdapter(
     logging.getLogger(__name__), extra={"category": "parallel"}
@@ -35,15 +39,54 @@ def make_sharding(partition):
     return jax.tree.map(lambda spec: jax.sharding.NamedSharding(mesh, spec), partition)
 
 
+def _split_rng(rng: PRNGKey) -> PRNGKey:
+    return jax.random.split(rng, jax.device_count())
+
+
+def shard_rngs(rng: PRNGKey) -> PRNGKey:
+    """Split a random key across all devices and shard along the batch axis.
+
+    Args:
+        rng: Scalar PRNG key to split across devices.
+
+    Returns:
+        A 1-D key array of length ``jax.device_count()`` sharded with
+        :data:`DATA_PARTITION`.
+    """
+    # We are not using decorator because `make_sharding` must be called lazily
+    return jax.jit(_split_rng, out_shardings=make_sharding(DATA_PARTITION))(rng)
+
+
 def shard_map(f, /, *, mesh, in_specs, out_specs, check_vma=True):
+    def map_keys(specs, tree, fn):
+        return jax.tree.map(
+            lambda s, sub: (
+                jax.tree.map(lambda x: fn(x) if is_jax_key(x) else x, sub)
+                if s == DATA_PARTITION
+                else sub
+            ),
+            specs,
+            tree,
+            is_leaf=lambda s: s is None or isinstance(s, jax.sharding.PartitionSpec),
+        )
+
+    @wraps(f)
+    def wrapped(*args):
+        out = f(*map_keys(in_specs, args, lambda x: jnp.squeeze(x, axis=0)))
+        return map_keys(out_specs, out, lambda x: jnp.expand_dims(x, axis=0))
+
     with suppress(AttributeError):
         return jax.shard_map(
-            f, mesh=mesh, in_specs=in_specs, out_specs=out_specs, check_vma=check_vma
+            wrapped,
+            mesh=mesh,
+            in_specs=in_specs,
+            out_specs=out_specs,
+            check_vma=check_vma,
         )
 
     from jax.experimental.shard_map import shard_map as exp_shard_map
 
-    return exp_shard_map(f, mesh, in_specs, out_specs, check_rep=check_vma)
+    return exp_shard_map(wrapped, mesh, in_specs, out_specs, check_rep=check_vma)
 
 
 def jit_sharded(fn, /, *, in_specs, out_specs, check_vma=True, donate_argnums=None):

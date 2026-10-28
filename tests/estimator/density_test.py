@@ -50,7 +50,7 @@ def _assert_bin(histogram: jnp.ndarray, index, expected: float) -> None:
     np.testing.assert_allclose(float(histogram[index]), expected)
 
 
-KEY = jax.random.PRNGKey(0)
+KEY = jax.random.key(0)
 
 
 # -------------------------------------------------------------------

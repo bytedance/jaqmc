@@ -97,8 +97,12 @@ class VMCWorkflow(Workflow):
         # We must use the same seed across all processes to ensure that replicated
         # parameters are initialized identically. Generation of different keys on
         # different devices (across processes) happens later. So no fold_in here.
-        seed = self.config.seed if self.config.seed is not None else int(time.time())
-        rngs = multihost_utils.broadcast_one_to_all(jax.random.PRNGKey(seed))
+        seed = int(
+            multihost_utils.broadcast_one_to_all(
+                self.config.seed if self.config.seed is not None else int(time.time())
+            )
+        )
+        rngs = jax.random.key(seed)
         context = self.run_context
 
         rngs, data_rngs = jax.random.split(rngs)
@@ -147,7 +151,7 @@ class VMCWorkflow(Workflow):
             checkpoint_path: Path to checkpoint file or directory.
             stage: Name of the stage to restore (``"train"`` or
                 ``"pretrain"``).
-            rngs: Random key for ``create_state``. Defaults to ``PRNGKey(0)``.
+            rngs: Random key for ``create_state``. Defaults to ``jax.random.key(0)``.
 
         Returns:
             Restored state
@@ -156,7 +160,7 @@ class VMCWorkflow(Workflow):
             ValueError: Invalid stage name passed.
         """
         if rngs is None:
-            rngs = jax.random.PRNGKey(0)
+            rngs = jax.random.key(0)
         stage_obj: WorkStage
         if stage == "pretrain" and self.pretrain_stage is not None:
             stage_obj = self.pretrain_stage

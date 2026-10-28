@@ -79,11 +79,11 @@ class TestOneRDMEvaluateSingleWalker:
         log_psi = _make_lll(nelec, Q=flux / 2)
         estimator = OneRDM(flux=flux, f_log_psi=log_psi)
 
-        data = HallData(electrons=_sample(jax.random.PRNGKey(0), 1, nelec)[0])
-        estimator.init(data, jax.random.PRNGKey(1))
+        data = HallData(electrons=_sample(jax.random.key(0), 1, nelec)[0])
+        estimator.init(data, jax.random.key(1))
 
         stats, _ = estimator.evaluate_single_walker(
-            {}, data, {}, None, jax.random.PRNGKey(2)
+            {}, data, {}, None, jax.random.key(2)
         )
         assert "one_rdm" in stats
         norbs = flux + 1
@@ -97,13 +97,13 @@ class TestOneRDMEvaluateSingleWalker:
         log_psi = _make_lll(nelec, Q=flux / 2)
         estimator = OneRDM(flux=flux, f_log_psi=log_psi)
 
-        data = HallData(electrons=_sample(jax.random.PRNGKey(0), 1, nelec)[0])
-        estimator.init(data, jax.random.PRNGKey(1))
+        data = HallData(electrons=_sample(jax.random.key(0), 1, nelec)[0])
+        estimator.init(data, jax.random.key(1))
 
         jitted = jax.jit(
             lambda d, k: estimator.evaluate_single_walker({}, d, {}, None, k)
         )
-        stats, _ = jitted(data, jax.random.PRNGKey(2))
+        stats, _ = jitted(data, jax.random.key(2))
         assert stats["one_rdm"].shape == (flux + 1, flux + 1)
 
 
@@ -131,10 +131,10 @@ class TestOneRDMSmoke:
         log_psi = setup["log_psi"]
 
         estimator = OneRDM(flux=flux, f_log_psi=log_psi)
-        sample_data = HallData(electrons=_sample(jax.random.PRNGKey(0), 1, nelec)[0])
-        estimator.init(sample_data, jax.random.PRNGKey(1))
+        sample_data = HallData(electrons=_sample(jax.random.key(0), 1, nelec)[0])
+        estimator.init(sample_data, jax.random.key(1))
 
-        key = jax.random.PRNGKey(42)
+        key = jax.random.key(42)
         all_step_stats: list[dict] = []
 
         for step in range(n_steps):
@@ -177,18 +177,18 @@ class TestOneRDMPipeline:
 
         estimator = OneRDM(flux=flux, f_log_psi=log_psi)
 
-        electrons = _sample(jax.random.PRNGKey(0), n_walkers, nelec)
+        electrons = _sample(jax.random.key(0), n_walkers, nelec)
         batched_data = BatchedData(
             data=HallData(electrons=electrons),
             fields_with_batch=["electrons"],
         )
 
-        estimator.init(batched_data.unbatched_example(), jax.random.PRNGKey(1))
+        estimator.init(batched_data.unbatched_example(), jax.random.key(1))
         state = None
 
         # evaluate_batch_walkers vmaps evaluate_single_walker over walkers
         walker_stats, state = estimator.evaluate_batch_walkers(
-            {}, batched_data, {}, state, jax.random.PRNGKey(2)
+            {}, batched_data, {}, state, jax.random.key(2)
         )
 
         norbs = flux + 1

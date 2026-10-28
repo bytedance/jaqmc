@@ -82,8 +82,8 @@ def _mhpo(
 
 
 def _init(wf, nelec, seed=0):
-    electrons = _sample(jax.random.PRNGKey(seed), 1, nelec)[0]
-    params = wf.init_params(HallData(electrons=electrons), jax.random.PRNGKey(1))
+    electrons = _sample(jax.random.key(seed), 1, nelec)[0]
+    params = wf.init_params(HallData(electrons=electrons), jax.random.key(1))
     return params, electrons
 
 
@@ -94,7 +94,7 @@ def _logpsi_fn(wf, params):
 def _batch_eval(estimator, params, electrons):
     def single(x):
         stats, _ = estimator.evaluate_single_walker(
-            params, HallData(electrons=x), {}, None, jax.random.PRNGKey(0)
+            params, HallData(electrons=x), {}, None, jax.random.key(0)
         )
         return stats
 
@@ -107,7 +107,7 @@ def _kinetic_near_pole(estimator, params, electrons, theta):
     for phi in (0.0, 1.3, -2.1):
         near_pole = electrons.at[0].set(jnp.array([theta, phi]))
         stats, _ = estimator.evaluate_single_walker(
-            params, HallData(electrons=near_pole), {}, None, jax.random.PRNGKey(0)
+            params, HallData(electrons=near_pole), {}, None, jax.random.key(0)
         )
         local_energies.append(stats["energy:kinetic"])
     return np.asarray(local_energies)
@@ -183,10 +183,10 @@ class TestSphericalCoulombJastrow:
     @pytest.mark.x64_modes
     def test_parameters_are_float32(self, x64_mode):
         input_dtype = jnp.float64 if x64_mode else jnp.float32
-        electrons = _sample(jax.random.PRNGKey(0), 1, 3)[0].astype(input_dtype)
+        electrons = _sample(jax.random.key(0), 1, 3)[0].astype(input_dtype)
         params = SphericalCoulombJastrow(
             nspins=(2, 1), interaction_strength=1.0, radius=1.0
-        ).init(jax.random.PRNGKey(1), _cartesian(electrons))
+        ).init(jax.random.key(1), _cartesian(electrons))
 
         assert all(param.dtype == jnp.float32 for param in jax.tree.leaves(params))
 
@@ -197,8 +197,8 @@ class TestSphericalCoulombJastrow:
         jastrow = SphericalCoulombJastrow(
             nspins=nspins, interaction_strength=1.0, radius=1.0
         )
-        electrons = _sample(jax.random.PRNGKey(7), 1, 3)[0]
-        params = jastrow.init(jax.random.PRNGKey(1), _cartesian(electrons))
+        electrons = _sample(jax.random.key(7), 1, 3)[0]
+        params = jastrow.init(jax.random.key(1), _cartesian(electrons))
         # Swap the two electrons sharing the majority spin channel.
         i, j = (0, 1) if nspins[0] >= 2 else (1, 2)
         swapped = electrons.at[i].set(electrons[j]).at[j].set(electrons[i])
@@ -210,14 +210,14 @@ class TestSphericalCoulombJastrow:
 
     def test_interaction_strength_scales_jastrow(self):
         """The exact 2D Coulomb cusp scales with interaction strength."""
-        cartesian = _cartesian(_sample(jax.random.PRNGKey(9), 1, 3)[0])
+        cartesian = _cartesian(_sample(jax.random.key(9), 1, 3)[0])
 
         def jastrow(strength):
             return SphericalCoulombJastrow(
                 nspins=(2, 1), interaction_strength=strength, radius=1.0
             )
 
-        params = jastrow(1.0).init(jax.random.PRNGKey(1), cartesian)
+        params = jastrow(1.0).init(jax.random.key(1), cartesian)
         np.testing.assert_allclose(
             jastrow(2.5).apply(params, cartesian),
             2.5 * jastrow(1.0).apply(params, cartesian),
@@ -237,7 +237,7 @@ class TestFree:
             radius=float(jnp.sqrt(flux / 2)),
             f_log_psi_from_spinor=wf.logpsi_from_spinor,
         )
-        stats = _batch_eval(estimator, params, _sample(jax.random.PRNGKey(42), 4, 3))
+        stats = _batch_eval(estimator, params, _sample(jax.random.key(42), 4, 3))
         np.testing.assert_allclose(stats["energy:kinetic"], 1.5, atol=1e-3)
 
     def test_overflow_into_next_landau_level(self):
@@ -282,7 +282,7 @@ class TestLaughlin:
             radius=float(jnp.sqrt(Q)),
             f_log_psi_from_spinor=wf.logpsi_from_spinor,
         )
-        electrons = _sample(jax.random.PRNGKey(1898), 2, nelec)
+        electrons = _sample(jax.random.key(1898), 2, nelec)
         stats = _batch_eval(estimator, params, electrons)
         np.testing.assert_allclose(stats["energy:kinetic"], nelec / 2, atol=1e-3)
 
@@ -298,7 +298,7 @@ class TestLaughlin:
         estimator = SphericalAngularMomentum(
             f_log_psi_from_spinor=wf.logpsi_from_spinor
         )
-        electrons = _sample(jax.random.PRNGKey(1898), 2, nelec)
+        electrons = _sample(jax.random.key(1898), 2, nelec)
         stats = _batch_eval(estimator, params, electrons)
 
         np.testing.assert_allclose(
@@ -324,7 +324,7 @@ class TestLaughlin:
         nelec, Q = 3, 3.0
         wf = _laughlin((nelec, 0), flux=int(2 * Q))
         params, _ = _init(wf, nelec)
-        electrons = _sample(jax.random.PRNGKey(1898), 1, nelec)[0]
+        electrons = _sample(jax.random.key(1898), 1, nelec)[0]
         estimator = SphericalKinetic(
             monopole_strength=Q,
             radius=float(jnp.sqrt(Q)),
@@ -401,7 +401,7 @@ def pair_factor_fallbacks(monkeypatch):
 
 def _neural_matrix_pair_factor(nelec, *, track_matrix=True):
     ndets, channels = 2, 2
-    key, coeff_key = jax.random.split(jax.random.PRNGKey(17))
+    key, coeff_key = jax.random.split(jax.random.key(17))
     coords = jax.random.normal(key, (nelec, 4), dtype=jnp.float64)
     coefficients = 0.02 * jax.random.normal(
         coeff_key,
@@ -451,7 +451,7 @@ class TestPairFactorLaplacianRule:
         self, pair_factor_fallbacks, conditioning, det_dependent
     ):
         nelec, ndets = 5, 2
-        coords = jax.random.normal(jax.random.PRNGKey(3), (nelec, 4), dtype=jnp.float64)
+        coords = jax.random.normal(jax.random.key(3), (nelec, 4), dtype=jnp.float64)
         dressing = Dressing(
             config=DressingConfig(
                 type="full",
@@ -470,9 +470,9 @@ class TestPairFactorLaplacianRule:
             h_one = jnp.tanh(x) + jnp.mean(jnp.tanh(x), axis=0)
             return z[:, 0], z[:, 1], h_one
 
-        params = dressing.init(jax.random.PRNGKey(0), orbitals, *inputs(coords))
+        params = dressing.init(jax.random.key(0), orbitals, *inputs(coords))
         params = jax.tree.map(
-            lambda p: 0.05 * jax.random.normal(jax.random.PRNGKey(5), p.shape, p.dtype),
+            lambda p: 0.05 * jax.random.normal(jax.random.key(5), p.shape, p.dtype),
             params,
         )
 

@@ -111,6 +111,63 @@ def test_pnanmean_weights_finite_values_across_devices():
     np.testing.assert_allclose(result, np.nanmean(values, axis=0), equal_nan=True)
 
 
+def test_shard_rngs_and_jit_sharded_typed_keys():
+    """Test shard_rngs and jit_sharded handle typed PRNG keys across devices."""
+    import jax
+
+    from jaqmc.utils import parallel_jax
+
+    expected_sharding = parallel_jax.make_sharding(parallel_jax.DATA_PARTITION)
+    rngs = parallel_jax.shard_rngs(jax.random.key(0))
+    assert rngs.shape == (jax.device_count(),)
+    assert rngs.sharding == expected_sharding
+
+    split_rngs = parallel_jax.jit_sharded(
+        lambda r: tuple(jax.random.split(r)),
+        in_specs=parallel_jax.DATA_PARTITION,
+        out_specs=parallel_jax.DATA_PARTITION,
+    )
+    next_rngs, sub_rngs = split_rngs(rngs)
+    assert next_rngs.shape == (jax.device_count(),)
+    assert sub_rngs.shape == (jax.device_count(),)
+    assert next_rngs.sharding == expected_sharding
+    assert sub_rngs.sharding == expected_sharding
+
+    sample_fn = parallel_jax.jit_sharded(
+        lambda r: jax.random.normal(r, (2, 3)),
+        in_specs=parallel_jax.DATA_PARTITION,
+        out_specs=parallel_jax.DATA_PARTITION,
+    )
+    samples = np.asarray(sample_fn(sub_rngs))
+    assert samples.shape == (jax.device_count() * 2, 3)
+    if jax.device_count() >= 2:
+        assert not np.allclose(samples[:2], samples[2:4])
+
+    # Replicated (SHARE_PARTITION) keys must preserve their shape without
+    # spurious squeezing or expanding.
+    shared_sharding = parallel_jax.make_sharding(parallel_jax.SHARE_PARTITION)
+    shared_scalar_key = jax.device_put(jax.random.key(7), shared_sharding)
+    shared_fn = parallel_jax.jit_sharded(
+        lambda r: (jax.random.normal(r, (2,)), jax.random.split(r)[0]),
+        in_specs=parallel_jax.SHARE_PARTITION,
+        out_specs=parallel_jax.SHARE_PARTITION,
+    )
+    shared_sample, next_shared_key = shared_fn(shared_scalar_key)
+    assert shared_sample.shape == (2,)
+    assert next_shared_key.shape == ()
+    assert next_shared_key.sharding == shared_sharding
+
+    shared_vec_key = jax.device_put(
+        jax.random.split(jax.random.key(8), 1), shared_sharding
+    )
+    vec_fn = parallel_jax.jit_sharded(
+        lambda r: r,
+        in_specs=parallel_jax.SHARE_PARTITION,
+        out_specs=parallel_jax.SHARE_PARTITION,
+    )
+    assert vec_fn(shared_vec_key).shape == (1,)
+
+
 def test_process_allgather_single_process():
     """Test process_allgather in single-process multi-device setting.
 
