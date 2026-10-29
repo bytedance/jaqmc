@@ -78,7 +78,7 @@ class LITWorkflow(SourceStageMixin, TrainingMixin, ScanMixin, Workflow):
         omega = self._omega_grid()
         seed = self.config.seed if self.config.seed is not None else int(time.time())
         self._run_seed = int(seed)
-        rng = jax.random.PRNGKey(seed)
+        rng = jax.random.key(seed)
         rng, data_rng, ground_rng, response_rng, sample_rng = jax.random.split(rng, 5)
         batched_data = data_init(self.system_config, self.config.batch_size, data_rng)
         # Resolve the deliberately narrow atom/C1 policy from physical fixed

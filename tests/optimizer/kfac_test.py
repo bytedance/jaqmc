@@ -68,7 +68,7 @@ def activation_dtype(x64_mode: bool | None) -> jnp.dtype:
 def test_single_dense_layer_registration():
     model = nn.Dense(5)
     x = jnp.ones((1, 3))
-    params = model.init(jax.random.PRNGKey(0), x)
+    params = model.init(jax.random.key(0), x)
     tag_tree = get_tag_tree(model.apply, params, x)
 
     assert_tag(
@@ -84,7 +84,7 @@ def test_vmapped_repeated_dense_layer_registration_mixed_x64_activations(x64_mod
     model = nn.Dense(5)
     act_dtype = activation_dtype(x64_mode)
     x = jnp.ones((2, 3), dtype=act_dtype)
-    params = model.init(jax.random.PRNGKey(0), x)
+    params = model.init(jax.random.key(0), x)
     batch = jnp.ones((4, *x.shape), dtype=act_dtype)
     assert_params_f32(params)
 
@@ -127,7 +127,7 @@ def test_factorized_projection_registration():
     electrons = jnp.asarray([[0.4, -1.0], [1.2, 0.3], [2.2, 2.0]])
     data = HallData(electrons=electrons)
     batch = HallData(electrons=jnp.stack([electrons, electrons + 0.01]))
-    params = wf.init_params(data, jax.random.PRNGKey(0))
+    params = wf.init_params(data, jax.random.key(0))
 
     def apply_logpsi(p, batched_data):
         return jax.vmap(wf.logpsi, in_axes=(None, 0))(p, batched_data)
@@ -174,7 +174,7 @@ def test_factorized_readout_curvature_update_is_finite():
             [[0.45, -0.9], [1.1, 0.4], [2.1, 1.9]],
         ]
     )
-    params = wf.init_params(HallData(electrons=electrons[0]), jax.random.PRNGKey(0))
+    params = wf.init_params(HallData(electrons=electrons[0]), jax.random.key(0))
 
     def value_func(p, batch):
         logpsi = jax.vmap(lambda coords: wf.logpsi(p, HallData(electrons=coords)))(
@@ -196,7 +196,7 @@ def test_factorized_readout_curvature_update_is_finite():
     )
     patch_block_diagonal_curvature(precon.estimator)
 
-    rng = jax.random.PRNGKey(1)
+    rng = jax.random.key(1)
     state = precon.init((params, electrons), rng)
     state = precon.maybe_update_estimator_curvature(
         state, (params, electrons), rng, sync=False
@@ -264,7 +264,7 @@ def test_constant_full_dressing_matrix_uses_generic_blocks():
         radius=float(jnp.sqrt(8.0)),
     )
     walker = HallData(electrons=jnp.ones((8, 2)))
-    params = wf.init_params(walker, jax.random.PRNGKey(0))
+    params = wf.init_params(walker, jax.random.key(0))
     batch = HallData(electrons=jnp.stack([walker.electrons, walker.electrons + 0.1]))
 
     def apply_logpsi(p, data):
@@ -297,7 +297,7 @@ class KfacPatternComposite(nn.Module):
 def test_kfac_pattern_composite_vmapped(x64_mode):
     model = KfacPatternComposite()
     x = jnp.ones((7, 2, 3))
-    params = model.init(jax.random.PRNGKey(0), x)
+    params = model.init(jax.random.key(0), x)
     batch_x = jnp.ones((4, *x.shape), dtype=activation_dtype(x64_mode))
     assert_params_f32(params)
 
@@ -364,7 +364,7 @@ def test_envelope_mixed_dtype_registration(x64_mode, envelope_type):
     )
     ae_vectors = jnp.zeros((n_elec, n_atoms, 3))
     r_ae = jnp.zeros((n_elec, n_atoms))
-    params = model.init(jax.random.PRNGKey(0), ae_vectors, r_ae)
+    params = model.init(jax.random.key(0), ae_vectors, r_ae)
     act_dtype = activation_dtype(x64_mode)
     assert_params_f32(params)
     tag_tree = get_tag_tree(
@@ -414,7 +414,7 @@ def test_ferminet_registration_smoke(x64_mode):
             walker.atoms,
             walker.charges,
         ),
-        jax.random.PRNGKey(0),
+        jax.random.key(0),
     )
     assert_params_f32(params)
 
@@ -472,7 +472,7 @@ def test_lapnet_registration_smoke(x64_mode):
         ),
         ["electrons"],
     )
-    params = wf.init_params(walker, jax.random.PRNGKey(0))
+    params = wf.init_params(walker, jax.random.key(0))
     assert_params_f32(params)
 
     def apply_logpsi(p, batched_data):
@@ -574,7 +574,7 @@ def test_curvature_updates_all_block_variants(x64_mode):
     act_dtype = activation_dtype(x64_mode)
     x_flat = jnp.linspace(0.1, 1.0, 4 * 3, dtype=act_dtype).reshape(4, 3)
     x_rep = jnp.linspace(0.2, 1.0, 4 * 2 * 3, dtype=act_dtype).reshape(4, 2, 3)
-    params = probe.init(jax.random.PRNGKey(0), x_flat[0], x_rep[0])
+    params = probe.init(jax.random.key(0), x_flat[0], x_rep[0])
     assert_params_f32(params)
 
     tag_tree = get_tag_tree(probe.apply, params, x_flat, x_rep)
@@ -608,7 +608,7 @@ def test_curvature_updates_all_block_variants(x64_mode):
     )
     patch_block_diagonal_curvature(precon.estimator)
 
-    rng = jax.random.PRNGKey(0)
+    rng = jax.random.key(0)
     state = precon.init((params, x_flat, x_rep), rng)
     found_variants = {
         eqn.params["meta"].variant for eqn in precon.estimator.jaxpr.layer_tags
@@ -648,9 +648,7 @@ def test_curvature_updates_all_block_variants(x64_mode):
 )
 def test_flax_layernorm_registration_under_vmap(x64_mode, example_shape, batched_shape):
     model = nn.LayerNorm(epsilon=1e-6)
-    params = model.init(
-        jax.random.PRNGKey(0), jnp.ones(example_shape, dtype=jnp.float32)
-    )
+    params = model.init(jax.random.key(0), jnp.ones(example_shape, dtype=jnp.float32))
     assert_params_f32(params)
 
     def vmapped_apply(p, xb):
@@ -692,7 +690,7 @@ def test_envelope_layer_registration(envelope_type, orbitals_spin_split, env_key
     )
     ae_vectors = jnp.zeros((n_elec, n_atoms, 3))
     r_ae = jnp.zeros((n_elec, n_atoms))
-    params = model.init(jax.random.PRNGKey(0), ae_vectors, r_ae)
+    params = model.init(jax.random.key(0), ae_vectors, r_ae)
 
     tag_tree = get_tag_tree(model.apply, params, ae_vectors, r_ae)
     for env_key in env_keys:
@@ -718,7 +716,7 @@ def test_envelope_layer_registration_variable_dim(envelope_type, ndim_feat):
     )
     ae_vectors = jnp.zeros((n_elec, n_atoms, ndim_feat))
     r_ae = jnp.zeros((n_elec, n_atoms))
-    params = model.init(jax.random.PRNGKey(0), ae_vectors, r_ae)
+    params = model.init(jax.random.key(0), ae_vectors, r_ae)
 
     tag_tree = get_tag_tree(model.apply, params, ae_vectors, r_ae)
     assert "tag_variant=scale_and_shift" in tag_tree["params"]["_env"]["pi"]

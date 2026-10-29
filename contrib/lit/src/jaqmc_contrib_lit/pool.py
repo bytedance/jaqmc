@@ -76,9 +76,9 @@ def _shard_rng_across_local_devices(rng):
     """Derive and shard one independent PRNG key per local device.
 
     Returns:
-        A flattened key array partitioned so each device receives one key.
+        A 1-D key array partitioned so each device receives one key.
     """
-    per_device_rngs = jax.random.split(rng, jax.local_device_count()).flatten()
+    per_device_rngs = jax.random.split(rng, jax.local_device_count())
     return jax.device_put(
         per_device_rngs,
         parallel_jax.make_sharding(parallel_jax.DATA_PARTITION),

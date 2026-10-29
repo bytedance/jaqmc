@@ -106,7 +106,7 @@ def test_source_distillation_selects_improved_independent_heldout_state():
         {},
         train_pool,
         eval_pool,
-        jax.random.PRNGKey(3),
+        jax.random.key(3),
         axis=0,
         source_center=0.0,
     )

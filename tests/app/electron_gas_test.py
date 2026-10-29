@@ -109,7 +109,7 @@ def test_uniform_data_and_solid_wavefunction_reuse() -> None:
         }
     )
     config, wavefunction, _, _ = configure_system(manager)
-    batched = data_init(config, size=4, rngs=jax.random.PRNGKey(0))
+    batched = data_init(config, size=4, rngs=jax.random.key(0))
 
     assert batched.data.electrons.shape == (4, 2, 3)
     assert batched.data.atoms.shape == (0, 3)
@@ -117,7 +117,7 @@ def test_uniform_data_and_solid_wavefunction_reuse() -> None:
     assert jnp.all((fractional >= 0) & (fractional < 1))
 
     one_walker = dataclasses.replace(batched.data, electrons=batched.data.electrons[0])
-    params = wavefunction.init_params(one_walker, jax.random.PRNGKey(1))
+    params = wavefunction.init_params(one_walker, jax.random.key(1))
     output = wavefunction.evaluate(params, one_walker)
     assert jnp.isfinite(output["logpsi"])
 
@@ -162,9 +162,9 @@ def test_sparse_forward_laplacian_matches_dense_and_scan() -> None:
         }
     )
     config, wavefunction, _, _ = configure_system(manager)
-    batched = data_init(config, size=1, rngs=jax.random.PRNGKey(0))
+    batched = data_init(config, size=1, rngs=jax.random.key(0))
     one_walker = dataclasses.replace(batched.data, electrons=batched.data.electrons[0])
-    params = wavefunction.init_params(one_walker, jax.random.PRNGKey(1))
+    params = wavefunction.init_params(one_walker, jax.random.key(1))
     sparse_forward = EuclideanKinetic(
         mode=LaplacianMode.forward_laplacian,
         f_log_psi=wavefunction.logpsi,
@@ -184,13 +184,13 @@ def test_sparse_forward_laplacian_matches_dense_and_scan() -> None:
     )
 
     sparse_stats, _ = sparse_forward.evaluate_single_walker(
-        params, one_walker, {}, None, jax.random.PRNGKey(2)
+        params, one_walker, {}, None, jax.random.key(2)
     )
     dense_stats, _ = dense_forward.evaluate_single_walker(
-        params, one_walker, {}, None, jax.random.PRNGKey(2)
+        params, one_walker, {}, None, jax.random.key(2)
     )
     scan_stats, _ = scan.evaluate_single_walker(
-        params, one_walker, {}, None, jax.random.PRNGKey(2)
+        params, one_walker, {}, None, jax.random.key(2)
     )
     sparse_energy = sparse_stats["energy:kinetic"]
     dense_energy = dense_stats["energy:kinetic"]

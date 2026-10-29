@@ -91,6 +91,7 @@ Wrappers for extracting real/imaginary parts and handling complex-valued JAX fun
 ```{eval-rst}
 .. autofunction:: jaqmc.utils.parallel_jax.make_mesh
 .. autofunction:: jaqmc.utils.parallel_jax.make_sharding
+.. autofunction:: jaqmc.utils.parallel_jax.shard_rngs
 .. autofunction:: jaqmc.utils.parallel_jax.jit_sharded
 .. autofunction:: jaqmc.utils.parallel_jax.pvary
 .. autofunction:: jaqmc.utils.parallel_jax.pmean

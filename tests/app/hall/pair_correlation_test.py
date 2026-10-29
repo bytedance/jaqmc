@@ -11,7 +11,7 @@ from jaqmc.app.hall.config import HallConfig
 from jaqmc.app.hall.data import HallData, data_init
 from jaqmc.app.hall.estimator.pair_correlation import PairCorrelation
 
-KEY = jax.random.PRNGKey(0)
+KEY = jax.random.key(0)
 
 
 def test_weighted_sum_is_normalized():

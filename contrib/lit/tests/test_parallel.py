@@ -134,7 +134,7 @@ def test_regularized_action_gradient_matches_serial_global_batch():
     batch_size = local_batch * device_count
     parameter_count = 5
     key_score, key_ratio, key_weight = jax.random.split(
-        jax.random.PRNGKey(921),
+        jax.random.key(921),
         3,
     )
     score = jax.random.normal(key_score, (batch_size, parameter_count)) + 1j * (
@@ -288,10 +288,10 @@ def test_multi_device_sr_matches_serial_solver(solver_branch):
     sample_count = 3 * device_count
     parameter_count = 3 if solver_branch == "primal" else sample_count + 5
     score = jax.random.normal(
-        jax.random.PRNGKey(31),
+        jax.random.key(31),
         (sample_count, parameter_count),
     )
-    grad = jax.random.normal(jax.random.PRNGKey(32), (parameter_count,))
+    grad = jax.random.normal(jax.random.key(32), (parameter_count,))
     damping = jnp.asarray(0.13, dtype=score.dtype)
     null_vectors = None
     if solver_branch == "dual":
@@ -322,8 +322,8 @@ def test_multi_device_sr_matches_serial_solver(solver_branch):
 @pytest.mark.skipif(jax.local_device_count() < 2, reason="needs multiple devices")
 def test_multi_device_rngs_are_independent_and_walker_slices_stay_sharded():
     device_count = jax.local_device_count()
-    rngs = _shard_rng_across_local_devices(jax.random.PRNGKey(913))
-    keys = np.asarray(rngs).reshape(device_count, 2)
+    rngs = _shard_rng_across_local_devices(jax.random.key(913))
+    keys = np.asarray(jax.random.key_data(rngs)).reshape(device_count, -1)
     assert rngs.sharding.spec == parallel_jax.DATA_PARTITION
     assert np.unique(keys, axis=0).shape[0] == device_count
 

@@ -76,7 +76,7 @@ def test_adaptive_continuation_bisects_and_propagates_accepted_bridges():
         _bridge_stats(1.0),
         None,
         None,
-        jax.random.PRNGKey(0),
+        jax.random.key(0),
         response_apply=None,
         ground_logpsi=None,
         ground_params=None,
@@ -148,7 +148,7 @@ def test_continuation_checkpoint_round_trip_revalidates_for_resume(tmp_path):
         probe_accepted=True,
         min_step_override=False,
     )
-    rng = jax.random.PRNGKey(17)
+    rng = jax.random.key(17)
     saver = object.__new__(LITWorkflow)
     saver.lit_config = config
     saver.save_path = old_run
@@ -183,7 +183,7 @@ def test_continuation_checkpoint_round_trip_revalidates_for_resume(tmp_path):
 
     restored = workflow._restore_lit_continuation_checkpoint(
         {"w": jnp.asarray([0.0 + 0.0j])},
-        jax.random.PRNGKey(0),
+        jax.random.key(0),
         None,
         response_apply=None,
         ground_logpsi=None,
@@ -201,7 +201,9 @@ def test_continuation_checkpoint_round_trip_revalidates_for_resume(tmp_path):
 
     assert restored is not None
     np.testing.assert_allclose(restored.response_params["w"], [1.0 + 2.0j])
-    np.testing.assert_array_equal(restored.rng, rng)
+    np.testing.assert_array_equal(
+        jax.random.key_data(restored.rng), jax.random.key_data(rng)
+    )
     assert restored.current_omega == pytest.approx(0.2)
     assert float(restored.current_stats.fidelity) == pytest.approx(0.996)
     assert restored.warm_start_selected_iteration == 1500

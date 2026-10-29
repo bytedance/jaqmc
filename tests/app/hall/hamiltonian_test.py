@@ -20,14 +20,14 @@ def _evaluate(estimator, electrons, prev_walker_stats=None):
         HallData(electrons=electrons),
         prev_walker_stats or {},
         None,
-        jax.random.PRNGKey(0),
+        jax.random.key(0),
     )
     return stats
 
 
 def test_data_init_samples_sphere_angles():
     cfg = HallConfig(flux=4, nspins=(2, 1))
-    electrons = data_init(cfg, size=32, rngs=jax.random.PRNGKey(1)).data.electrons
+    electrons = data_init(cfg, size=32, rngs=jax.random.key(1)).data.electrons
 
     assert electrons.shape == (32, 3, 2)
     theta, phi = electrons[..., 0], electrons[..., 1]

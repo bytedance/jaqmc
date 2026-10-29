@@ -47,7 +47,7 @@ def test_mixed_ph_ecp_all_electron_path_is_finite():
         ),
         charges=jnp.array([16.0, 1.0, 1.0]),
     )
-    rng = jax.random.PRNGKey(0)
+    rng = jax.random.key(0)
 
     ph = PHEnergy(
         f_log_psi=_gaussian_logpsi,

@@ -13,7 +13,7 @@ import numpy as np
 from jax import numpy as jnp
 from upath import UPath
 
-from jaqmc.array_types import ArrayLike
+from jaqmc.array_types import ArrayLike, is_jax_key
 
 type PathLike = str | Path | UPath
 """Filesystem path accepted by checkpoint readers and writers."""
@@ -219,10 +219,22 @@ def tree_to_npz(tree: Any) -> dict[str, ArrayLike]:
     Returns:
         dict of file name and arrays to be used by `np.savez`.
     """
-    return {
-        f"{_pytree_key_path(key_path)}": val
-        for key_path, val in jax.tree_util.tree_leaves_with_path(tree)
-    }
+    result: dict[str, ArrayLike] = {}
+    for key_path, val in jax.tree_util.tree_leaves_with_path(tree):
+        path = _pytree_key_path(key_path)
+        if is_jax_key(val):
+            key_data = np.asarray(jax.random.key_data(val))
+            impl = str(jax.random.key_impl(val))
+            result[path] = np.array(
+                (key_data, impl),
+                dtype=[
+                    ("data", key_data.dtype, key_data.shape),
+                    ("impl", f"U{len(impl)}"),
+                ],
+            )
+        else:
+            result[path] = val
+    return result
 
 
 def from_npz[ValueT](
@@ -246,7 +258,12 @@ def from_npz[ValueT](
     if isinstance(ref_val, np.ndarray):
         return cast(ValueT, val)
     elif isinstance(ref_val, jnp.ndarray):
-        arr = jnp.array(npf[name])
+        if is_jax_key(ref_val):
+            arr = jax.random.wrap_key_data(
+                jnp.array(val["data"]), impl=str(val["impl"].item())
+            )
+        else:
+            arr = jnp.array(val)
         if hasattr(ref_val, "sharding"):
             arr = jax.device_put(arr, ref_val.sharding)
         return cast(ValueT, arr)

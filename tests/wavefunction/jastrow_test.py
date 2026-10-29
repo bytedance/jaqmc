@@ -50,7 +50,7 @@ class TestSimpleEEJastrow:
     def test_parameters_are_float32(self, x64_mode):
         input_dtype = jnp.float64 if x64_mode else jnp.float32
         r_ee = jnp.zeros((2, 2), dtype=input_dtype)
-        params = SimpleEEJastrow(nspins=(1, 1)).init(jax.random.PRNGKey(0), r_ee)
+        params = SimpleEEJastrow(nspins=(1, 1)).init(jax.random.key(0), r_ee)
 
         assert all(param.dtype == jnp.float32 for param in jax.tree.leaves(params))
 
@@ -59,7 +59,7 @@ class TestSimpleEEJastrow:
         nspins = (2, 0)  # Only parallel pairs
         jastrow = SimpleEEJastrow(nspins=nspins)
 
-        key = jax.random.PRNGKey(0)
+        key = jax.random.key(0)
         # Initialize params at a moderate distance
         r_init = 1.0
         r_ee_init = jnp.array([[0.0, r_init], [r_init, 0.0]])
@@ -82,7 +82,7 @@ class TestSimpleEEJastrow:
         nspins = (1, 1)  # One up, one down (antiparallel)
         jastrow = SimpleEEJastrow(nspins=nspins)
 
-        key = jax.random.PRNGKey(0)
+        key = jax.random.key(0)
         # Initialize params at a moderate distance
         r_init = 1.0
         r_ee_init = jnp.array([[0.0, r_init], [r_init, 0.0]])

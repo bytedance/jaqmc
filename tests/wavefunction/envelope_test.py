@@ -12,7 +12,7 @@ from jaqmc.wavefunction.output.envelope import (
     EnvelopeType,
 )
 
-TEST_KEY = jax.random.PRNGKey(42)
+TEST_KEY = jax.random.key(42)
 
 
 def make_test_inputs(n_elec: int, n_atoms: int, key: jax.Array = TEST_KEY):
@@ -98,8 +98,8 @@ class TestEnvelope:
             nspins=nspins,
             orbitals_spin_split=False,
         )
-        ae_vectors_a, r_ae_a = make_test_inputs(n_elec, n_atoms, jax.random.PRNGKey(0))
-        ae_vectors_b, r_ae_b = make_test_inputs(n_elec, n_atoms, jax.random.PRNGKey(99))
+        ae_vectors_a, r_ae_a = make_test_inputs(n_elec, n_atoms, jax.random.key(0))
+        ae_vectors_b, r_ae_b = make_test_inputs(n_elec, n_atoms, jax.random.key(99))
 
         params = module.init(TEST_KEY, ae_vectors_a, r_ae_a)
         out_a: jax.Array = module.apply(params, ae_vectors_a, r_ae_a)  # type: ignore[assignment]

@@ -58,9 +58,7 @@ def test_distribute_spins_rebalances_unspecified_atoms_to_match_total():
         [_resolved_atom_with_init("H"), _resolved_atom_with_init("H")]
     )
 
-    spins_per_atom = distribute_spins(
-        jax.random.PRNGKey(0), atoms, per_atom_init, (0, 2)
-    )
+    spins_per_atom = distribute_spins(jax.random.key(0), atoms, per_atom_init, (0, 2))
 
     assert spins_per_atom == [(0, 1), (0, 1)]
 
@@ -73,9 +71,7 @@ def test_distribute_spins_can_increase_alpha_when_needed():
         ]
     )
 
-    spins_per_atom = distribute_spins(
-        jax.random.PRNGKey(0), atoms, per_atom_init, (3, 1)
-    )
+    spins_per_atom = distribute_spins(jax.random.key(0), atoms, per_atom_init, (3, 1))
 
     assert spins_per_atom == [(0, 1), (3, 0)]
 
@@ -88,9 +84,7 @@ def test_distribute_spins_preserves_explicit_overrides():
         ]
     )
 
-    spins_per_atom = distribute_spins(
-        jax.random.PRNGKey(0), atoms, per_atom_init, (2, 2)
-    )
+    spins_per_atom = distribute_spins(jax.random.key(0), atoms, per_atom_init, (2, 2))
 
     assert spins_per_atom == [(1, 0), (1, 2)]
 
@@ -103,9 +97,7 @@ def test_distribute_spins_returns_all_explicit_overrides_when_consistent():
         ]
     )
 
-    spins_per_atom = distribute_spins(
-        jax.random.PRNGKey(0), atoms, per_atom_init, (1, 1)
-    )
+    spins_per_atom = distribute_spins(jax.random.key(0), atoms, per_atom_init, (1, 1))
 
     assert spins_per_atom == [(1, 0), (0, 1)]
 
@@ -118,9 +110,7 @@ def test_local_charge_keeps_its_sign_when_local_spin_is_set():
         ]
     )
 
-    spins_per_atom = distribute_spins(
-        jax.random.PRNGKey(0), atoms, per_atom_init, (1, 1)
-    )
+    spins_per_atom = distribute_spins(jax.random.key(0), atoms, per_atom_init, (1, 1))
 
     assert spins_per_atom == [(0, 0), (1, 1)]
 
@@ -134,7 +124,7 @@ def test_distribute_spins_rejects_inconsistent_explicit_overrides():
     )
 
     with pytest.raises(ValueError, match="Expected total spins"):
-        distribute_spins(jax.random.PRNGKey(0), atoms, per_atom_init, (1, 1))
+        distribute_spins(jax.random.key(0), atoms, per_atom_init, (1, 1))
 
 
 def test_distribute_spins_rejects_total_electron_mismatch_without_overrides():
@@ -144,7 +134,7 @@ def test_distribute_spins_rejects_total_electron_mismatch_without_overrides():
         ValueError,
         match="The per-atom initialization contains",
     ):
-        distribute_spins(jax.random.PRNGKey(0), atoms, per_atom_init, (0, 0))
+        distribute_spins(jax.random.key(0), atoms, per_atom_init, (0, 0))
 
 
 def test_distribute_spins_rejects_override_electron_mismatch():
@@ -159,7 +149,7 @@ def test_distribute_spins_rejects_override_electron_mismatch():
         ValueError,
         match="The per-atom initialization contains",
     ):
-        distribute_spins(jax.random.PRNGKey(0), atoms, per_atom_init, (1, 1))
+        distribute_spins(jax.random.key(0), atoms, per_atom_init, (1, 1))
 
 
 @pytest.mark.parametrize(
@@ -176,7 +166,7 @@ def test_charged_molecule_initialization_uses_local_charge(
     )
 
     electrons = molecule_data_init(
-        config, size=4, rngs=jax.random.PRNGKey(0)
+        config, size=4, rngs=jax.random.key(0)
     ).data.electrons
 
     assert config.electron_spins == (1, 1)
@@ -197,9 +187,7 @@ def test_charged_solid_initialization_uses_local_charge():
         s_z=0.5,
     )
 
-    electrons = solid_data_init(
-        config, size=4, rngs=jax.random.PRNGKey(0)
-    ).data.electrons
+    electrons = solid_data_init(config, size=4, rngs=jax.random.key(0)).data.electrons
 
     assert config.electron_spins == (1, 0)
     assert electrons.shape == (4, 1, 3)

@@ -20,7 +20,7 @@ from jaqmc.app.molecule.wavefunction.psiformer import PsiformerWavefunction
 from jaqmc.estimator import FunctionEstimator
 from jaqmc.utils.atomic import make_pretrain_loss
 
-TEST_KEY = jax.random.PRNGKey(42)
+TEST_KEY = jax.random.key(42)
 
 
 def make_test_data(nspins: tuple[int, int], key: jax.Array = TEST_KEY) -> MoleculeData:

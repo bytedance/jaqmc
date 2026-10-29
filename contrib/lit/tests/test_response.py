@@ -197,7 +197,7 @@ def test_response_ferminet_returns_finite_complex_log_amplitude():
         hidden_dims_single=(4,),
         hidden_dims_double=(2,),
     )
-    params = response.init(jax.random.PRNGKey(1), batch.unbatched_example())
+    params = response.init(jax.random.key(1), batch.unbatched_example())
     value = response.apply(params, data)
 
     assert jnp.iscomplexobj(value)

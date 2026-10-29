@@ -19,7 +19,7 @@ from jaqmc.app.moire.hamiltonian import (
 
 def test_compute_operator_ratio_matches_multilayer_determinant_oracle():
     nlayers, ndets, nelec = 3, 2, 2
-    keys = jax.random.split(jax.random.PRNGKey(0), 4)
+    keys = jax.random.split(jax.random.key(0), 4)
     phi = 0.15 * (
         jax.random.normal(keys[0], (nlayers, ndets, nelec, nelec))
         + 1j * jax.random.normal(keys[1], (nlayers, ndets, nelec, nelec))
@@ -152,9 +152,7 @@ def test_moire_potential_matches_pauli_decomposition_for_both_physical_spins():
         phi1_rad=0.31,
         omega1_mev=-0.4,
     )
-    stats, _ = estimator.evaluate_single_walker(
-        {}, data, {}, None, jax.random.PRNGKey(1)
-    )
+    stats, _ = estimator.evaluate_single_walker({}, data, {}, None, jax.random.key(1))
 
     layer_phi, chi, phi0 = layer_components({}, data)
     pauli = jnp.asarray(
@@ -222,9 +220,7 @@ def test_moire_soc_matches_k_sum_and_difference_formula():
         primitive_lattice=lattice,
         nspins=(1, 1),
     )
-    stats, _ = estimator.evaluate_single_walker(
-        {}, data, {}, None, jax.random.PRNGKey(2)
-    )
+    stats, _ = estimator.evaluate_single_walker({}, data, {}, None, jax.random.key(2))
 
     def amplitude(spatial_flat):
         walker_data = data.merge({"positions": spatial_flat.reshape(2, 2)})
@@ -294,7 +290,7 @@ def test_bilayer_estimators_reject_three_layer_components(estimator_cls):
     data = MoireData(positions=jnp.zeros((2, 2)), spin_coords=jnp.zeros((2,)))
 
     with pytest.raises(ValueError, match="exactly two layers"):
-        estimator.evaluate_single_walker({}, data, {}, None, jax.random.PRNGKey(3))
+        estimator.evaluate_single_walker({}, data, {}, None, jax.random.key(3))
 
 
 def test_default_hexagonal_lattice_matches_expected_moire_wavevectors():

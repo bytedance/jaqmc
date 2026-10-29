@@ -61,7 +61,7 @@ def _wavefunction_kwargs(
 
 
 def _make_data(seed: int = 0) -> MoireData:
-    key = jax.random.PRNGKey(seed)
+    key = jax.random.key(seed)
     key_pos, key_spin = jax.random.split(key)
     return MoireData(
         positions=jax.random.uniform(key_pos, (4, 2)),
@@ -89,7 +89,7 @@ def test_twist_phase_is_applied_to_phase_modes(phase_mode):
     wf_twist = MoireWavefunction(**{**kwargs, "twist": twist})
     data = _make_data(seed=7)
 
-    params = wf_0.init_params(data, jax.random.PRNGKey(6))
+    params = wf_0.init_params(data, jax.random.key(6))
 
     orbital_0 = wf_0.orbitals(params, data)
     orbital_twist = wf_twist.orbitals(params, data)
@@ -126,7 +126,7 @@ def test_singlephase_rejects_k_com():
     with pytest.raises(
         ValueError, match="k_com must be None when phase_mode='singlephase'"
     ):
-        wf.init_params(_make_data(), jax.random.PRNGKey(8))
+        wf.init_params(_make_data(), jax.random.key(8))
 
 
 def test_multiphase_rejects_missing_k_com():
@@ -137,7 +137,7 @@ def test_multiphase_rejects_missing_k_com():
     with pytest.raises(
         ValueError, match="k_com must be provided when phase_mode='multiphase'"
     ):
-        wf.init_params(_make_data(), jax.random.PRNGKey(10))
+        wf.init_params(_make_data(), jax.random.key(10))
 
 
 @pytest.mark.parametrize("dependency", ["multiphase_klist", "translation_vectors"])
@@ -150,7 +150,7 @@ def test_multiphase_rejects_missing_runtime_dependency(dependency):
         ValueError,
         match=rf"{dependency} must be provided when phase_mode='multiphase'",
     ):
-        wf.init_params(_make_data(), jax.random.PRNGKey(10))
+        wf.init_params(_make_data(), jax.random.key(10))
 
 
 @pytest.mark.parametrize(
@@ -160,7 +160,7 @@ def test_multiphase_rejects_missing_runtime_dependency(dependency):
 def test_nlayers_amplitude_matches_symmetric_phases(nlayers, exponents):
     wf = MoireWavefunction(**{**_wavefunction_kwargs(), "nlayers": nlayers})
     data = _make_data()
-    params = wf.init_params(data, jax.random.PRNGKey(20 + nlayers))
+    params = wf.init_params(data, jax.random.key(20 + nlayers))
 
     layer_orbitals, _, _ = wf.layer_components(params, data)
     expected = sum(

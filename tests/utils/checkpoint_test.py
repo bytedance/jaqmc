@@ -164,12 +164,14 @@ def test_restore_raises_when_all_matching_checkpoints_are_bad_in_strict_mode(
 
 
 def test_tree_to_npz_and_tree_from_npz_round_trip():
-    tree = _restored_tree()
-    fallback = _fallback_tree()
+    import jax
+
+    tree = {**_restored_tree(), "rng": jax.random.key(42, impl="rbg")}
+    fallback = {**_fallback_tree(), "rng": jax.random.key(0, impl="threefry2x32")}
 
     npz_data = tree_to_npz(tree)
 
-    assert {"scalar", "np", "nested/jax"} <= set(npz_data)
+    assert set(npz_data) == {"scalar", "np", "nested/jax", "rng"}
 
     restored = tree_from_npz(npz_data, fallback)
 
@@ -178,4 +180,10 @@ def test_tree_to_npz_and_tree_from_npz_round_trip():
     np.testing.assert_array_equal(
         np.asarray(restored["nested"]["jax"]),
         np.asarray(tree["nested"]["jax"]),
+    )
+    assert jax.dtypes.issubdtype(restored["rng"].dtype, jax.dtypes.prng_key)
+    assert jax.random.key_impl(restored["rng"]) == "rbg"
+    np.testing.assert_array_equal(
+        jax.random.key_data(restored["rng"]),
+        jax.random.key_data(tree["rng"]),
     )
