@@ -51,7 +51,7 @@ from sphinx.util.docutils import SphinxDirective
 from sphinx.util.nodes import make_refnode
 from sphinx_autodoc_typehints import format_annotation
 
-from jaqmc.estimator.base import EstimatorCollection
+from jaqmc.estimator.base import Estimator, EstimatorCollection
 from jaqmc.utils.config import (
     ModuleConfig,
     config_to_dict,
@@ -791,12 +791,13 @@ class ConfigDefaults(SphinxDirective):
         descriptions = _collect_dataclass_descriptions(cls)
         enabled_defaults = getattr(instance, "_enabled", {})
         for field in dc_fields(cls):
-            field_type = (
+            tp = (
                 get_args(field.type)[0]
                 if get_origin(field.type) is Annotated
                 else field.type
             )
-            if not isinstance(field_type, type):
+            field_cls = get_origin(tp) or tp
+            if not isinstance(field_cls, type):
                 continue
             name = _field_public_name(field)
             field_key = f"{prefix}.{name}" if prefix else name
@@ -806,15 +807,15 @@ class ConfigDefaults(SphinxDirective):
                 if is_dataclass(child_val) and not isinstance(child_val, type)
                 else None
             )
-            child_mod = importlib.import_module(field_type.__module__)
+            child_mod = importlib.import_module(field_cls.__module__)
             desc = self._field_description(descriptions, field, mod) or _resolve_refs(
-                _class_summary(field_type) or "", child_mod
+                _class_summary(field_cls) or "", child_mod
             )
             is_togglable = field.name in enabled_defaults
             en_key = f"{field_key}.enabled"
             en_val = enabled_defaults[field.name] if is_togglable else None
 
-            if issubclass(field_type, EstimatorCollection):
+            if issubclass(field_cls, EstimatorCollection):
                 if is_togglable:
                     items.append(
                         ConfigDefaultEntry(
@@ -827,19 +828,19 @@ class ConfigDefaults(SphinxDirective):
                     )
                 items.extend(
                     self._collect_estimator_collection_items(
-                        field_type, field_key, child_instance, anchor_scope
+                        field_cls, field_key, child_instance, anchor_scope
                     )
                 )
                 continue
 
-            cls_ref = _format_class_ref(field_type)
+            cls_ref = _format_class_ref(field_cls)
             en_str = (
                 "always"
                 if not is_togglable
                 else f"{_format_value(en_val)} (``{en_key}``)"
             )
             children = self._collect_dataclass_items(
-                field_type, field_key, child_instance, anchor_scope
+                field_cls, field_key, child_instance, anchor_scope
             )
             items.append(
                 ConfigDefaultEntry(
@@ -870,6 +871,13 @@ class ConfigDefaults(SphinxDirective):
         descriptions = _collect_dataclass_descriptions(cls)
         for field in dc_fields(cls):
             if field.metadata.get("runtime") or field.metadata.get("exclude"):
+                continue
+            if (
+                issubclass(cls, Estimator)
+                and field.name == "loss_weight"
+                and instance is not None
+                and getattr(instance, "loss_weight", None) is None
+            ):
                 continue
 
             public_name = _field_public_name(field)

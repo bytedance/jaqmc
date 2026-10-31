@@ -9,7 +9,12 @@ from flax import linen as nn
 from jax import numpy as jnp
 
 from jaqmc.data import Data
-from jaqmc.estimator import EstimatorCollection, PerWalkerEstimator, WithToggles
+from jaqmc.estimator import (
+    EstimatorCollection,
+    HideLoss,
+    PerWalkerEstimator,
+    WithToggles,
+)
 from jaqmc.estimator.density.cartesian import CartesianAxis, CartesianDensity
 from jaqmc.estimator.kinetic import EuclideanKinetic
 from jaqmc.estimator.total_energy import TotalEnergy
@@ -113,7 +118,7 @@ class HydrogenAtomTrainWorkflow(HydrogenAtomWorkflowBase, VMCWorkflow):
         train.configure_optimizer(self.train.optim, f_log_psi=self.wf.evaluate)
         wire(self.estimators.energy.kinetic, f_log_psi=self.wf.evaluate)
         train.configure_estimators(self.estimators)
-        train.configure_loss_grads(self.train.grads, f_log_psi=self.wf.evaluate)
+        train.configure_loss_grads(self.train.grads)
         train.configure_writers(self.train.writers)
         self.train_stage = train.build()
         self.data_init = data_init
@@ -122,7 +127,7 @@ class HydrogenAtomTrainWorkflow(HydrogenAtomWorkflowBase, VMCWorkflow):
 @configurable_dataclass
 class HydrogenAtomEvalWorkflow(HydrogenAtomWorkflowBase, EvaluationWorkflow):
     estimators: Annotated[
-        HydrogenEstimators, WithToggles(energy=True, density=False)
+        HydrogenEstimators, WithToggles(energy=True, density=False), HideLoss()
     ] = field(default_factory=HydrogenEstimators)
 
     def build_runtime(self) -> None:

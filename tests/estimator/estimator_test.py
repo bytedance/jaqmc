@@ -16,6 +16,7 @@ from jaqmc.estimator import (
     Estimator,
     EstimatorCollection,
     EstimatorPipeline,
+    HideLoss,
     PerWalkerEstimator,
     WithToggles,
 )
@@ -40,6 +41,7 @@ class _BatchEstimator(Estimator):
         return walker_stats
 
     def finalize_stats(self, batch_stats, state):
+        del state
         mean_stats = jax.tree.map(lambda x: jnp.nanmean(x, axis=0), batch_stats)
         return {k: v * 2 for k, v in mean_stats.items()}
 
@@ -172,6 +174,47 @@ def test_with_toggles_customizes_workflow_togglable_estimators():
     assert list(parsed_eval.estimators) == ["optional"]
     assert config_to_dict(parsed_eval)["estimators"]["required"]["enabled"] is False
     assert config_to_dict(parsed_eval)["estimators"]["optional"]["enabled"] is True
+
+
+def test_hide_loss_omits_and_rejects_loss_weight_in_estimator_collection():
+    @configurable_dataclass
+    class _LossEstimator(_LocalValueEstimator):
+        loss_weight: float = 1.0
+
+    @configurable_dataclass
+    class _Nested(EstimatorCollection):
+        total: _LossEstimator = field(default_factory=_LossEstimator)
+
+    @configurable_dataclass
+    class _Shared(EstimatorCollection):
+        energy: _Nested = field(default_factory=_Nested)
+        penalty: _LossEstimator = field(default_factory=_LossEstimator)
+
+    @configurable_dataclass
+    class _EvalSchema:
+        estimators: Annotated[
+            _Shared, WithToggles(energy=True, penalty=False), HideLoss()
+        ] = field(default_factory=_Shared)
+
+    parsed = parse_config(_EvalSchema, {})
+    assert parsed.estimators.energy.total.loss_weight is None
+    assert parsed.estimators.penalty.loss_weight is None
+    dumped = config_to_dict(parsed)
+    assert dumped == {
+        "estimators": {
+            "energy": {
+                "enabled": True,
+                "total": {"vmap_chunk_size": None},
+            },
+            "penalty": {"enabled": False, "vmap_chunk_size": None},
+        }
+    }
+    for override in (
+        "estimators.energy.total.loss_weight=2.0",
+        "estimators.penalty.loss_weight=2.0",
+    ):
+        with pytest.raises(ValidationError, match="Unexpected keyword argument"):
+            parse_config(_EvalSchema, {}, [override])
 
 
 def test_pipeline_rejects_plain_estimator_functions():

@@ -138,8 +138,7 @@ The train stage enables `console`, `csv`, and `npy` writers by default.
 
 ### Loss gradients (`train.grads.*`)
 
-The workflow resolves {py:obj}`~jaqmc.estimator.loss_grad.LossAndGrad`
-from `train.grads.*`. See [Loss and gradient](../../guide/estimators/loss-grad.md) for the clipping formulas.
+The workflow resolves {class}`~jaqmc.estimator.loss_grad.LossGrad` from `train.grads.*`. See [Loss and gradient](../../guide/estimators/loss-grad.md) for the clipping formulas.
 
 ```{eval-rst}
 .. config-defaults::
@@ -152,6 +151,10 @@ from `train.grads.*`. See [Loss and gradient](../../guide/estimators/loss-grad.m
 (hall-train-estimators)=
 ## Estimators (`estimators.*`)
 
-Training and evaluation share the same estimator schema and defaults; see the
-[evaluation estimator config](#hall-estimators). During training, the
-total-energy estimator is always enabled and cannot be toggled off.
+Training and evaluation share the same estimator collection, with training exposing `loss_weight` settings for VMC gradient and penalty computation (see [Angular momentum penalties](index.md#angular-momentum-penalties), [Loss and gradient](../../guide/estimators/loss-grad.md), and [How Estimators Work](../../guide/estimators/index.md)) and keeping the total-energy estimator always enabled. See the [evaluation estimator config](#hall-estimators) for evaluation defaults.
+
+```{eval-rst}
+.. config-defaults::
+   :prefix: estimators
+   :defaults-from: jaqmc.app.hall.workflow.HallTrainWorkflow
+```

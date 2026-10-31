@@ -85,7 +85,7 @@ configuration keys.
 (solid-estimators)=
 ## Estimators (`estimators.*`)
 
-Training and evaluation share this estimator schema. Runtime dependencies such
+Training and evaluation share this estimator collection, with evaluation omitting training `loss_weight` fields (see [training estimators](#solid-train-estimators)). Runtime dependencies such
 as the wavefunction and supercell lattice are wired at startup and omitted from
 YAML. For physics and derivations, see
 <project:../../guide/estimators/index.md>. For the API, see

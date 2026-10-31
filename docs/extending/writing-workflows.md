@@ -110,14 +110,14 @@ dotlist values override them. `HydrogenEstimators` groups the workflow's
 estimators in declaration order, and `EstimatorPipeline` runs only the enabled
 ones (see <project:custom-components/estimators.md>).
 
-``wf.evaluate`` is the connection point between the wavefunction and everything else. The workflow passes it to ``configure_sample_plan`` (along with an explicit sampler mapping such as ``{"electrons": sampler}``), ``configure_optimizer`` uses it for curvature estimation, and ``configure_loss_grads`` uses it for parameter updates. ``build()`` produces a fully-wired {class}`~jaqmc.workflow.stage.vmc.VMCWorkStage`.
+``wf.evaluate`` is the connection point between the wavefunction and everything else. The workflow passes it to ``configure_sample_plan`` (along with an explicit sampler mapping such as ``{"electrons": sampler}``), ``configure_optimizer`` uses it for curvature estimation, and ``TotalEnergy`` uses it for parameter updates. ``build()`` produces a fully-wired {class}`~jaqmc.workflow.stage.vmc.VMCWorkStage`.
 
 Here ``wf.evaluate`` works as the log-amplitude function because this wavefunction's ``__call__`` returns $\log|\psi|$ directly. Production wavefunctions expose dedicated methods like ``logpsi`` and ``phase_logpsi`` for different consumers — see <project:wavefunctions.md>.
 
 :::{admonition} Wiring rule
 :class: note
 
-**The builder wires the optimizer and loss gradients. The workflow wires everything else.** The hydrogen workflow calls ``wire(self.estimators.energy.kinetic, f_log_psi=self.wf.evaluate)`` before ``configure_estimators(self.estimators)``. <project:custom-components/index.md> covers the mechanism.
+**The builder wires the optimizer and log-psi gradients. The workflow wires everything else.** The hydrogen workflow calls ``wire(self.estimators.energy.kinetic, f_log_psi=self.wf.evaluate)`` before ``configure_estimators(self.estimators)``. <project:custom-components/index.md> covers the mechanism.
 :::
 
 ``data_init`` is set on the workflow rather than on individual stages, since the initial electron configurations are shared across all stages (pretrain, train, evaluation).

@@ -64,30 +64,23 @@ jaqmc hall train system.flux=10 system.nspins='[4,0]' wf.dressing.degree=2
 
 ## Angular Momentum Penalties
 
-The $L_z$ penalty targets `system.lz_center`. The $L^2$ penalty
-drives $L^2$ toward zero. The optimizer then minimizes
+Angular-momentum penalties add weighted terms for $L_z$, $L_z^2$, and $L^2$ to the VMC objective so the optimizer minimizes
 
 $$
-E + \lambda_{L_z}(L_z - L_{z,0})^2 + \lambda_{L^2} L^2
+E + \lambda_{L_z} L_z + \lambda_{L_z^2} L_z^2 + \lambda_{L^2} L^2
 $$
 
-instead of the bare total energy. The strengths $\lambda_{L_z}$ and
-$\lambda_{L^2}$ are `system.lz_penalty` and `system.l2_penalty`. Typical
-values, matching the [paper](https://arxiv.org/abs/2412.14795), are
-$0.01$–$0.02$:
+instead of the bare total energy. By choosing $\lambda_{L_z}$ and $\lambda_{L_z^2}$ (for example, $\lambda_{L_z} = -2\lambda L_{z,0}$ and $\lambda_{L_z^2} = \lambda$), the penalty targets any desired $L_z = L_{z,0}$ sector while $\lambda_{L^2}$ drives $L^2$ toward its target sector. The weights are configured under `estimators.angular_momentum.loss_weight.lz`, `estimators.angular_momentum.loss_weight.lz_square`, and `estimators.angular_momentum.loss_weight.l_square`. Typical penalty strengths, matching the [paper](https://arxiv.org/abs/2412.14795), are $0.01$–$0.02$:
 
 ```bash
-# Target Lz = 0
-jaqmc hall train system.lz_penalty=0.02 system.lz_center=0
+# Drive L_z^2 toward 0
+jaqmc hall train estimators.angular_momentum.loss_weight.lz_square=0.02
 
-# Also drive L^2 toward 0
-jaqmc hall train system.lz_penalty=0.02 system.l2_penalty=0.02
+# Drive both L_z^2 and L^2 toward 0
+jaqmc hall train estimators.angular_momentum.loss_weight.lz_square=0.02 estimators.angular_momentum.loss_weight.l_square=0.02
 ```
 
-Watch `Lz` (`angular_momentum_z`) against `system.lz_center` and `L_square`
-(`angular_momentum_square`) toward zero. The console `energy` column is the
-unpenalized variational energy (`total_energy_real`); the optimizer minimizes
-`penalized_loss`. See [Angular momentum](../../guide/estimators/angular-momentum.md).
+Watch `Lz` (`angular_momentum_z`) and `L_square` (`angular_momentum_square`) during training. The console `energy` column is the unpenalized variational energy (`total_energy_real`); the optimizer minimizes `loss`. See [Angular momentum](../../guide/estimators/angular-momentum.md).
 
 ```{tip}
 Converge first **without** penalties, then resume with penalties on to
@@ -136,7 +129,7 @@ We used the following hyperparameters in our [paper](https://arxiv.org/abs/2412.
 | Attention dimension (`wf.heads_dim`) | 64 |
 | Training iterations | 30,000–100,000 |
 
-For quasiparticle/quasihole studies with the penalty method, we used an additional 20,000–40,000 iterations with `system.lz_penalty` and `system.l2_penalty` in the range 0.01–0.02.
+For quasiparticle/quasihole studies with the penalty method, we used an additional 20,000–40,000 iterations with angular-momentum penalty weights (`estimators.angular_momentum.loss_weight.lz`, `estimators.angular_momentum.loss_weight.lz_square`, and `estimators.angular_momentum.loss_weight.l_square`) on the order of 0.01–0.02.
 
 ## Evaluation
 

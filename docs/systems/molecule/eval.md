@@ -71,7 +71,7 @@ configuration keys.
 (molecule-estimators)=
 ## Estimators (`estimators.*`)
 
-Training and evaluation share this estimator schema. Runtime dependencies such
+Training and evaluation share this estimator collection, with evaluation omitting training `loss_weight` fields (see [training estimators](#train-estimators)). Runtime dependencies such
 as the wavefunction and pseudopotential tables are wired at startup and omitted
 from YAML. For physics and derivations, see
 <project:../../guide/estimators/index.md>. For the API, see

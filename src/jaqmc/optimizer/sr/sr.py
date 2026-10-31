@@ -6,6 +6,7 @@ from dataclasses import field
 from functools import partial
 from typing import Annotated, Any, Literal
 
+import jax
 import optax
 
 from jaqmc.array_types import Params
@@ -153,6 +154,7 @@ class SROptimizer:
         params: Params,
         *,
         batched_data: BatchedData,
+        dloss_dlogpsi: jax.Array | None = None,
         **extra,
     ) -> tuple[optax.Updates, optax.OptState]:
         """Apply one SR update.
@@ -166,7 +168,13 @@ class SROptimizer:
         del extra
         if not hasattr(self, "_sr_base"):
             raise RuntimeError("SROptimizer.init must be called before update")
-        return self._sr_base.update(grads, state, params, data=batched_data.data)
+        return self._sr_base.update(
+            grads,
+            state,
+            params,
+            data=batched_data.data,
+            dloss_dlogpsi=dloss_dlogpsi,
+        )
 
 
 SROptimizer.__module__ = __package__

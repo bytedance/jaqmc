@@ -13,10 +13,11 @@ import numpy as np
 from jax import numpy as jnp
 from upath import UPath
 
-from jaqmc.estimator import EstimatorCollection, WithToggles
+from jaqmc.estimator import EstimatorCollection, HideLoss, WithToggles
 from jaqmc.estimator.density import FractionalAxis, FractionalDensity
 from jaqmc.estimator.ecp import ECPEnergy
 from jaqmc.estimator.kinetic import EuclideanKinetic
+from jaqmc.estimator.overlap import Overlap, ReferenceState
 from jaqmc.estimator.ph import PHEnergy
 from jaqmc.estimator.spin import SpinSquared
 from jaqmc.estimator.total_energy import TotalEnergy
@@ -72,18 +73,30 @@ class SolidEnergyEstimators(EstimatorCollection):
 
 
 @configurable_dataclass
+class SolidReferenceState(ReferenceState):
+    """Reference state for periodic solid overlap estimation."""
+
+    wf: Annotated[
+        SolidWavefunctionLike | None,
+        ModuleConfig(package="jaqmc.app.solid.wavefunction"),
+    ] = None
+
+
+@configurable_dataclass
 class SolidEstimators(EstimatorCollection):
     """Observables evaluated by periodic solid workflows.
 
     Args:
         energy: Energy component estimators.
         spin: Total spin-squared (:math:`S^2`) estimator.
+        overlap: Wavefunction overlap estimator.
         density: Electron density histogram in fractional supercell
             coordinates over :math:`[0, 1)`.
     """
 
     energy: SolidEnergyEstimators = field(default_factory=SolidEnergyEstimators)
     spin: SpinSquared = field(default_factory=SpinSquared)
+    overlap: Overlap[SolidReferenceState] = field(default_factory=Overlap)
     density: FractionalDensity = field(
         default_factory=lambda: FractionalDensity(
             axes={
@@ -165,11 +178,14 @@ def _assign_klist(wf: SolidWavefunctionLike, reference: SolidReference) -> None:
 
 
 def _wire_estimators(
-    settings: SolidEstimators, wf: SolidWavefunctionLike, system: SolidConfig
+    settings: SolidEstimators,
+    wf: SolidWavefunctionLike,
+    system: SolidConfig,
+    sampler: SamplerLike,
 ) -> None:
-    energy = settings.energy
     lattice = jnp.asarray(system.supercell_lattice)
     symbols = [atom.symbol for atom in system.atoms] * system.scale
+    energy = settings.energy
     energy.potential.supercell_lattice = lattice
     energy.kinetic.f_log_psi = wf.logpsi
     energy.ecp.ecp_coefficients = system.ecp_coefficients
@@ -181,9 +197,18 @@ def _wire_estimators(
     energy.ph.atom_symbols = symbols
     energy.ph.ph = list(system.ph_elements)
     energy.ph.distance_fn = build_distance_fn(lattice)
-    settings.spin.n_up = system.electron_spins[0] * system.scale
-    settings.spin.n_down = system.electron_spins[1] * system.scale
+    settings.spin.n_up, settings.spin.n_down = _supercell_spins(system)
     settings.spin.phase_logpsi = wf.phase_logpsi
+    for ref in filter(None, settings.overlap.states.values()):
+        if ref.wf is not None:
+            _configure_system(system, ref.wf)
+            ref.wf.klist = wf.klist
+    settings.overlap.restore(
+        wf=wf,
+        samplers={"electrons": sampler},
+        data_init=partial(data_init, system),
+        enabled=settings.is_enabled("overlap"),
+    )
     settings.density.inv_lattice = jnp.linalg.inv(lattice)
 
 
@@ -200,9 +225,9 @@ class SolidWorkflowBase:
     sampler: Annotated[SamplerLike, ModuleConfig(package="jaqmc.sampler")] = field(
         default_factory=MCMCSampler
     )
-    estimators: Annotated[SolidEstimators, WithToggles(spin=False, density=False)] = (
-        field(default_factory=SolidEstimators)
-    )
+    estimators: Annotated[
+        SolidEstimators, WithToggles(spin=False, overlap=False, density=False)
+    ] = field(default_factory=SolidEstimators)
     reference: str | None = None
 
     def __post_init__(self) -> None:
@@ -243,9 +268,9 @@ class SolidTrainWorkflow(SolidWorkflowBase, VMCWorkflow):
         train = VMCWorkStage.builder(self.train.run, self.wf, name="train")
         train.configure_sample_plan(self.wf.logpsi, {"electrons": self.sampler})
         train.configure_optimizer(self.train.optim, f_log_psi=self.wf.logpsi)
-        _wire_estimators(self.estimators, self.wf, system)
+        _wire_estimators(self.estimators, self.wf, system, self.sampler)
         train.configure_estimators(self.estimators)
-        train.configure_loss_grads(self.train.grads, f_log_psi=self.wf.logpsi)
+        train.configure_loss_grads(self.train.grads)
         train.configure_writers(self.train.writers)
         self.train_stage = train.build()
         self.data_init = partial(data_init, system)
@@ -276,7 +301,9 @@ class SolidTrainWorkflow(SolidWorkflowBase, VMCWorkflow):
 @configurable_dataclass
 class SolidEvalWorkflow(SolidWorkflowBase, EvaluationWorkflow):
     estimators: Annotated[
-        SolidEstimators, WithToggles(energy=True, spin=False, density=False)
+        SolidEstimators,
+        WithToggles(energy=True, spin=False, overlap=False, density=False),
+        HideLoss(),
     ] = field(default_factory=SolidEstimators)
 
     def build_runtime(self) -> None:
@@ -294,7 +321,7 @@ class SolidEvalWorkflow(SolidWorkflowBase, EvaluationWorkflow):
             self.run_config, self.wf, name="evaluation"
         )
         evaluation.configure_sample_plan(self.wf.logpsi, {"electrons": self.sampler})
-        _wire_estimators(self.estimators, self.wf, system)
+        _wire_estimators(self.estimators, self.wf, system, self.sampler)
         evaluation.configure_estimators(self.estimators)
         evaluation.configure_writers(self.writers)
         self.evaluation_stage = evaluation.build()

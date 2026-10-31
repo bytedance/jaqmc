@@ -9,6 +9,7 @@ projection onto total-angular-momentum sectors.
 
 import math
 from collections.abc import Callable, Mapping
+from dataclasses import field
 from functools import partial
 from typing import Any
 
@@ -18,6 +19,7 @@ from jax import numpy as jnp
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
 from jaqmc.estimator.base import PerWalkerEstimator, mean_reduce
+from jaqmc.estimator.loss_grad import loss_term
 from jaqmc.geometry.sphere import sample_haar_su2, spinor_coordinates_from_angles
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
@@ -68,6 +70,30 @@ def _first_and_second_derivative(
 
 
 @configurable_dataclass
+class AngularMomentumLoss:
+    r"""Penalty loss weights for :math:`L_z`, :math:`L_z^2`, and :math:`L^2`.
+
+    Args:
+        lz: Loss weight for :math:`L_z` (``angular_momentum_z``).
+        lz_square: Loss weight for :math:`L_z^2`
+            (``angular_momentum_z_square``).
+        l_square: Loss weight for :math:`L^2`
+            (``angular_momentum_square``).
+    """
+
+    lz: float = 0.0
+    lz_square: float = 0.0
+    l_square: float = 0.0
+
+
+_LOSS_SPECS = (
+    ("lz", "angular_momentum_z"),
+    ("lz_square", "angular_momentum_z_square"),
+    ("l_square", "angular_momentum_square"),
+)
+
+
+@configurable_dataclass
 class SphericalAngularMomentum(PerWalkerEstimator):
     r"""Local total-angular-momentum estimator on a sphere.
 
@@ -86,12 +112,16 @@ class SphericalAngularMomentum(PerWalkerEstimator):
     estimator covers the field-free sphere and the Haldane sphere.
 
     Args:
+        loss_weight: :class:`AngularMomentumLoss` penalty weights for ``lz``
+            (:math:`L_z`), ``lz_square`` (:math:`L_z^2`), and ``l_square``
+            (:math:`L^2`).
         wavefunction_precision: Wavefunction-defined precision mode for angular
             momentum. ``None`` inherits the wavefunction default.
         f_log_psi_from_spinor: Complex log-psi ``(params, u, v)`` (runtime dep).
         data_field: Electron-coordinate field name (runtime dep).
     """
 
+    loss_weight: AngularMomentumLoss = field(default_factory=AngularMomentumLoss)
     wavefunction_precision: str | None = None
     f_log_psi_from_spinor: SpinorWavefunctionEvaluate = runtime_dep()
     data_field: str = runtime_dep(default="electrons")
@@ -132,11 +162,24 @@ class SphericalAngularMomentum(PerWalkerEstimator):
         angular_momentum_z = 1j * gradient[2]
         angular_momentum_z_square = -(gradient[2] ** 2 + second_z)
         angular_momentum_square = -(jnp.sum(gradient**2) + laplacian)
-        return {
-            "angular_momentum_z": angular_momentum_z.real,
-            "angular_momentum_z_square": angular_momentum_z_square.real,
-            "angular_momentum_square": angular_momentum_square.real,
-        }, state
+        stats: dict[str, Any] = {
+            "angular_momentum_z": angular_momentum_z,
+            "angular_momentum_z_square": angular_momentum_z_square,
+            "angular_momentum_square": angular_momentum_square,
+        }
+        if self.loss_weight is not None:
+            for attr, stat_key in _LOSS_SPECS:
+                stats.update(
+                    loss_term(
+                        stat_key,
+                        stats[stat_key],
+                        weight=getattr(self.loss_weight, attr),
+                    )
+                )
+        return stats, state
+
+    def reduce(self, walker_stats: Mapping[str, Any]) -> dict[str, Any]:
+        return mean_reduce(jax.tree.map(jnp.real, walker_stats))
 
 
 def _angular_momentum_characters(

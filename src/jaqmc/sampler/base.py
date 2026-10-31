@@ -99,10 +99,10 @@ class SamplePlan:
             to sampler instances.
     """
 
-    def __init__(
+    def __init__[KeyT: str | tuple[str, ...]](
         self,
         log_amplitude: NumericWavefunctionEvaluate,
-        samplers: Mapping[str | tuple[str, ...], SamplerLike] | None = None,
+        samplers: Mapping[KeyT, SamplerLike] | None = None,
     ):
         self.log_amplitude = log_amplitude
         self.samplers: dict[tuple[str, ...], SamplerLike] = {}
@@ -138,16 +138,6 @@ class SamplePlan:
         Returns:
             A mapping of sampler states to pass back into :meth:`step`.
         """
-        self.batch_log_amplitudes = {
-            keys: jax.vmap(
-                partial(
-                    self.log_amplitude,
-                    precision=getattr(sampler, "wavefunction_precision", None),
-                ),
-                (None, batched_data.vmap_axis),
-            )
-            for keys, sampler in self.samplers.items()
-        }
         return {
             ",".join(keys): sampler.init(batched_data.data.subset(keys), rngs)
             for keys, sampler in self.samplers.items()
@@ -179,10 +169,17 @@ class SamplePlan:
             walker data, sampler statistics, and updated sampler state.
         """
         all_stats: dict[str, Any] = {}
+        state = dict(state)
         data = batched_data.data
         for keys, sampler in self.samplers.items():
             rngs, sub_rngs = jax.random.split(rngs)
-            batch_log_amplitude = self.batch_log_amplitudes[keys]
+            batch_log_amplitude = jax.vmap(
+                partial(
+                    self.log_amplitude,
+                    precision=getattr(sampler, "wavefunction_precision", None),
+                ),
+                (None, batched_data.vmap_axis),
+            )
             data_part, stats, state[",".join(keys)] = sampler.step(
                 lambda x, fn=batch_log_amplitude: 2 * fn(params, data.merge(x)),
                 batched_data.data.subset(keys),

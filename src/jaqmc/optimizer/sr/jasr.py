@@ -324,7 +324,14 @@ def scale_by_fisher_inverse(  # noqa: C901
         ones = jnp.ones_like(flat)
         return FisherInverseState(counter=0, prev_delta=zeros, acc_var=ones)
 
-    def update_fn(grads, state: FisherInverseState, params, data):
+    def update_fn(
+        grads,
+        state: FisherInverseState,
+        params,
+        data,
+        dloss_dlogpsi: Array | None = None,
+        **extra_args,
+    ):
         """Apply robust Fisher preconditioning.
 
         Args:
@@ -333,6 +340,12 @@ def scale_by_fisher_inverse(  # noqa: C901
             params: Parameter pytree.
             data: Monte Carlo samples; a pytree whose leaves have leading
                 dimension ``n_batch``.
+            dloss_dlogpsi: Optional centered per-walker sensitivity weights
+                ``d(loss)/d(log_psi)`` of shape ``[n_local]``. When provided,
+                their covariance gradient ``Re(conj(dloss_dlogpsi) @ score)``
+                is accumulated into ``grads`` using the uncentered score
+                matrix.
+            **extra_args: Ignored extra keyword arguments.
 
         Returns:
             Tuple of preconditioned updates and the new optimizer state.
@@ -340,6 +353,7 @@ def scale_by_fisher_inverse(  # noqa: C901
         Raises:
             ValueError: If structural pruning removes every parameter leaf.
         """
+        del extra_args
         count, prev_delta, acc_var = state
 
         # Flatten gradient.
@@ -372,6 +386,16 @@ def scale_by_fisher_inverse(  # noqa: C901
         score = jax.vmap(lambda x: ravel_selected_tree(x, active_leaf_mask)[0], 0, 0)(
             score_tree
         )
+
+        if dloss_dlogpsi is not None:
+            cov_grad_active = paxis.psum(
+                (jnp.conj(dloss_dlogpsi) @ score).real.astype(grad_flat.dtype)
+            )
+            grad_flat = set_idx(
+                grad_flat,
+                active_idx,
+                get_idx(grad_flat, active_idx) + cov_grad_active,
+            )
 
         n_local, _n_params = score.shape
         n_device = paxis.size()

@@ -6,7 +6,7 @@ Most users don't need a custom optimizer — KFAC, stochastic reconfiguration, a
 
 At each training step, the training loop:
 
-1. Computes parameter gradients (via the `LossAndGrad` estimator).
+1. Computes parameter gradients (via training estimators such as `TotalEnergy`).
 2. Calls your optimizer's `update(grads, state, params)`.
 3. Adds the returned `updates` to `params`.
 

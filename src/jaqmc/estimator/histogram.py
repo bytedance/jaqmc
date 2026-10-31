@@ -149,6 +149,7 @@ class HistogramEstimator(Estimator):
     def finalize_stats(
         self, mean_stats: Mapping[str, Any], state: dict[str, jnp.ndarray]
     ) -> dict[str, Any]:
+        del mean_stats, state
         return {}
 
     def finalize_state(

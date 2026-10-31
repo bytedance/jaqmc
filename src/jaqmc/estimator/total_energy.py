@@ -9,8 +9,11 @@ from jax import numpy as jnp
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
 from jaqmc.estimator.base import PerWalkerEstimator, mean_reduce
+from jaqmc.estimator.loss_grad import loss_term
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
+
+__all__ = ["TotalEnergy"]
 
 
 @configurable_dataclass
@@ -27,6 +30,8 @@ class TotalEnergy(PerWalkerEstimator):
     ``{output_name}_real_var``.
 
     Args:
+        loss_weight: Multiplier applied to the total energy in the VMC loss
+            and gradient. Set to ``0.0`` to disable.
         output_name: Name of the output total energy field (runtime dep,
             default ``"total_energy"``).
         components: Stat keys to sum. When ``None`` (default), auto-derives
@@ -34,6 +39,7 @@ class TotalEnergy(PerWalkerEstimator):
             (runtime dep).
     """
 
+    loss_weight: float = 1.0
     output_name: str = runtime_dep(default="total_energy")
     components: list[str] | None = runtime_dep(default=None)
 
@@ -51,7 +57,7 @@ class TotalEnergy(PerWalkerEstimator):
             if self.components is not None
             else [k for k in prev_walker_stats if k.startswith("energy:")]
         )
-        total = 0
+        total: Any = 0
         for name in keys:
             if not jnp.isscalar(energy_part := prev_walker_stats[name]):
                 raise ValueError(
@@ -61,7 +67,10 @@ class TotalEnergy(PerWalkerEstimator):
                     "scalar per walker."
                 )
             total += energy_part
-        return {self.output_name: total}, state
+        return {
+            self.output_name: total,
+            **loss_term(self.output_name, total, weight=self.loss_weight),
+        }, state
 
     def reduce(self, walker_stats: Mapping[str, Any]) -> dict[str, Any]:
         key = self.output_name

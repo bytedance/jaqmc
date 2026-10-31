@@ -156,7 +156,7 @@ from jax import numpy as jnp
 from jaqmc.utils.wiring import wire
 
 
-def _wire_estimators(settings, wf, system):
+def _wire_estimators(settings, wf, system, sampler):
     ...
     atoms = system.atoms
     wire(
@@ -323,13 +323,14 @@ class MoleculeWorkflowBase:
     ...
     estimators: Annotated[
         MoleculeEstimators,
-        WithToggles(spin=False, density=False, dipole=False),
+        WithToggles(spin=False, overlap=False, density=False, dipole=False),
     ] = field(default_factory=MoleculeEstimators)
 ```
 
 Workflows declare which estimators in an
 {class}`~jaqmc.estimator.EstimatorCollection` are user-togglable via
-{func}`~jaqmc.estimator.WithToggles`, and
+{func}`~jaqmc.estimator.WithToggles` (and evaluation workflows omit VMC
+`loss_weight` fields via {func}`~jaqmc.estimator.HideLoss`), and
 {class}`~jaqmc.estimator.EstimatorPipeline` runs only the enabled estimators
 exposed by the collection. Setting `dipole=False` in `WithToggles` exposes an
 inline `estimators.dipole.enabled` key defaulting to `false`, while any

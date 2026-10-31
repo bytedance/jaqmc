@@ -5,6 +5,7 @@ from .base import (
     Estimator,
     EstimatorCollection,
     EstimatorPipeline,
+    HideLoss,
     PerWalkerEstimator,
     WithToggles,
 )
@@ -13,6 +14,7 @@ __all__ = [
     "Estimator",
     "EstimatorCollection",
     "EstimatorPipeline",
+    "HideLoss",
     "PerWalkerEstimator",
     "WithToggles",
 ]

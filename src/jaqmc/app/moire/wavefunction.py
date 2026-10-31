@@ -46,7 +46,13 @@ class MoireWavefunctionLike(WavefunctionLike, Protocol):
         self, params: Params, data: MoireData
     ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]: ...
 
-    def logpsi(self, params: Params, data: MoireData) -> jnp.ndarray: ...
+    def logpsi(
+        self, params: Params, data: MoireData, *, precision: str | None = None
+    ) -> jnp.ndarray: ...
+
+    def phase_logpsi(
+        self, params: Params, data: MoireData, *, precision: str | None = None
+    ) -> tuple[jnp.ndarray, jnp.ndarray]: ...
 
 
 def _pseudospin_phase_exponents(nlayers: int) -> tuple[int, ...]:

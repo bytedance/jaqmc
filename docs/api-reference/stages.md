@@ -8,7 +8,7 @@ Stages are created through the **builder pattern**. ``VMCWorkStage.builder(run_c
 
 ```{eval-rst}
 .. autoclass:: jaqmc.workflow.stage.vmc.VMCStageBuilder
-   :members: configure_sample_plan, configure_estimators, configure_writers, configure_optimizer, configure_loss_grads, build
+   :members: configure_sample_plan, configure_estimators, configure_loss_grads, configure_writers, configure_optimizer, build
 
 .. autoclass:: jaqmc.workflow.stage.sampling.SamplingStageBuilder
    :members:

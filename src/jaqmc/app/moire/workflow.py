@@ -10,9 +10,10 @@ from typing import Annotated, Protocol, runtime_checkable
 import jax
 from jax import numpy as jnp
 
-from jaqmc.estimator import EstimatorCollection, WithToggles
+from jaqmc.estimator import EstimatorCollection, HideLoss, WithToggles
 from jaqmc.estimator.kinetic import EuclideanKinetic
-from jaqmc.estimator.loss_grad import LossAndGrad
+from jaqmc.estimator.loss_grad import LossGrad
+from jaqmc.estimator.overlap import Overlap, ReferenceState
 from jaqmc.estimator.total_energy import TotalEnergy
 from jaqmc.geometry.pbc import wrap_positions
 from jaqmc.optimizer.kfac import KFACOptimizer
@@ -100,32 +101,51 @@ class MoireEnergyEstimators(EstimatorCollection):
 
 
 @configurable_dataclass
+class MoireReferenceState(ReferenceState):
+    """Reference state for moire overlap estimation."""
+
+    wf: Annotated[
+        MoireWavefunctionLike | None,
+        ModuleConfig(package="jaqmc.app.moire.wavefunction"),
+    ] = None
+
+
+@configurable_dataclass
 class MoireEstimators(EstimatorCollection):
     """Observables evaluated by moire workflows.
 
     Args:
         energy: Energy component estimators.
+        overlap: Wavefunction overlap estimator.
     """
 
     energy: Annotated[
         MoireEnergyEstimators,
         WithToggles(kinetic=True, coulomb=True, moire_potential=True, soc=True),
     ] = field(default_factory=MoireEnergyEstimators)
+    overlap: Overlap[MoireReferenceState] = field(default_factory=Overlap)
 
 
-def _configure(
-    wf: MoireWavefunctionLike, sampler: MoireSamplerLike, system: MoireConfig
-) -> None:
+def _wire_wf(wf: MoireWavefunctionLike, system: MoireConfig) -> None:
     wf.nspins = system.electron_spins
     wf.primitive_lattice = jnp.asarray(system.lattice_vectors)
     wf.simulation_lattice = jnp.asarray(system.supercell_lattice)
     wf.twist = jnp.asarray(system.twist)
     wf.configure_phase_inputs(system)
+
+
+def _configure(
+    wf: MoireWavefunctionLike, sampler: MoireSamplerLike, system: MoireConfig
+) -> None:
+    _wire_wf(wf, system)
     sampler.configure(jnp.asarray(system.supercell_lattice))
 
 
 def _wire_estimators(
-    settings: MoireEstimators, wf: MoireWavefunctionLike, system: MoireConfig
+    settings: MoireEstimators,
+    wf: MoireWavefunctionLike,
+    system: MoireConfig,
+    sampler: MoireSamplerLike,
 ) -> None:
     energy = settings.energy
     primitive = jnp.asarray(system.moire_lattice_vectors)
@@ -145,6 +165,15 @@ def _wire_estimators(
     energy.soc.primitive_lattice = primitive
     energy.soc.nspins = system.electron_spins
     energy.soc.prefactor = prefactor
+    for ref in filter(None, settings.overlap.states.values()):
+        if ref.wf is not None:
+            _wire_wf(ref.wf, system)
+    settings.overlap.restore(
+        wf=wf,
+        samplers={("positions", "spin_coords"): sampler},
+        data_init=partial(data_init, system),
+        enabled=settings.is_enabled("overlap"),
+    )
 
 
 @configurable_dataclass
@@ -157,7 +186,9 @@ class MoireWorkflowBase:
     sampler: Annotated[MoireSamplerLike, ModuleConfig(package="jaqmc.app.moire")] = (
         field(default_factory=MoireJointMCMCSampler)
     )
-    estimators: MoireEstimators = field(default_factory=MoireEstimators)
+    estimators: Annotated[MoireEstimators, WithToggles(overlap=False)] = field(
+        default_factory=MoireEstimators
+    )
 
     def __post_init__(self) -> None:
         if self.system.is_integer_filling and self.wf.k_com is not None:
@@ -178,7 +209,7 @@ class MoireTrainWorkflow(MoireWorkflowBase, VMCWorkflow):
                 damping=3e-4,
                 learning_rate=Standard(rate=0.003, delay=10000),
             ),
-            grads=LossAndGrad(clip_scale=20.0),
+            grads=LossGrad(clip_scale=20.0),
             writers=stage_writers(
                 "pmove:.2f,energy=total_energy_real:.4f,"
                 "variance=total_energy_real_var:.4f"
@@ -193,9 +224,9 @@ class MoireTrainWorkflow(MoireWorkflowBase, VMCWorkflow):
             self.wf.logpsi, {("positions", "spin_coords"): self.sampler}
         )
         train.configure_optimizer(self.train.optim, f_log_psi=self.wf.logpsi)
-        _wire_estimators(self.estimators, self.wf, self.system)
+        _wire_estimators(self.estimators, self.wf, self.system, self.sampler)
         train.configure_estimators(self.estimators)
-        train.configure_loss_grads(self.train.grads, f_log_psi=self.wf.logpsi)
+        train.configure_loss_grads(self.train.grads)
         train.configure_writers(self.train.writers)
         self.train_stage = train.build()
         self.data_init = partial(data_init, self.system)
@@ -203,9 +234,9 @@ class MoireTrainWorkflow(MoireWorkflowBase, VMCWorkflow):
 
 @configurable_dataclass
 class MoireEvalWorkflow(MoireWorkflowBase, EvaluationWorkflow):
-    estimators: Annotated[MoireEstimators, WithToggles(energy=True)] = field(
-        default_factory=MoireEstimators
-    )
+    estimators: Annotated[
+        MoireEstimators, WithToggles(energy=True, overlap=False), HideLoss()
+    ] = field(default_factory=MoireEstimators)
 
     def build_runtime(self) -> None:
         _configure(self.wf, self.sampler, self.system)
@@ -215,7 +246,7 @@ class MoireEvalWorkflow(MoireWorkflowBase, EvaluationWorkflow):
         evaluation.configure_sample_plan(
             self.wf.logpsi, {("positions", "spin_coords"): self.sampler}
         )
-        _wire_estimators(self.estimators, self.wf, self.system)
+        _wire_estimators(self.estimators, self.wf, self.system, self.sampler)
         evaluation.configure_estimators(self.estimators)
         evaluation.configure_writers(self.writers)
         self.evaluation_stage = evaluation.build()
