@@ -14,9 +14,10 @@ from jaqmc.estimator import EstimatorLike
 from jaqmc.estimator.density import FractionalAxis, FractionalDensity
 from jaqmc.estimator.ecp import ECPEnergy
 from jaqmc.estimator.kinetic import EuclideanKinetic
+from jaqmc.estimator.ph import PHEnergy
 from jaqmc.estimator.spin import SpinSquared
 from jaqmc.estimator.total_energy import TotalEnergy
-from jaqmc.geometry.pbc import make_pbc_gaussian_proposal
+from jaqmc.geometry.pbc import build_distance_fn, make_pbc_gaussian_proposal
 from jaqmc.optimizer.kfac import KFACOptimizer
 from jaqmc.optimizer.optax import adam
 from jaqmc.sampler.mcmc import MCMCSampler
@@ -195,18 +196,12 @@ def configure_system(
 
     Raises:
         TypeError: If the wavefunction does not implement SolidWavefunction.
-        ValueError: PH is used
     """
     system_config: SolidConfig | Callable[[], SolidConfig] = cfg.get_module(
         "system", SolidConfig
     )
     if callable(system_config):
         system_config = system_config()
-    if system_config.ph_elements:
-        raise ValueError(
-            "solid workflows do not support PH pseudopotentials; "
-            "system.pp may only select ECP or all-electron treatment."
-        )
 
     nspins = (
         system_config.electron_spins[0] * system_config.scale,
@@ -253,9 +248,17 @@ def make_estimators(
         twist = jnp.array(system_config.twist)
 
         estimators["potential"] = PotentialEnergy(supercell_lattice=supercell_lattice)
-        estimators["kinetic"] = cfg.get(
-            "estimators.energy.kinetic", EuclideanKinetic(f_log_psi=wf.logpsi)
-        )
+        if not system_config.ph_elements:
+            estimators["kinetic"] = cfg.get(
+                "estimators.energy.kinetic", EuclideanKinetic(f_log_psi=wf.logpsi)
+            )
+        else:
+            logger.warning(
+                "PH is active: the regular EuclideanKinetic estimator is "
+                "inactive, and `estimators.energy.kinetic.*` overrides are "
+                "ignored. Use `estimators.energy.ph.kinetic_backend` to "
+                "select the PH derivative backend."
+            )
         if ecp_coefficients := system_config.ecp_coefficients:
             logger.info("ECP enabled for elements: %s", list(ecp_coefficients.keys()))
             estimators["ecp"] = cfg.get(
@@ -267,6 +270,18 @@ def make_estimators(
                     phase_logpsi=wf.phase_logpsi,
                     lattice=supercell_lattice,
                     twist=twist,
+                ),
+            )
+        if system_config.ph_elements:
+            logger.info("PH enabled for elements: %s", list(system_config.ph_elements))
+            estimators["ph"] = cfg.get(
+                "estimators.energy.ph",
+                PHEnergy(
+                    f_log_psi=wf.logpsi,
+                    atom_symbols=[atom.symbol for atom in system_config.atoms]
+                    * system_config.scale,
+                    ph=list(system_config.ph_elements),
+                    distance_fn=build_distance_fn(supercell_lattice),
                 ),
             )
         estimators["total"] = TotalEnergy()

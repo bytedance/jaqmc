@@ -26,6 +26,8 @@ References:
     backend implements.
 """
 
+from collections.abc import Callable
+
 import jax
 from jax import numpy as jnp
 
@@ -33,6 +35,8 @@ from jaqmc.array_types import Params
 from jaqmc.data import Data
 from jaqmc.utils.func_transform import grad_maybe_complex
 from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
+
+DistanceFunction = Callable[[jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]]
 
 __all__ = ["compute_derivative_energy"]
 
@@ -45,6 +49,7 @@ def compute_derivative_energy(
     l2_values: jnp.ndarray,
     *,
     electrons_field: str,
+    distance_function: DistanceFunction,
 ) -> jnp.ndarray:
     r"""Evaluate the PH derivative term via Cholesky + forward Laplacian.
 
@@ -58,6 +63,7 @@ def compute_derivative_energy(
         l2_values: Radial values :math:`\ell_2(r) = r\,v_{L^2}(r)` with shape
             ``(n_electrons, n_ph_atoms)``.
         electrons_field: Name of the electron-coordinate field in ``data``.
+        distance_function: Function that computes the distance between two points.
 
     Returns:
         Scalar PH derivative energy :math:`\sum_i E_{\mathrm{PH}, i}`.
@@ -76,9 +82,12 @@ def compute_derivative_energy(
     if l2_values.shape != (electrons.shape[0], ph_atoms.shape[0]):
         raise ValueError("l2_values must have shape (n_electrons, n_ph_atoms)")
 
-    mass = jax.vmap(_mass_matrix_for_electron, in_axes=(0, None, 0))(
-        electrons, ph_atoms, l2_values
-    )
+    mass = jax.vmap(
+        lambda electron, l2_row: _mass_matrix_for_electron(
+            electron, ph_atoms, l2_row, distance_function
+        ),
+        in_axes=(0, 0),
+    )(electrons, l2_values)
     cholesky = jnp.linalg.cholesky(mass)
 
     second_order = _second_order_term(
@@ -97,8 +106,11 @@ def compute_derivative_energy(
         electrons_field=electrons_field,
     )
     first_order_vectors = jax.vmap(
-        _first_order_vector_for_electron, in_axes=(0, None, 0)
-    )(electrons, ph_atoms, l2_values)
+        lambda electron, l2_row: _first_order_vector_for_electron(
+            electron, ph_atoms, l2_row, distance_function
+        ),
+        in_axes=(0, 0),
+    )(electrons, l2_values)
     first_order_term = jnp.sum(first_order_vectors * grad_logpsi)
 
     return second_order + first_order_term
@@ -108,6 +120,7 @@ def _mass_matrix_for_electron(
     electron: jnp.ndarray,
     ph_atoms: jnp.ndarray,
     l2_row: jnp.ndarray,
+    distance_function: DistanceFunction,
 ) -> jnp.ndarray:
     r"""Assemble the per-electron mass matrix.
 
@@ -128,8 +141,7 @@ def _mass_matrix_for_electron(
 
     .. seealso:: :ref:`ph-mass-matrix` for the rendered derivation.
     """
-    rel = electron[None, :] - ph_atoms
-    r = jnp.linalg.norm(rel, axis=-1)
+    rel, r = distance_function(electron, ph_atoms)
     outer = rel[:, :, None] * rel[:, None, :]
     eye = jnp.eye(3, dtype=electron.dtype)
     inv_r = jnp.where(r > 0, 1.0 / r, 0.0)
@@ -143,6 +155,7 @@ def _first_order_vector_for_electron(
     electron: jnp.ndarray,
     ph_atoms: jnp.ndarray,
     l2_row: jnp.ndarray,
+    distance_function: DistanceFunction,
 ) -> jnp.ndarray:
     r"""Analytic first-order PH vector.
 
@@ -162,8 +175,7 @@ def _first_order_vector_for_electron(
 
     .. seealso:: :ref:`ph-first-order-vector` for the rendered derivation.
     """
-    rel = electron[None, :] - ph_atoms
-    r = jnp.linalg.norm(rel, axis=-1)
+    rel, r = distance_function(electron, ph_atoms)
     inv_r = jnp.where(r > 0, 1.0 / r, 0.0)
     return jnp.sum(2.0 * l2_row[:, None] * inv_r[:, None] * rel, axis=0)
 
@@ -207,12 +219,7 @@ def _second_order_term(
         make_laplacian_input(jnp.zeros_like(electrons), sparse_axis=0)
     )
     grad_y = result.dense_jacobian
-    # NOTE: jnp.vdot conjugates its first argument, so it returns
-    # Σ |g_i|² rather than Σ g_i². The two agree for real `log psi`, which
-    # is the only case currently supported by this backend (matching the
-    # caveat in the PHEnergy class docstring). Switch to
-    # jnp.sum(grad_y * grad_y) before enabling complex wavefunctions on PH.
-    return -(result.laplacian + jnp.vdot(grad_y, grad_y))
+    return -(result.laplacian + jnp.sum(grad_y * grad_y, axis=0))
 
 
 def _logpsi_gradient(

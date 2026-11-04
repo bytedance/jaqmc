@@ -3,8 +3,6 @@
 
 """Tests for ECP configuration utilities and solid config factories."""
 
-import pytest
-
 from jaqmc.utils.atomic import core_electrons_by_pp
 
 
@@ -44,8 +42,8 @@ class TestRockSaltConfig:
         assert cfg.electron_spins == (1, 1)
         assert sorted(cfg.ecp_coefficients) == ["Li"]
 
-    def test_ph_is_rejected_by_solid_workflows(self):
-        """Solid workflows are ECP-only even though the public key is unified `pp`."""
+    def test_ph_is_accepted_by_solid_workflows(self):
+        """Solid workflows accept PH pseudopotentials via the unified `pp` key."""
         from jaqmc.app.solid.workflow import configure_system
         from jaqmc.utils.config import ConfigManager
 
@@ -66,8 +64,9 @@ class TestRockSaltConfig:
             }
         )
 
-        with pytest.raises(ValueError, match="do not support PH pseudopotentials"):
-            configure_system(cfg)
+        system_config, wf, _ = configure_system(cfg)
+        assert system_config.ph_elements == {"Fe", "S"}
+        assert wf.nspins == (11, 11)
 
 
 class TestTwoAtomChain:

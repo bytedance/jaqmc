@@ -7,7 +7,7 @@ r"""Pseudo-Hamiltonian energy estimator.
    implementation notes.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, Literal
 
 import jax
@@ -16,6 +16,7 @@ from jax import numpy as jnp
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
 from jaqmc.estimator.base import PerWalkerEstimator
+from jaqmc.geometry.obc import pair_displacements_between
 from jaqmc.utils.atomic.pp import SUPPORTED_PH_ELEMENTS
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
@@ -24,7 +25,9 @@ from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
 from . import _forward_laplacian, _standard
 from .data import load_ph_element_data
 
-__all__ = ["PHEnergy"]
+__all__ = ["DistanceFunction", "PHEnergy"]
+
+DistanceFunction = Callable[[jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]]
 
 
 @configurable_dataclass
@@ -65,6 +68,9 @@ class PHEnergy(PerWalkerEstimator):
             test. Validated at ``init()`` time.
         electrons_field: Name of the electron-coordinate field in ``Data``.
         atoms_field: Name of the atom-coordinate field in ``Data``.
+        distance_fn: Function computing electron-atom displacements and
+            distances (runtime dep, defaults to
+            :func:`~jaqmc.geometry.obc.pair_displacements_between`).
     """
 
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
@@ -73,6 +79,7 @@ class PHEnergy(PerWalkerEstimator):
     kinetic_backend: Literal["standard", "forward_laplacian"] = "forward_laplacian"
     electrons_field: str = "electrons"
     atoms_field: str = "atoms"
+    distance_fn: DistanceFunction = runtime_dep(default=pair_displacements_between)
 
     def init(self, data: Data, rngs: PRNGKey) -> None:
         del rngs
@@ -158,26 +165,27 @@ class PHEnergy(PerWalkerEstimator):
         atoms = jnp.asarray(data[self.atoms_field])
         ph_atom_indices = jnp.asarray(self._ph_atom_indices)
         ph_atoms = atoms[ph_atom_indices]
-
-        loc_values, l2_values = self._interpolate_radial_values(electrons, ph_atoms)
+        _, distances = self.distance_fn(electrons, ph_atoms)
+        loc_values = self._interp_tables(distances, self._loc_tables)
+        l2_values = self._interp_tables(distances, self._l2_tables)
         derivative = self._evaluate_derivative_energy(params, data, ph_atoms, l2_values)
-        zero_order = self._evaluate_zero_order_term(electrons, ph_atoms, loc_values)
+        # Short-range residual local channel:
+        #     E_PH,0 = sum_e sum_a (tilde_v_loc(r_ea) + Z_a / r_ea).
+        # The PH data layer stores the local table as
+        #     loc_data(r) = r * tilde_v_loc(r) + Z_a
+        # (see ``load_ph_element_data``'s docstring for the loader-side
+        # contract), so the residual is recovered as ``loc_data(r) / r``
+        # without re-introducing ``Z`` at evaluate time. The bare
+        # ``-Z_a / r`` is supplied by ``potential_energy``, so the sum of
+        # ``energy:potential`` and ``energy:ph`` recovers the paper form
+        # ``sum_e sum_a tilde_v_loc(r_ea)`` of Bennett et al. (2022)
+        # without any masking between the two estimators.
+        zero_order = jnp.sum(loc_values / distances)
 
         return {
             "energy:kinetic": derivative,
             "energy:ph": zero_order,
         }, state
-
-    def _interpolate_radial_values(
-        self, electrons: jnp.ndarray, ph_atoms: jnp.ndarray
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        distances = jnp.linalg.norm(
-            electrons[:, None, :] - ph_atoms[None, :, :], axis=-1
-        )
-        return (
-            self._interp_tables(distances, self._loc_tables),
-            self._interp_tables(distances, self._l2_tables),
-        )
 
     def _interp_tables(
         self, distances: jnp.ndarray, tables: jnp.ndarray
@@ -215,25 +223,5 @@ class PHEnergy(PerWalkerEstimator):
             ph_atoms,
             l2_values,
             electrons_field=self.electrons_field,
+            distance_function=self.distance_fn,
         )
-
-    def _evaluate_zero_order_term(
-        self,
-        electrons: jnp.ndarray,
-        ph_atoms: jnp.ndarray,
-        loc_values: jnp.ndarray,
-    ) -> jnp.ndarray:
-        # Short-range residual local channel:
-        #     E_PH,0 = sum_e sum_a (tilde_v_loc(r_ea) + Z_a / r_ea).
-        # The PH data layer stores the local table as
-        #     loc_data(r) = r * tilde_v_loc(r) + Z_a
-        # (see ``load_ph_element_data``'s docstring for the loader-side
-        # contract), so the residual is recovered as ``loc_data(r) / r``
-        # without re-introducing ``Z`` at evaluate time. The bare
-        # ``-Z_a / r`` is supplied by ``potential_energy``, so the sum of
-        # ``energy:potential`` and ``energy:ph`` recovers the paper form
-        # ``sum_e sum_a tilde_v_loc(r_ea)`` of Bennett et al. (2022)
-        # without any masking between the two estimators.
-        rel = electrons[:, None, :] - ph_atoms[None, :, :]
-        r = jnp.linalg.norm(rel, axis=-1)
-        return jnp.sum(loc_values / r)

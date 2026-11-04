@@ -21,13 +21,18 @@ References:
     <https://doi.org/10.1021/acs.jctc.1c00992>`_.
 """
 
+from collections.abc import Callable
+
 import jax
 from jax import numpy as jnp
 
 from jaqmc.array_types import Params
 from jaqmc.data import Data
+from jaqmc.geometry.obc import pair_displacements_between
 from jaqmc.utils.func_transform import grad_maybe_complex, hessian_maybe_complex
 from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
+
+DistanceFunction = Callable[[jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]]
 
 __all__ = [
     "build_second_order_matrix",
@@ -44,6 +49,7 @@ def compute_derivative_energy(
     l2_values: jnp.ndarray,
     *,
     electrons_field: str,
+    distance_function: DistanceFunction,
 ) -> jnp.ndarray:
     r"""Evaluate the PH derivative term from its operator definition.
 
@@ -80,6 +86,7 @@ def compute_derivative_energy(
         l2_values: Radial values :math:`\ell_2(r) = r\,v_{L^2}(r)` with
             shape ``(n_electrons, n_ph_atoms)``.
         electrons_field: Name of the electron-coordinate field in ``data``.
+        distance_function: Function that computes the distance between two points.
 
     Returns:
         Scalar PH derivative energy :math:`\sum_i E_{\mathrm{PH}, i}`.
@@ -113,10 +120,12 @@ def compute_derivative_energy(
         electrons=electrons,
         electrons_field=electrons_field,
     )
-    full_mass = _build_mass_matrices(electrons, ph_atoms, l2_values)
+    full_mass = _build_mass_matrices(electrons, ph_atoms, l2_values, distance_function)
     trace_term = jnp.einsum("eij,eji->", full_mass, hessian_blocks)
     grad_term = jnp.einsum("ei,eij,ej->", grad_blocks, full_mass, grad_blocks)
-    first_order_term = _first_order_term(electrons, ph_atoms, l2_values, grad_blocks)
+    first_order_term = _first_order_term(
+        electrons, ph_atoms, l2_values, grad_blocks, distance_function
+    )
     return -(trace_term + grad_term) + first_order_term
 
 
@@ -171,10 +180,13 @@ def _build_mass_matrices(
     electrons: jnp.ndarray,
     ph_atoms: jnp.ndarray,
     l2_values: jnp.ndarray,
+    distance_function: DistanceFunction,
 ) -> jnp.ndarray:
     r"""Return per-electron mass matrices stacked along axis 0 (shape ``(N, 3, 3)``)."""
     return jax.vmap(
-        lambda electron, l2_row: build_second_order_matrix(electron, ph_atoms, l2_row),
+        lambda electron, l2_row: build_second_order_matrix(
+            electron, ph_atoms, l2_row, distance_function
+        ),
         in_axes=(0, 0),
     )(electrons, l2_values)
 
@@ -184,11 +196,12 @@ def _first_order_term(
     ph_atoms: jnp.ndarray,
     l2_values: jnp.ndarray,
     grad_blocks: jnp.ndarray,
+    distance_function: DistanceFunction,
 ) -> jnp.ndarray:
     r"""Return :math:`\sum_i b_i^\top g_i`, the first-order PH energy contribution."""
     first_order_vectors = jax.vmap(
         lambda electron, l2_row: evaluate_ph_first_order_vector(
-            electron, ph_atoms, l2_row
+            electron, ph_atoms, l2_row, distance_function
         ),
         in_axes=(0, 0),
     )(electrons, l2_values)
@@ -199,6 +212,7 @@ def build_second_order_matrix(
     electron: jnp.ndarray,
     ph_atoms: jnp.ndarray,
     l2_values: jnp.ndarray,
+    distance_function: DistanceFunction = pair_displacements_between,
 ) -> jnp.ndarray:
     r"""Build the PH second-order mass matrix for one electron.
 
@@ -228,6 +242,8 @@ def build_second_order_matrix(
         electron: Electron position with shape ``(3,)``.
         ph_atoms: PH atom positions with shape ``(m, 3)``.
         l2_values: Radial :math:`\ell_2(r)` values with shape ``(m,)``.
+        distance_function: Function that computes electron-atom displacements
+            and distances.
 
     Returns:
         A ``(3, 3)`` mass matrix for a single electron.
@@ -239,13 +255,16 @@ def build_second_order_matrix(
     l2_values = jnp.asarray(l2_values)
     _validate_ph_geometry(electron, ph_atoms, l2_values, "l2_values")
 
-    return _build_second_order_matrix_single(electron, ph_atoms, l2_values)
+    return _build_second_order_matrix_single(
+        electron, ph_atoms, l2_values, distance_function
+    )
 
 
 def evaluate_ph_first_order_vector(
     electron: jnp.ndarray,
     ph_atoms: jnp.ndarray,
     l2_values: jnp.ndarray,
+    distance_function: DistanceFunction = pair_displacements_between,
 ) -> jnp.ndarray:
     r"""Evaluate the PH first-order vector field for one electron.
 
@@ -264,6 +283,8 @@ def evaluate_ph_first_order_vector(
         electron: Electron position with shape ``(3,)``.
         ph_atoms: PH atom positions with shape ``(m, 3)``.
         l2_values: Radial :math:`\ell_2(r)` values with shape ``(m,)``.
+        distance_function: Function that computes electron-atom displacements
+            and distances.
 
     Returns:
         A vector with shape ``(3,)``.
@@ -275,7 +296,9 @@ def evaluate_ph_first_order_vector(
     l2_values = jnp.asarray(l2_values)
     _validate_ph_geometry(electron, ph_atoms, l2_values, "l2_values")
 
-    return _evaluate_ph_first_order_vector_single(electron, ph_atoms, l2_values)
+    return _evaluate_ph_first_order_vector_single(
+        electron, ph_atoms, l2_values, distance_function
+    )
 
 
 def _validate_ph_geometry(
@@ -298,13 +321,13 @@ def _build_second_order_matrix_single(
     electron: jnp.ndarray,
     ph_atoms: jnp.ndarray,
     l2_values: jnp.ndarray,
+    distance_function: DistanceFunction,
 ) -> jnp.ndarray:
     # Bennett et al. (2022), eq. for the PH diffusion tensor:
     #     d(r) = I + 2 (r^2 I - r r^T) v_L2(r),
     # with M = d/2. In the XML r*V convention l2(r) = r * v_L2(r), so
     #     M = 0.5 I + sum_a l2(r_a) * (r_a I - r_a r_a^T / |r_a|).
-    rel = electron[None, :] - ph_atoms
-    r = jnp.linalg.norm(rel, axis=-1)
+    rel, r = distance_function(electron, ph_atoms)
     outer = rel[:, :, None] * rel[:, None, :]
     eye = jnp.eye(3, dtype=electron.dtype)
     inv_r = jnp.where(r > 0, 1.0 / r, 0.0)
@@ -327,6 +350,7 @@ def _evaluate_ph_first_order_vector_single(
     electron: jnp.ndarray,
     ph_atoms: jnp.ndarray,
     l2_values: jnp.ndarray,
+    distance_function: DistanceFunction,
 ) -> jnp.ndarray:
     # Bennett et al. (2022): b = -div(M - I/2). We compute this divergence
     # numerically via jacfwd over the same correction matrix `M - I/2` used
@@ -340,7 +364,10 @@ def _evaluate_ph_first_order_vector_single(
 
     def correction_matrix(position: jnp.ndarray) -> jnp.ndarray:
         return (
-            _build_second_order_matrix_single(position, ph_atoms, l2_values) - 0.5 * eye
+            _build_second_order_matrix_single(
+                position, ph_atoms, l2_values, distance_function
+            )
+            - 0.5 * eye
         )
 
     jacobian = jax.jacfwd(correction_matrix)(electron)

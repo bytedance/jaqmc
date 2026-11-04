@@ -1,6 +1,6 @@
 # Pseudo-Hamiltonian (PH) pseudopotentials
 
-For configuration options, see the estimator sections of each system's config reference ([molecule](#molecule-estimators)).
+For configuration options, see the estimator sections of each system's config reference ([molecule](#molecule-estimators), [solid](#solid-estimators)).
 
 Pseudo-Hamiltonian (PH) pseudopotentials are an alternative pseudopotential
 family that sits parallel to semi-local [ECP](project:ecp.md)
@@ -33,9 +33,8 @@ system:
 ```
 
 In the example above, every `Fe` atom uses PH, every `Li` atom uses the
-`ccecp` ECP, and any other element is treated all-electron. PH and ECP atoms
-may coexist in the same molecule. Solid workflows accept the same unified
-`system.pp` syntax for ECPs, but reject `pp: ph` during system configuration.
+`ccecp` ECP, and any other element is treated all-electron. PH, ECP, and
+all-electron atoms may coexist in the same molecule or solid.
 
 ## Kinetic backend
 
@@ -60,10 +59,6 @@ On a PH run the energy stats include:
 
 The total energy is the sum of these, plus any semi-local ECP contributions
 when PH and ECP coexist.
-
-## Limitations
-
-- PH is currently wired only for the molecule workflow. Solid systems are not yet supported.
 
 (ph-formulas)=
 ## Local energy formulas
@@ -178,5 +173,5 @@ This backend is slower than the Forward Laplacian path but easier to read and se
 - [Pseudopotentials (ECP)](project:ecp.md) — the sibling semi-local
   pseudopotential family.
 - [Kinetic energy](project:kinetic.md) — the standalone kinetic estimator used on non-PH systems.
-- Configuration: [Molecule](#molecule-estimators)
+- Configuration: [Molecule](#molecule-estimators), [Solid](#solid-estimators)
 - API: {class}`~jaqmc.estimator.ph.PHEnergy`

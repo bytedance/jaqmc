@@ -20,10 +20,10 @@ contains `reference.npz`, the command generates a default PySCF reference in
   k-points from it — and additionally searches the `workflow.source_path` run
   directory.
 - The automatic job is KUHF, with automatic basis `cc-pVDZ` for all-electron
-  and `ccecpccpvdz` for `ccecp` elements; other ECP families need a prepared
-  reference. Automatic generation also requires each atom to use the effective
-  charge derived from `system.pp`; custom per-atom charges need a prepared
-  reference.
+  elements and `ccecpccpvdz` for `ccecp` and PH elements; other ECP families
+  need a prepared reference. Automatic generation also requires each atom to
+  use the effective charge derived from `system.pp`; custom per-atom charges
+  need a prepared reference.
 - An explicit path is loaded in place and not copied into
   `workflow.save_path`; evaluation therefore requires the same explicit path.
 
@@ -145,7 +145,7 @@ jaqmc solid reference prepare --yml lih_solid.yml \
 ```
 
 Omitted `solver.basis` uses the automatic double-zeta mapping:
-`cc-pVDZ` for all-electron atoms and `ccecpccpvdz` for `ccecp`
+`cc-pVDZ` for all-electron atoms and `ccecpccpvdz` for `ccecp` and PH
 (`ccecpccpvdz` is PySCF's spelling of the ccECP-cc-pVDZ family). With
 `system.pp.Li=ccecp` on that cell, the mapping is `Li=ccecpccpvdz` and
 `H=cc-pVDZ`:

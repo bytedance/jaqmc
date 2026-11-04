@@ -86,10 +86,41 @@ def test_between_known_distance():
     np.testing.assert_allclose(disp[0, 0], jnp.array([-3.0, -4.0, 0.0]), atol=1e-6)
 
 
+def test_between_single_particle_shape():
+    """1D input without particle-count axis omits that axis from output."""
+    single = jnp.array([1.0, 2.0, 0.0])
+    many = jnp.array([[1.0, 2.0, 0.0], [4.0, 6.0, 0.0]])
+
+    disp_a, r_a = obc.pair_displacements_between(single, many)
+    assert disp_a.shape == (2, 3)
+    assert r_a.shape == (2,)
+    np.testing.assert_allclose(r_a, jnp.array([0.0, 5.0]), atol=1e-6)
+
+    disp_b, r_b = obc.pair_displacements_between(many, single)
+    assert disp_b.shape == (2, 3)
+    assert r_b.shape == (2,)
+    np.testing.assert_allclose(disp_b, -disp_a, atol=1e-6)
+    np.testing.assert_allclose(r_b, jnp.array([0.0, 5.0]), atol=1e-6)
+
+    disp_both, r_both = obc.pair_displacements_between(single, many[1])
+    assert disp_both.shape == (3,)
+    assert r_both.shape == ()
+    np.testing.assert_allclose(r_both, 5.0, atol=1e-6)
+
+
+def test_between_batched_shape():
+    """Batched (B, Na, D) and (B, Nb, D) inputs preserve aligned batch axes."""
+    a = jnp.zeros((4, 3, 2))
+    b = jnp.ones((4, 5, 2))
+    disp, r = obc.pair_displacements_between(a, b)
+    assert disp.shape == (4, 3, 5, 2)
+    assert r.shape == (4, 3, 5)
+
+
 def test_between_rejects_bad_input():
-    """Should reject mismatched ndim or non-2D input."""
+    """Should reject mismatched ndim or 0D input."""
     with pytest.raises(ValueError, match="n_a, ndim"):
-        obc.pair_displacements_between(jnp.array([1.0, 2.0]), jnp.ones((1, 2)))
+        obc.pair_displacements_between(jnp.array(1.0), jnp.ones((1, 2)))
     with pytest.raises(ValueError, match="spatial dimensions"):
         obc.pair_displacements_between(jnp.ones((2, 3)), jnp.ones((2, 2)))
 
@@ -259,6 +290,48 @@ def test_general_branch_skewed(lattice):
         ([-4.0, -3.0, 0.5], [0.0, 0.0, 0.0]),
     ]
     _assert_distance_fn_matches_oracle(lattice, pairs)
+
+
+@pytest.mark.parametrize(
+    "lattice",
+    [
+        pytest.param(jnp.diag(jnp.array([8.0, 6.0, 10.0])), id="diagonal"),
+        pytest.param(
+            jnp.array([[0.0, 8.0, 0.0], [6.0, 0.0, 0.0], [0.0, 0.0, 10.0]]),
+            id="orthogonal",
+        ),
+        pytest.param(
+            jnp.array([[8.0, 0.0, 0.0], [2.0, 7.0, 0.0], [1.0, 1.0, 9.0]]),
+            id="triclinic",
+        ),
+    ],
+)
+def test_pbc_distance_fn_batched_and_single_particle_shapes(lattice):
+    """PBC distance_fn preserves aligned batch axes and supports 1D single particles."""
+    dist_fn = pbc.build_distance_fn(lattice)
+
+    ra_batch = jnp.zeros((4, 3, 3))
+    rb_batch = jnp.ones((4, 5, 3))
+    disp_batch, r_batch = dist_fn(ra_batch, rb_batch)
+    assert disp_batch.shape == (4, 3, 5, 3)
+    assert r_batch.shape == (4, 3, 5)
+
+    ra_single = jnp.array([1.0, 2.0, 3.0])
+    rb_atoms = jnp.ones((5, 3))
+    disp_single_a, r_single_a = dist_fn(ra_single, rb_atoms)
+    assert disp_single_a.shape == (5, 3)
+    assert r_single_a.shape == (5,)
+
+    disp_single_b, r_single_b = dist_fn(rb_atoms, ra_single)
+    assert disp_single_b.shape == (5, 3)
+    assert r_single_b.shape == (5,)
+    np.testing.assert_allclose(disp_single_b, -disp_single_a, atol=1e-6)
+    np.testing.assert_allclose(r_single_b, r_single_a, atol=1e-6)
+
+    disp_both, r_both = dist_fn(ra_single, rb_atoms[0])
+    assert disp_both.shape == (3,)
+    assert r_both.shape == ()
+    np.testing.assert_allclose(r_both, r_single_a[0], atol=1e-6)
 
 
 # -- Sphere: projective spinor conversion ------------------------------

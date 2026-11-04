@@ -195,9 +195,9 @@ electron count, supercell, or twist. For an automatically discovered file in a
 run directory, deletion allows JaQMC to regenerate it, while replacement
 provides a new reference. An explicit `reference=` path instead requires a
 valid replacement file or removal of the override. Automatic generation
-supports standard all-electron and `ccecp` systems, plus PH for molecules;
-custom per-atom effective charges and other ECP families require a prepared
-reference. The system-specific details are on the
+supports standard all-electron, `ccecp`, and PH systems; custom per-atom
+effective charges and other ECP families require a prepared reference. The
+system-specific details are on the
 [molecule](../systems/molecule/reference.md) and
 [solid](../systems/solid/reference.md) reference pages.
 

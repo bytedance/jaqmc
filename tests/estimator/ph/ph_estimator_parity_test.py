@@ -26,8 +26,6 @@ zero-order channel near the nucleus, init-time validation, and
 backend-uniform NaN propagation under non-PD ``M``.
 """
 
-from __future__ import annotations
-
 from typing import Literal
 
 import jax
@@ -37,6 +35,7 @@ from jax import numpy as jnp
 
 from jaqmc.app.molecule.data import MoleculeData
 from jaqmc.estimator.ph import PHEnergy
+from jaqmc.geometry.pbc import build_distance_fn
 from jaqmc.utils.atomic import PP_PH, core_electrons_by_pp
 from jaqmc.utils.atomic.elements import from_symbol
 
@@ -325,3 +324,97 @@ def test_ph_derivative_propagates_nan_on_non_positive_definite_mass_matrix(
     stats, _ = ph.evaluate_single_walker({}, data, {}, None, jax.random.key(0))
 
     assert bool(jnp.isnan(stats["energy:kinetic"]))
+
+
+def test_ph_pbc_minimum_image_and_complex_wavefunction_parity():
+    """Verify PH backends agree on complex wavefunctions and respect PBC minimum images.
+
+    Tests two periodic/solid-specific invariants:
+    1. For a complex-valued ``log psi``, ``forward_laplacian`` must use the
+       unconjugated quadratic gradient term ``g^T M g`` (matching ``standard``)
+       rather than ``|g|^2``.
+    2. Shifting an electron by a lattice vector (or placing it near a periodic
+       boundary so the nearest PH atom is a periodic image) produces the exact
+       same PH kinetic and local energies as evaluating the unwrapped minimum
+       image in open boundaries.
+    """
+    lattice = jnp.diag(jnp.array([10.0, 10.0, 10.0]))
+    k_vec = jnp.array([0.2, -0.15, 0.3])
+
+    def complex_logpsi(params, data):
+        del params
+        # Periodic-invariant around the minimum image at the origin, with a
+        # non-trivial complex phase so grad(logpsi) has both real and imaginary
+        # components.
+        r = data.electrons
+        r_mic = (r + 5.0) % 10.0 - 5.0
+        return -0.25 * jnp.sum(r_mic**2) + 1j * jnp.sum(r_mic * k_vec)
+
+    atom_at_origin = jnp.array([[0.0, 0.0, 0.0]])
+    charges = jnp.array([_ph_effective_charge("S")], dtype=jnp.float32)
+
+    # Electron at (9.3, 0.2, 9.6) in the [0, 10)^3 cell has its minimum-image
+    # displacement (-0.7, 0.2, -0.4) to the atom image at (10, 0, 10).
+    data_wrapped = MoleculeData(
+        electrons=jnp.array([[9.3, 0.2, 9.6]]),
+        atoms=atom_at_origin,
+        charges=charges,
+    )
+    data_unwrapped = MoleculeData(
+        electrons=jnp.array([[-0.7, 0.2, -0.4]]),
+        atoms=atom_at_origin,
+        charges=charges,
+    )
+
+    distance_fn = build_distance_fn(lattice)
+    ph_pbc_fl = PHEnergy(
+        f_log_psi=complex_logpsi,
+        atom_symbols=["S"],
+        ph=["S"],
+        kinetic_backend="forward_laplacian",
+        distance_fn=distance_fn,
+    )
+    ph_pbc_std = PHEnergy(
+        f_log_psi=complex_logpsi,
+        atom_symbols=["S"],
+        ph=["S"],
+        kinetic_backend="standard",
+        distance_fn=distance_fn,
+    )
+    ph_obc = PHEnergy(
+        f_log_psi=complex_logpsi,
+        atom_symbols=["S"],
+        ph=["S"],
+        kinetic_backend="forward_laplacian",
+    )
+
+    key = jax.random.key(0)
+    ph_pbc_fl.init(data_wrapped, key)
+    ph_pbc_std.init(data_wrapped, key)
+    ph_obc.init(data_unwrapped, key)
+
+    stats_pbc_fl, _ = ph_pbc_fl.evaluate_single_walker({}, data_wrapped, {}, None, key)
+    stats_pbc_std, _ = ph_pbc_std.evaluate_single_walker(
+        {}, data_wrapped, {}, None, key
+    )
+    stats_obc, _ = ph_obc.evaluate_single_walker({}, data_unwrapped, {}, None, key)
+
+    assert jnp.iscomplexobj(stats_pbc_fl["energy:kinetic"])
+    np.testing.assert_allclose(
+        stats_pbc_fl["energy:kinetic"],
+        stats_pbc_std["energy:kinetic"],
+        rtol=1e-5,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        stats_pbc_fl["energy:kinetic"],
+        stats_obc["energy:kinetic"],
+        rtol=1e-5,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        stats_pbc_fl["energy:ph"],
+        stats_obc["energy:ph"],
+        rtol=1e-5,
+        atol=1e-6,
+    )
