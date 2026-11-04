@@ -42,6 +42,39 @@ If a custom rule only handles some input patterns, it can raise
 delegates the current call back to the interpreter's dense automatic-rule path
 instead of forcing you to encode every branch in one handwritten rule.
 
+## Flax Module Methods
+
+`@custom_laplacian` can also decorate a Flax Linen `nn.Module` method directly,
+including `@nn.compact` methods in either decorator order:
+
+```python
+from flax import linen as nn
+from jaqmc.laplacian import LapTuple, custom_laplacian
+
+
+class ScaledSquare(nn.Module):
+    scale: float = 2.0
+
+    @nn.compact
+    @custom_laplacian
+    def __call__(self, x):
+        w = self.param("w", nn.initializers.ones, x.shape)
+        return self.scale * (w * x) ** 2
+
+    @__call__.def_laplacian_rule
+    def _call_rule(self, x):
+        w = self.param("w", nn.initializers.ones, x.x.shape)
+        input_jacobian = x.dense_jacobian
+        return LapTuple(
+            self.scale * (w * x.x) ** 2,
+            self.scale * 2 * (w**2) * x.x * input_jacobian,
+            self.scale * 2 * (w**2) * (x.x * x.laplacian + (input_jacobian**2).sum(axis=0)),
+        )
+```
+
+Both the method and its registered rule receive `self` and can read module
+attributes, parameters, and submodules.
+
 ## More on Writing Rules
 
 The custom rule takes the same positional arguments as the original function,

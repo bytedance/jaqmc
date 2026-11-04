@@ -11,11 +11,7 @@ from typing import Any, Protocol, cast
 
 from jaqmc.array_types import PyTree
 
-from .primitives.custom_laplacian import (
-    bind_custom_laplacian,
-    create_custom_laplacian_entry,
-    set_custom_laplacian_rule,
-)
+from .primitives.custom_laplacian import bind_custom_laplacian
 from .tracing import is_forward_laplacian_tracing
 
 
@@ -75,17 +71,54 @@ def _warn_on_suspicious_rule_closure(rule: Callable):
         )
 
 
+def _is_flax_module(value: Any) -> bool:
+    """Return whether ``value`` is a Flax Linen ``Module`` instance."""
+    try:
+        from flax import linen as nn
+    except ImportError:
+        return False
+
+    return isinstance(value, nn.Module)
+
+
+def _lift_flax_custom_laplacian(core_fn: Callable, core_rule_fn: Callable) -> Callable:
+    """Lift a Flax method and its custom Laplacian rule over module scopes.
+
+    Returns:
+        A scope-packed callable that binds ``custom_laplacian_call_p``.
+    """
+    from flax.core import lift
+
+    def inner(scope_fn, repack_fn, variable_groups, rng_groups, *args):
+        def f(variable_groups, rng_groups, *args):
+            scopes = scope_fn(variable_groups, rng_groups)
+            return core_fn(scopes, *args), repack_fn(scopes)
+
+        def rule(variable_groups, rng_groups, *args):
+            scopes = scope_fn(variable_groups, rng_groups)
+            return core_rule_fn(scopes, *args), repack_fn(scopes)
+
+        return bind_custom_laplacian(f, rule, (variable_groups, rng_groups, *args))
+
+    return lift.pack(inner, (True,), (True,), (True,), name="custom_laplacian")
+
+
 def custom_laplacian[**P, R: PyTree](
     fn: Callable[P, R],
 ) -> CustomLaplacianCallable[P, R]:
-    """Attach a custom Forward Laplacian rule to a function.
+    """Attach a custom Forward Laplacian rule to a function or Flax method.
 
     Analogous to ``jax.custom_jvp`` but for the Forward Laplacian transform.
-    The decorated function works normally outside ``forward_laplacian`` and
+    The decorated callable works normally outside ``forward_laplacian`` and
     only stages the custom primitive while ``forward_laplacian`` traces the
     surrounding function. When used inside ``forward_laplacian``, the
     registered rule receives ``LapTuple`` inputs and must return ``LapTuple``
     outputs with correctly propagated Jacobian and Laplacian.
+
+    Can decorate either a standalone function or a Flax Linen ``nn.Module``
+    method (including ``@nn.compact`` methods). When decorating a module
+    method, both the method and its rule receive ``self`` as the first
+    argument and can read module attributes, parameters, and submodules.
 
     A rule must be registered via ``def_laplacian_rule`` before the function
     can be used inside ``forward_laplacian``. A registered rule may raise
@@ -105,23 +138,38 @@ def custom_laplacian[**P, R: PyTree](
     Returns:
         A wrapped callable with a ``def_laplacian_rule`` attribute.
     """
-    custom_id = create_custom_laplacian_entry(fn)
+    rule_fn: Callable[..., Any] | None = None
 
     @functools.wraps(fn)
     def wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
         if not is_forward_laplacian_tracing():
             return fn(*args, **kwargs)
+
         if kwargs:
             names = ", ".join(sorted(kwargs))
             raise TypeError(
                 "custom_laplacian functions used inside forward_laplacian "
                 f"accept positional arguments only; got keyword arguments: {names}."
             )
-        return bind_custom_laplacian(fn, custom_id, args)
+        if rule_fn is None:
+            raise ValueError(
+                "custom_laplacian function was used inside forward_laplacian "
+                "without a registered def_laplacian_rule."
+            )
+
+        if args and _is_flax_module(args[0]):
+            from flax.linen import transforms
+
+            return transforms.decorator_lift_transform(
+                _lift_flax_custom_laplacian, (fn, rule_fn)
+            )(*args)
+
+        return bind_custom_laplacian(fn, rule_fn, args)
 
     def def_laplacian_rule[F: Callable[..., Any]](rule: F) -> F:
+        nonlocal rule_fn
         _warn_on_suspicious_rule_closure(rule)
-        set_custom_laplacian_rule(custom_id, rule)
+        rule_fn = rule
         return rule
 
     wrapped.def_laplacian_rule = def_laplacian_rule  # type: ignore[attr-defined]

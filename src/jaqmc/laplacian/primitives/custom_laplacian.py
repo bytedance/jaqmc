@@ -1,12 +1,10 @@
 # Copyright (c) 2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-"""Custom Forward Laplacian primitive plumbing and registry state."""
+"""Custom Forward Laplacian primitive plumbing."""
 
 import logging
 from collections.abc import Callable
-from itertools import count
-from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -20,10 +18,6 @@ from ..guards import is_laptuple
 from ..types import LaplacianHandler, LapTuple
 
 logger = logging.getLogger(__name__)
-
-
-_CUSTOM_LAPLACIAN_REGISTRY: dict[int, dict[str, Any]] = {}
-_CUSTOM_LAPLACIAN_COUNTER = count(1)
 
 
 custom_laplacian_call_p = Primitive("custom_laplacian_call")
@@ -42,10 +36,10 @@ class AutoLaplacianFallback(Exception):
 def _replay_custom_rule_vmaps(rule, tree_args, in_tree, vmap_history):
     """Replay outer ``vmap`` transforms around a custom Laplacian rule.
 
-    JAX batches the staged primal primitive, but the user rule is recovered later
-    from JaQMC's registry and still expects the original structured inputs. The
-    recorded ``vmap_history`` lets this helper wrap the rule in equivalent
-    ``jax.vmap`` calls before executing it on ``LapTuple`` arguments.
+    JAX batches the staged primal primitive, but the user rule still expects
+    the original structured inputs. The recorded ``vmap_history`` lets this
+    helper wrap the rule in equivalent ``jax.vmap`` calls before executing it
+    on ``LapTuple`` arguments.
 
     Returns:
         A rule wrapped in the same ``vmap`` history as the staged primitive.
@@ -92,8 +86,8 @@ def _replay_custom_rule_vmaps(rule, tree_args, in_tree, vmap_history):
     return batched_rule
 
 
-def _custom_laplacian_impl(*flat_args, custom_id, primal_jaxpr, in_tree, vmap_history):
-    del custom_id, in_tree, vmap_history
+def _custom_laplacian_impl(*flat_args, rule, primal_jaxpr, in_tree, vmap_history):
+    del rule, in_tree, vmap_history
     return jaxpr_as_fun(primal_jaxpr)(*flat_args)
 
 
@@ -103,12 +97,12 @@ custom_laplacian_call_p.def_impl(_custom_laplacian_impl)
 @custom_laplacian_call_p.def_abstract_eval
 def _(
     *flat_args,
-    custom_id,
+    rule,
     primal_jaxpr,
     in_tree,
     vmap_history,
 ):
-    del flat_args, custom_id, in_tree, vmap_history
+    del flat_args, rule, in_tree, vmap_history
     return list(primal_jaxpr.out_avals)
 
 
@@ -116,14 +110,14 @@ def _custom_laplacian_jvp(
     primals,
     tangents,
     *,
-    custom_id,
+    rule,
     primal_jaxpr,
     in_tree,
     vmap_history,
 ):
     Zero = ad_interp.Zero
 
-    del custom_id, in_tree, vmap_history
+    del rule, in_tree, vmap_history
 
     def materialize_tangent(primal, tangent):
         if not isinstance(tangent, Zero):
@@ -150,7 +144,7 @@ def _custom_laplacian_batch(
     vals,
     dims,
     *,
-    custom_id,
+    rule,
     primal_jaxpr,
     in_tree,
     vmap_history,
@@ -164,7 +158,7 @@ def _custom_laplacian_batch(
     batched_jaxpr = jax.make_jaxpr(batched_fun)(*dummy_vals)
     out_vals = custom_laplacian_call_p.bind(
         *vals,
-        custom_id=custom_id,
+        rule=rule,
         primal_jaxpr=batched_jaxpr,
         in_tree=in_tree,
         vmap_history=(*vmap_history, dims),
@@ -178,12 +172,12 @@ batching.primitive_batchers[custom_laplacian_call_p] = _custom_laplacian_batch
 def _custom_laplacian_lowering(
     ctx,
     *flat_args,
-    custom_id,
+    rule,
     primal_jaxpr,
     in_tree,
     vmap_history,
 ):
-    del custom_id, in_tree, vmap_history
+    del rule, in_tree, vmap_history
 
     def flat_fn(*args):
         return tuple(jaxpr_as_fun(primal_jaxpr)(*args))
@@ -195,7 +189,7 @@ mlir.register_lowering(custom_laplacian_call_p, _custom_laplacian_lowering)
 
 
 def handle_custom_laplacian(args, kwargs):
-    custom_id = kwargs["custom_id"]
+    rule = kwargs["rule"]
     primal_jaxpr = kwargs["primal_jaxpr"]
     in_tree = kwargs["in_tree"]
     vmap_history = kwargs["vmap_history"]
@@ -203,13 +197,6 @@ def handle_custom_laplacian(args, kwargs):
     if all(not isinstance(x, LapTuple) for x in args):
         raise RuntimeError(
             "custom_laplacian handler received no derivative-tracked arguments"
-        )
-
-    rule = _CUSTOM_LAPLACIAN_REGISTRY[custom_id]["rule"]
-    if rule is None:
-        raise ValueError(
-            "custom_laplacian function was used inside forward_laplacian "
-            "without a registered def_laplacian_rule."
         )
 
     tree_args = jtu.tree_unflatten(in_tree, args)
@@ -238,24 +225,7 @@ CUSTOM_LAPLACIAN_HANDLERS: dict[Primitive | str, LaplacianHandler] = {
 }
 
 
-def create_custom_laplacian_entry(fn: Callable) -> int:
-    """Allocate a registry entry for a ``custom_laplacian``-decorated function.
-
-    Returns:
-        The integer registry id used to bind later staged calls back to this
-        function and its optional handwritten rule.
-    """
-    custom_id = next(_CUSTOM_LAPLACIAN_COUNTER)
-    _CUSTOM_LAPLACIAN_REGISTRY[custom_id] = {"fn": fn, "rule": None}
-    return custom_id
-
-
-def set_custom_laplacian_rule(custom_id: int, rule: Callable) -> None:
-    """Install or replace the handwritten Forward Laplacian rule."""
-    _CUSTOM_LAPLACIAN_REGISTRY[custom_id]["rule"] = rule
-
-
-def bind_custom_laplacian(fn: Callable, custom_id: int, args: tuple):
+def bind_custom_laplacian(fn: Callable, rule: Callable, args: tuple):
     """Stage the custom primitive call for the traced function invocation.
 
     Returns:
@@ -277,7 +247,7 @@ def bind_custom_laplacian(fn: Callable, custom_id: int, args: tuple):
 
     flat_out = custom_laplacian_call_p.bind(
         *flat_args,
-        custom_id=custom_id,
+        rule=rule,
         primal_jaxpr=primal_jaxpr,
         in_tree=in_tree,
         vmap_history=(),
