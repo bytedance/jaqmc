@@ -35,8 +35,8 @@ _PH_SURROGATE_ECP = {symbol: "ccecp" for symbol in SUPPORTED_PH_ELEMENTS}
 def automatic_double_zeta_basis(atoms: Sequence[Atom]) -> dict[str, str]:
     """Choose the automatic PySCF double-zeta basis for each element.
 
-    All-electron atoms use ``cc-pVDZ``. Atoms using ``ccecp`` or molecular
-    PH treatment use ``ccecpccpvdz`` because PH is represented by its
+    All-electron atoms use ``cc-pVDZ``. Atoms using ``ccecp`` or PH
+    treatment use ``ccecpccpvdz`` because PH is represented by its
     ``ccecp`` surrogate in PySCF.
 
     Returns:

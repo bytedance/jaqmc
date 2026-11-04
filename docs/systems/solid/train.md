@@ -272,7 +272,13 @@ automatically sums all `energy:`-prefixed components.
 
 ### Kinetic energy (`estimators.energy.kinetic.*`)
 
-Kinetic energy estimator. See [Kinetic energy](../../guide/estimators/kinetic.md) for physics details and Laplacian mode trade-offs.
+Kinetic energy estimator. Used when no atom in `system.pp` uses PH (`"ph"`).
+When any atom uses PH, the standalone Euclidean kinetic estimator is replaced
+by `PHEnergy` and kinetic evaluation is controlled by
+`estimators.energy.ph.kinetic_backend` (setting `estimators.energy.kinetic.*`
+on a PH run fails the unused-config check). See
+[Kinetic energy](../../guide/estimators/kinetic.md) for physics details and
+Laplacian mode trade-offs.
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.estimator.kinetic.EuclideanKinetic
@@ -289,4 +295,18 @@ quadrature options.
 ```{eval-rst}
 .. config-defaults:: jaqmc.estimator.ecp.estimator.ECPEnergy
    :prefix: estimators.energy.ecp
+```
+
+### PH energy (`estimators.energy.ph.*`)
+
+Added automatically when `system.pp` selects PH (`"ph"`) for at least one
+atom. PH is the local pseudopotential family, parallel to the semi-local ECP
+family, in this workflow: a mixed system may use PH atoms, ECP atoms, and
+all-electron atoms together in the same run. See
+[Pseudo-Hamiltonian (PH) pseudopotentials](../../guide/estimators/ph.md) for
+physics details and backend options.
+
+```{eval-rst}
+.. config-defaults:: jaqmc.estimator.ph.PHEnergy
+   :prefix: estimators.energy.ph
 ```

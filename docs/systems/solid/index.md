@@ -166,11 +166,11 @@ always interpreted in Bohr because it sets the explicit transverse lattice
 constants.
 
 (solid-ecps)=
-## Effective core potentials
+## Pseudopotentials
 
-Solids use the same unified `system.pp` key as molecules and accept the same
-ECP names, but only ECP and all-electron treatment are supported — `pp: ph` is
-rejected. An ECP name or mapping under `system.pp` enables ECP treatment:
+Solids use the same unified `system.pp` key as molecules and accept both
+semi-local ECP names (such as `ccecp`) and the local Pseudo-Hamiltonian family
+(`"ph"`):
 
 ```yaml
 system:
@@ -178,8 +178,8 @@ system:
     Li: ccecp
 ```
 
-With an ECP enabled, JaQMC derives the explicit electron count from the
-valence system rather than the all-electron atoms, following the charge
+With a pseudopotential enabled, JaQMC derives the explicit electron count from
+the valence system rather than the all-electron atoms, following the charge
 resolution rule above. `system.s_z` applies to the explicit electrons, and
 charged primitive cells follow the `total_charge` and `local_charge` rule
 above.
@@ -192,9 +192,9 @@ guidance.
 
 When no `reference=` path is given, `jaqmc solid train` and
 `jaqmc solid evaluate` reuse a reference from a run directory or generate one
-with PySCF. Automatic generation covers all-electron and `ccecp` systems when
-each atom uses the effective charge derived from `system.pp`. Custom per-atom
-charges and other ECP families need a prepared reference. The
+with PySCF. Automatic generation covers all-electron, `ccecp`, and PH systems
+when each atom uses the effective charge derived from `system.pp`. Custom
+per-atom charges and other ECP families need a prepared reference. The
 `jaqmc solid reference prepare` command exposes the solver input, supports
 non-default bases, and selects Quantum ESPRESSO with `solver.module=qe`.
 Training and evaluation accept the resulting file through `reference=`. The

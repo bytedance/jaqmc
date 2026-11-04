@@ -21,12 +21,13 @@ class SolidPySCFSolverConfig:
         basis: PySCF basis specification passed to ``pyscf.pbc.gto.Cell``.
             A string names one basis for every element. ``None`` or an empty
             mapping uses the automatic double-zeta policy (``cc-pVDZ`` for
-            all-electron elements and ``ccecpccpvdz`` for ``ccecp``). A mapping
-            overrides selected elements and fills the rest from that policy.
-            Other ECP families need an explicit entry.
+            all-electron elements and ``ccecpccpvdz`` for ``ccecp`` and PH).
+            A mapping overrides selected elements and fills the rest from that
+            policy. Other ECP families need an explicit entry.
         pp: PySCF pseudopotential selection for the generated job. A string
             applies one pseudopotential to every element; a mapping overrides
-            selected elements, while omitted elements inherit ``system.pp``.
+            selected elements, while omitted elements inherit ``system.pp``
+            (with PH translated to its ``ccecp`` surrogate).
             These choices do not modify ``system.pp``. Each override may name
             a PySCF ECP or GTH pseudopotential and must preserve the
             valence-electron count from ``system.pp``.
