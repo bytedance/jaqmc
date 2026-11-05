@@ -6,6 +6,7 @@
 from typing import Literal
 
 from flax import linen as nn
+from jax.typing import DTypeLike
 
 from jaqmc.wavefunction.backbone.lapnet import LapNetBackbone
 from jaqmc.wavefunction.backbone.psiformer import PsiformerBackbone
@@ -18,6 +19,7 @@ def build_hall_backbone(
     num_layers: int,
     num_heads: int,
     heads_dim: int,
+    dtype: DTypeLike | None = None,
 ) -> nn.Module:
     """Build the configured Hall backbone with fixed internal defaults.
 
@@ -35,6 +37,7 @@ def build_hall_backbone(
                 num_heads=num_heads,
                 heads_dim=heads_dim,
                 mlp_hidden_dims=(num_heads * heads_dim,),
+                dtype=dtype,
             )
         case "lapnet":
             return LapNetBackbone(
@@ -43,6 +46,7 @@ def build_hall_backbone(
                 num_heads=num_heads,
                 heads_dim=heads_dim,
                 use_layernorm=True,
+                dtype=dtype,
             )
         case _:
             raise ValueError(

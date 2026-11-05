@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
+from jaqmc.laplacian import forward_laplacian, make_laplacian_input
 from tests.laplacian.helpers import check_with_brute_force
 from tests.laplacian.input_fixtures import (
     MATRIX_SHAPE,
@@ -285,6 +286,54 @@ def test_complex_tracked_contractions(lhs, rhs):
         rhs,
         shape=MATRIX_SHAPE,
     )
+
+
+@pytest.mark.parametrize(
+    ("tracked", "dtype", "output_dtype"),
+    [
+        ("left", jnp.float16, jnp.float32),
+        ("both", jnp.float16, jnp.float32),
+        ("both", jnp.bfloat16, jnp.float32),
+    ],
+)
+def test_promoted_dot_derivatives_compose(
+    tracked: str, dtype: type, output_dtype: type
+) -> None:
+    """Explicit accumulation dtype governs derivatives, not just the primal."""
+    x = jnp.array([[0.23, -0.61], [0.79, 0.41]], dtype=dtype)
+    if jnp.issubdtype(dtype, jnp.complexfloating):
+        x = x + jnp.asarray(0.13j, dtype=dtype)
+    weight = jnp.array([[0.37, 0.83], [-0.59, 0.17]], dtype=dtype)
+
+    def evaluate(value: jnp.ndarray) -> jnp.ndarray:
+        value = value**2
+        left = weight if tracked == "right" else value
+        right = weight if tracked == "left" else value.T
+        return jnp.matmul(
+            left,
+            right,
+            precision=jax.lax.Precision.HIGHEST,
+            preferred_element_type=output_dtype,
+        )
+
+    tolerance = 2e-2 if dtype == jnp.bfloat16 else 2e-3
+    for sparse in (False, True):
+        result = jax.jit(forward_laplacian(evaluate))(
+            make_laplacian_input(x, sparse_axis=0 if sparse else None)
+        )
+        assert (
+            result.x.dtype
+            == result.dense_jacobian.dtype
+            == result.laplacian.dtype
+            == output_dtype
+        )
+        check_with_brute_force(
+            evaluate,
+            x,
+            actual_result=result,
+            rtol=tolerance,
+            atol=tolerance,
+        )
 
 
 @parametrize_over_binary_cases(("lhs", "rhs"))

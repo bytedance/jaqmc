@@ -27,8 +27,11 @@ are identical to the [training system config](#molecule-train-system).
 
 ## Wavefunction (`wf.*`)
 
-Must match the training run. The effective defaults and built-in module choices
-are identical to the [training wavefunction config](#molecule-train-wf).
+Architecture settings must match the training run, though `wf.precision` can
+be changed (for example, to `standard`, see
+<project:../../guide/mixed-precision.md>). The effective defaults and built-in
+module choices are identical to the
+[training wavefunction config](#molecule-train-wf).
 
 ## Run Options (`run.*`)
 

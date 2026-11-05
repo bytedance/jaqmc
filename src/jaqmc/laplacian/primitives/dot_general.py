@@ -20,6 +20,7 @@ import jax.numpy as jnp
 from jax.extend.core import Primitive
 
 from ..guards import is_sparse_laptuple
+from ..precision import ContractionMode, current_contraction_mode, scaled_dot_general
 from ..sparse import (
     Local1Jacobian,
     Local2Jacobian,
@@ -317,6 +318,28 @@ class SparseDotLayout:
         return cls._merge_owner_slots((), owner_slots)
 
 
+def _primal_dot(
+    lhs: jnp.ndarray,
+    rhs: jnp.ndarray,
+    dot_kwargs: dict[str, Any],
+    *,
+    dtype: jnp.dtype | None = None,
+) -> jnp.ndarray:
+    kwargs = dict(dot_kwargs)
+    if (
+        current_contraction_mode() is ContractionMode.SCALED_FP16
+        and lhs.dtype not in (jnp.float16, jnp.bfloat16)
+        and rhs.dtype not in (jnp.float16, jnp.bfloat16)
+    ):
+        kwargs["precision"] = jax.lax.Precision.HIGHEST
+    if dtype is not None:
+        lhs, rhs = lhs.astype(dtype), rhs.astype(dtype)
+        kwargs["preferred_element_type"] = jnp.promote_types(
+            dtype, dot_kwargs.get("preferred_element_type") or dtype
+        )
+    return jax.lax.dot_general(lhs, rhs, **kwargs)
+
+
 def _map_leading_axis_dot_general(
     payload: jnp.ndarray,
     primal: jnp.ndarray,
@@ -341,13 +364,24 @@ def _map_leading_axis_dot_general(
             if payload_side == "lhs"
             else (primal, payload_slice)
         )
-        return jax.lax.dot_general(lhs, rhs, **dot_kwargs)
+        return scaled_dot_general(
+            lhs,
+            rhs,
+            dot_kwargs["dimension_numbers"],
+            precision=dot_kwargs.get("precision"),
+            preferred_element_type=dot_kwargs.get("preferred_element_type"),
+            out_sharding=dot_kwargs.get("out_sharding"),
+        )
 
     return jax.vmap(apply_one_slice)(payload)
 
 
 def _contract_leading_axis_dot_general(
-    lhs_payload: jnp.ndarray, rhs_payload: jnp.ndarray, *, dot_kwargs: dict[str, Any]
+    lhs_payload: jnp.ndarray,
+    rhs_payload: jnp.ndarray,
+    *,
+    dot_kwargs: dict[str, Any],
+    dtype: jnp.dtype | None = None,
 ) -> jnp.ndarray:
     """Contract payload leading axes together with the primal dot axes.
 
@@ -359,19 +393,47 @@ def _contract_leading_axis_dot_general(
         The payload-leading-axis contraction in the primal output layout.
     """
     axes = DotGeneralAxes.from_dimension_numbers(dot_kwargs["dimension_numbers"])
-    dot_kwargs = dot_kwargs | {
-        "dimension_numbers": (
-            (
-                (*(axis + 1 for axis in axes.lhs_contract), 0),
-                (*(axis + 1 for axis in axes.rhs_contract), 0),
-            ),
-            (
-                tuple(axis + 1 for axis in axes.lhs_batch),
-                tuple(axis + 1 for axis in axes.rhs_batch),
-            ),
+    pref_dtype = dot_kwargs.get("preferred_element_type")
+    if dtype is not None:
+        pref_dtype = jnp.promote_types(dtype, pref_dtype or dtype)
+    if (
+        current_contraction_mode() is ContractionMode.SCALED_FP16
+        and not jnp.iscomplexobj(lhs_payload)
+        and not jnp.iscomplexobj(rhs_payload)
+    ):
+        # vmap over axis 0 so each derivative slice is scaled independently
+        # before summing, rather than taking a single max across all slices.
+        return jnp.sum(
+            jax.vmap(
+                lambda l_slice, r_slice: scaled_dot_general(
+                    l_slice,
+                    r_slice,
+                    axes.dimension_numbers,
+                    preferred_element_type=pref_dtype,
+                    out_sharding=dot_kwargs.get("out_sharding"),
+                )
+            )(lhs_payload, rhs_payload),
+            axis=0,
+        )
+    dn = (
+        (
+            (*(axis + 1 for axis in axes.lhs_contract), 0),
+            (*(axis + 1 for axis in axes.rhs_contract), 0),
         ),
-    }
-    return jax.lax.dot_general(lhs_payload, rhs_payload, **dot_kwargs)
+        (
+            tuple(axis + 1 for axis in axes.lhs_batch),
+            tuple(axis + 1 for axis in axes.rhs_batch),
+        ),
+    )
+    return scaled_dot_general(
+        lhs_payload,
+        rhs_payload,
+        dn,
+        precision=dot_kwargs.get("precision"),
+        preferred_element_type=pref_dtype,
+        out_sharding=dot_kwargs.get("out_sharding"),
+        mode=ContractionMode.STANDARD,
+    )
 
 
 def _handle_dense_dot_general_with_one_tracked_operand(
@@ -396,14 +458,15 @@ def _handle_dense_dot_general_with_one_tracked_operand(
     lapl_lhs, lapl_rhs = (
         (tracked.laplacian, plain) if tracked_is_lhs else (plain, tracked.laplacian)
     )
-    y = jax.lax.dot_general(primal_lhs, primal_rhs, **dot_kwargs)
+    y = _primal_dot(primal_lhs, primal_rhs, dot_kwargs)
     jacobian = _map_leading_axis_dot_general(
         tracked.dense_jacobian,
         plain,
         payload_side="lhs" if tracked_is_lhs else "rhs",
         dot_kwargs=dot_kwargs,
     )
-    lapl = jax.lax.dot_general(lapl_lhs, lapl_rhs, **dot_kwargs)
+    lap_dtype = jnp.result_type(tracked.laplacian.dtype, plain.dtype)
+    lapl = _primal_dot(lapl_lhs, lapl_rhs, dot_kwargs, dtype=lap_dtype)
     return LapTuple(y, jacobian, lapl)
 
 
@@ -422,7 +485,7 @@ def _handle_dense_dot_general_with_two_tracked_operands(
     Returns:
         The dense Forward-Laplacian result for the ``dot_general`` call.
     """
-    y = jax.lax.dot_general(lhs.x, rhs.x, **dot_kwargs)
+    y = _primal_dot(lhs.x, rhs.x, dot_kwargs)
     lhs_jacobian = _map_leading_axis_dot_general(
         lhs.dense_jacobian,
         rhs.x,
@@ -436,14 +499,16 @@ def _handle_dense_dot_general_with_two_tracked_operands(
         dot_kwargs=dot_kwargs,
     )
     grad_y = lhs_jacobian + rhs_jacobian
+    lap_dtype = jnp.result_type(lhs.laplacian.dtype, rhs.laplacian.dtype)
     mixed_trace = _contract_leading_axis_dot_general(
         lhs.dense_jacobian,
         rhs.dense_jacobian,
         dot_kwargs=dot_kwargs,
+        dtype=lap_dtype,
     )
     lapl_y = (
-        jax.lax.dot_general(lhs.laplacian, rhs.x, **dot_kwargs)
-        + jax.lax.dot_general(lhs.x, rhs.laplacian, **dot_kwargs)
+        _primal_dot(lhs.laplacian, rhs.x, dot_kwargs, dtype=lap_dtype)
+        + _primal_dot(lhs.x, rhs.laplacian, dot_kwargs, dtype=lap_dtype)
         + 2 * mixed_trace
     )
     return pack_laptuple(y, grad_y, lapl_y)
@@ -519,51 +584,6 @@ def _build_sparse_dot_jacobian(
     raise RuntimeError(msg)
 
 
-def _contract_block_slot_with_primal(
-    blocks: jnp.ndarray,
-    primal: jnp.ndarray,
-    *,
-    block_side: Side,
-    dot_kwargs: dict[str, Any],
-) -> jnp.ndarray:
-    """Contract one sparse support slot against the other operand's primal data.
-
-    Each sparse block stores one column per tracked input coordinate. The helper
-    runs the same ``dot_general`` for every such column and keeps that input
-    coordinate axis in the output block payload.
-
-    Returns:
-        The contracted sparse block payload for one output support slot.
-    """
-    return _map_leading_axis_dot_general(
-        blocks,
-        primal,
-        payload_side=block_side,
-        dot_kwargs=dot_kwargs,
-    )
-
-
-def _contract_block_slot_pair(
-    lhs_blocks: jnp.ndarray,
-    rhs_blocks: jnp.ndarray,
-    *,
-    dot_kwargs: dict[str, Any],
-) -> jnp.ndarray:
-    """Contract two sparse support slots and sum over tracked input coordinates.
-
-    The result is the mixed trace term for one pair of owner slots in the
-    sparse-sparse Laplacian formula.
-
-    Returns:
-        The mixed trace contribution for one left/right owner-slot pair.
-    """
-    return _contract_leading_axis_dot_general(
-        lhs_blocks,
-        rhs_blocks,
-        dot_kwargs=dot_kwargs,
-    )
-
-
 def _handle_sparse_plain_dot(
     sparse: LapTuple[SparseJacobian],
     plain: jnp.ndarray,
@@ -597,7 +617,7 @@ def _handle_sparse_plain_dot(
     lapl_lhs, lapl_rhs = (
         (sparse.laplacian, plain) if sparse_side == "lhs" else (plain, sparse.laplacian)
     )
-    y = jax.lax.dot_general(lhs, rhs, **dot_kwargs)
+    y = _primal_dot(lhs, rhs, dot_kwargs)
     out_blocks = jnp.zeros_like(
         y,
         shape=(len(layout.owners), sparse.jacobian.input_coord_dim, *y.shape),
@@ -607,10 +627,10 @@ def _handle_sparse_plain_dot(
         layout.lhs_output_slots if sparse_side == "lhs" else layout.rhs_output_slots
     )
     for input_slot, output_slot in enumerate(output_slots):
-        contribution = _contract_block_slot_with_primal(
+        contribution = _map_leading_axis_dot_general(
             sparse.jacobian.blocks[input_slot],
             plain,
-            block_side=sparse_side,
+            payload_side=sparse_side,
             dot_kwargs=dot_kwargs,
         )
         out_blocks = out_blocks.at[output_slot, :, ...].add(contribution)
@@ -619,7 +639,8 @@ def _handle_sparse_plain_dot(
         owners=layout.owners,
         template=sparse.jacobian,
     )
-    lapl = jax.lax.dot_general(lapl_lhs, lapl_rhs, **dot_kwargs)
+    lap_dtype = jnp.result_type(sparse.laplacian.dtype, plain.dtype)
+    lapl = _primal_dot(lapl_lhs, lapl_rhs, dot_kwargs, dtype=lap_dtype)
     return LapTuple(y, jacobian, lapl)
 
 
@@ -655,7 +676,7 @@ def _handle_sparse_sparse_dot(
     if layout is None:
         return None
 
-    y = jax.lax.dot_general(lhs.x, rhs.x, **dot_kwargs)
+    y = _primal_dot(lhs.x, rhs.x, dot_kwargs)
     out_blocks = jnp.zeros_like(
         y,
         shape=(len(layout.owners), lhs.jacobian.input_coord_dim, *y.shape),
@@ -663,33 +684,35 @@ def _handle_sparse_sparse_dot(
     )
 
     for input_slot, output_slot in enumerate(layout.lhs_output_slots):
-        contribution = _contract_block_slot_with_primal(
+        contribution = _map_leading_axis_dot_general(
             lhs.jacobian.blocks[input_slot],
             rhs.x,
-            block_side="lhs",
+            payload_side="lhs",
             dot_kwargs=dot_kwargs,
         )
         out_blocks = out_blocks.at[output_slot, :, ...].add(contribution)
 
     for input_slot, output_slot in enumerate(layout.rhs_output_slots):
-        contribution = _contract_block_slot_with_primal(
+        contribution = _map_leading_axis_dot_general(
             rhs.jacobian.blocks[input_slot],
             lhs.x,
-            block_side="rhs",
+            payload_side="rhs",
             dot_kwargs=dot_kwargs,
         )
         out_blocks = out_blocks.at[output_slot, :, ...].add(contribution)
 
-    mixed_trace = jnp.zeros_like(y, dtype=jnp.result_type(lhs.x.dtype, rhs.x.dtype))
+    lap_dtype = jnp.result_type(lhs.laplacian.dtype, rhs.laplacian.dtype)
+    mixed_trace = jnp.zeros_like(y, dtype=lap_dtype)
     for lhs_input_slot, lhs_output_slot in enumerate(layout.lhs_output_slots):
         lhs_owner = layout.owners[lhs_output_slot]
         lhs_blocks = lhs.jacobian.blocks[lhs_input_slot]
         for rhs_input_slot, rhs_output_slot in enumerate(layout.rhs_output_slots):
             rhs_owner = layout.owners[rhs_output_slot]
-            pair_trace = _contract_block_slot_pair(
+            pair_trace = _contract_leading_axis_dot_general(
                 lhs_blocks,
                 rhs.jacobian.blocks[rhs_input_slot],
                 dot_kwargs=dot_kwargs,
+                dtype=lap_dtype,
             )
             mixed_trace = mixed_trace + jnp.where(
                 owner_ids_equal_mask(lhs_owner, rhs_owner, y.shape),
@@ -703,8 +726,8 @@ def _handle_sparse_sparse_dot(
         template=lhs.jacobian,
     )
     lapl = (
-        jax.lax.dot_general(lhs.laplacian, rhs.x, **dot_kwargs)
-        + jax.lax.dot_general(lhs.x, rhs.laplacian, **dot_kwargs)
+        _primal_dot(lhs.laplacian, rhs.x, dot_kwargs, dtype=lap_dtype)
+        + _primal_dot(lhs.x, rhs.laplacian, dot_kwargs, dtype=lap_dtype)
         + 2 * mixed_trace
     )
     return LapTuple(y, jacobian, lapl)

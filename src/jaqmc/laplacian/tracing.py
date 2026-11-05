@@ -5,6 +5,9 @@
 
 import contextlib
 import contextvars
+from collections.abc import Generator
+
+from jax.experimental.xla_metadata import set_xla_metadata
 
 _FORWARD_LAPLACIAN_TRACING = contextvars.ContextVar(
     "forward_laplacian_tracing", default=False
@@ -12,11 +15,14 @@ _FORWARD_LAPLACIAN_TRACING = contextvars.ContextVar(
 
 
 @contextlib.contextmanager
-def forward_laplacian_tracing():
-    """Mark the current trace as being under ``forward_laplacian``."""
+def forward_laplacian_tracing() -> Generator[None]:
+    """Mark derivative tracing and isolate it from cached ordinary JIT traces."""
     token = _FORWARD_LAPLACIAN_TRACING.set(True)
     try:
-        yield
+        # Custom Laplacian calls stage differently in this trace. JAX includes
+        # XLA metadata in both its tracing and JIT cache keys.
+        with set_xla_metadata(jaqmc_forward_laplacian=True):
+            yield
     finally:
         _FORWARD_LAPLACIAN_TRACING.reset(token)
 

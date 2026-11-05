@@ -17,10 +17,14 @@ used P_1 instead of P_0 for this channel, zeroing out the contribution.
 
 import jax
 import numpy as np
+import pytest
 from jax import numpy as jnp
 
+from jaqmc.app.molecule.data import MoleculeData
+from jaqmc.estimator.ecp.estimator import ECPEnergy
 from jaqmc.estimator.ecp.nonlocal_integral import make_nonlocal_integral
 from jaqmc.estimator.ecp.quadrature import Icosahedron, Octahedron
+from jaqmc.utils.config import ConfigManager
 
 
 def _constant_wf(flat_electrons):
@@ -143,3 +147,69 @@ def test_periodic_bloch_phase_matches_unwrapped_complex_oracle():
 
     np.testing.assert_allclose(periodic, unwrapped, atol=2e-6, rtol=2e-6)
     assert jnp.iscomplexobj(periodic)
+
+
+def test_ecp_wavefunction_precision_percentile_ranges():
+    """ECPEnergy partitions (electron, core) pairs by descending |V_l(r)|."""
+    mock_ecp = {"X": [2, [[-1, [[], [], [[1.0, 0.0]]]], [0, [[], [], [[1.0, 4.0]]]]]]}
+    electrons = jnp.array(
+        [[0.5, 0.0, 0.0], [1.0, 0.0, 0.0], [1.5, 0.0, 0.0], [2.0, 0.0, 0.0]]
+    )
+    data = MoleculeData(
+        electrons=electrons, atoms=jnp.zeros((1, 3)), charges=jnp.array([2.0])
+    )
+
+    def phase_logpsi(params, data, *, precision: str | None = None):
+        del params
+        scale = 1.0 if precision == "fp16_mixed" else 0.0
+        return jnp.array(1.0), jnp.where(
+            jnp.any(data.electrons != electrons), scale, 0.0
+        )
+
+    cfg = ConfigManager(
+        {},
+        [
+            "ecp.max_core=1",
+            "ecp.wavefunction_precision.default=[0.0, 0.25]",
+            "ecp.wavefunction_precision.standard=[0.25, 0.5]",
+            "ecp.wavefunction_precision.fp16_mixed=[0.5, 0.75]",
+        ],
+    )
+    ecp = cfg.get(
+        "ecp",
+        ECPEnergy(
+            ecp_coefficients=mock_ecp, atom_symbols=["X"], phase_logpsi=phase_logpsi
+        ),
+    )
+    ecp.init(data, jax.random.key(0))
+    out, _ = ecp.evaluate_single_walker({}, data, {}, None, jax.random.key(1))
+    expected = (
+        4.0 * np.exp(-(0.5**2))
+        + 4.0 * np.exp(-(1.0**2))
+        + 4.0 * np.exp(-(1.5**2)) * np.e
+    )
+    np.testing.assert_allclose(float(out["energy:ecp"]), expected, atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "bad_spec",
+    [
+        {"standard": (0.0, 0.6), "fp16_mixed": (0.5, 1.0)},
+        {"standard": (-0.1, 0.5)},
+        {"standard": (0.5, 0.5)},
+        {"standard": (0.2, 1.1)},
+        {},
+    ],
+)
+def test_ecp_wavefunction_precision_rejects_invalid_ranges(bad_spec):
+    """ECPEnergy rejects empty, out-of-bounds, degenerate, or overlapping ranges."""
+    with pytest.raises(ValueError):
+        ECPEnergy(
+            wavefunction_precision=bad_spec,
+            ecp_coefficients={"X": [2, [[-1, [[], [], [[1.0, 0.0]]]]]]},
+            atom_symbols=["X"],
+            phase_logpsi=lambda p, d, *, precision=None: (
+                jnp.array(1.0),
+                jnp.array(0.0),
+            ),
+        )

@@ -417,8 +417,10 @@ class TrainingMixin:
             )
         return checkpoint_step, ground_params, self._ground_complex_logpsi
 
-    def _ground_complex_logpsi(self, params, data) -> jnp.ndarray:
-        phase, log_abs = self.wf.phase_logpsi(params, data)
+    def _ground_complex_logpsi(
+        self, params, data, *, precision: str | None = None
+    ) -> jnp.ndarray:
+        phase, log_abs = self.wf.phase_logpsi(params, data, precision=precision)
         return log_abs + 1j * _phase_angle(phase, log_abs.dtype)
 
     def _resolve_ground_energy(
@@ -542,9 +544,9 @@ class TrainingMixin:
     ):
         floor = float(self.lit_config.source.floor)
 
-        def log_amplitude(params, data):
+        def log_amplitude(params, data, *, precision: str | None = None):
             source = molecular_electronic_dipole(data, axis) - source_center
-            return ground_logpsi(params, data) + jnp.log(
+            return ground_logpsi(params, data, precision=precision) + jnp.log(
                 jnp.maximum(jnp.abs(source), floor)
             )
 

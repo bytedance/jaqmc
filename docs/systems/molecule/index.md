@@ -273,10 +273,10 @@ for your run.
 Plot `total_energy` from `train_stats.csv` over training steps (see [Reading Training Statistics](../../guide/training-stats.md)). The energy should plateau. For final energy estimates, follow [Resume, branch, or evaluate](#recipe-resume-evaluate) — training energies are biased because the parameters change at every step.
 :::
 
-:::{admonition} Multi-GPU training
+:::{admonition} Multi-GPU and mixed-precision training
 :class: tip
 
-For faster production runs on multiple GPUs, see <project:/guide/multi-device.md>.
+For faster production runs, see <project:/guide/multi-device.md> and <project:/guide/mixed-precision.md>.
 :::
 
 ## Where To Go Next

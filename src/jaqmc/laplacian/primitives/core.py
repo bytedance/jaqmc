@@ -18,6 +18,7 @@ import logging
 from collections.abc import Callable
 from typing import Any, Literal, overload
 
+import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from optax.tree_utils import tree_add
@@ -212,12 +213,15 @@ def fallback_dense(
 
 def pack_laptuple(y: PyTree, grad_y: PyTree, lapl_y: PyTree) -> PyTree:
     """Returns a LapTuple pytree wrapping (y, grad_y, lapl_y)."""
-    return jtu.tree_map(
-        lambda x, jac, lapl: LapTuple(x, jac, lapl).astype(x.dtype),
-        y,
-        grad_y,
-        lapl_y,
-    )
+
+    def _pack_leaf(x, jac, lapl):
+        if jax.dtypes.issubdtype(x.dtype, jnp.floating) or jax.dtypes.issubdtype(
+            x.dtype, jnp.complexfloating
+        ):
+            return LapTuple(x, jac.astype(x.dtype), lapl.astype(x.dtype))
+        return x
+
+    return jtu.tree_map(_pack_leaf, y, grad_y, lapl_y)
 
 
 @overload

@@ -11,6 +11,7 @@ from jaqmc.app.molecule.workflow import make_estimators as make_molecule_estimat
 from jaqmc.app.solid.config import SolidAtomConfig, SolidConfig
 from jaqmc.app.solid.config.base import LatticeParams
 from jaqmc.app.solid.workflow import make_estimators as make_solid_estimators
+from jaqmc.data import Data
 from jaqmc.estimator.ecp import ECPEnergy
 from jaqmc.estimator.ph import PHEnergy
 from jaqmc.utils.config import ConfigError, ConfigManager
@@ -23,22 +24,30 @@ class _DummyWavefunction:
         del data, rngs
         return {}
 
-    def evaluate(self, params, data):
+    def evaluate(
+        self, params: Any, data: Data, *, precision: str | None = None
+    ) -> dict[str, jnp.ndarray]:
         return {
-            "logpsi": self.logpsi(params, data),
+            "logpsi": self.logpsi(params, data, precision=precision),
             "sign_logpsi": jnp.array(1.0),
         }
 
-    def logpsi(self, params, data):
-        del params
-        return -jnp.sum(data.electrons**2)
+    def logpsi(
+        self, params: Any, data: Data, *, precision: str | None = None
+    ) -> jnp.ndarray:
+        del params, precision
+        return -jnp.sum(data["electrons"] ** 2)
 
-    def phase_logpsi(self, params, data):
-        return jnp.array(1.0), self.logpsi(params, data)
+    def phase_logpsi(
+        self, params: Any, data: Data, *, precision: str | None = None
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        return jnp.array(1.0), self.logpsi(params, data, precision=precision)
 
-    def orbitals(self, params, data):
-        del params
-        nelec = data.electrons.shape[0]
+    def orbitals(
+        self, params: Any, data: Data, *, precision: str | None = None
+    ) -> jnp.ndarray:
+        del params, precision
+        nelec = data["electrons"].shape[0]
         return jnp.eye(nelec)[None, ...]
 
 

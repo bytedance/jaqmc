@@ -24,6 +24,7 @@ The proposal distribution is a Gaussian centered on the current position. Its wi
 - **`initial_width`** (default 0.1) — Starting standard deviation of the Gaussian proposal. The sampler adapts this automatically during training.
 - **`pmove_range`** (default `(0.5, 0.55)`) — Target acceptance rate range. The sampler scales the proposal width up or down to stay in this range.
 - **`adapt_frequency`** (default 100) — How often (in training steps) the proposal width is adjusted. Every `adapt_frequency` steps, the sampler checks the mean acceptance rate: if it exceeds the upper bound of `pmove_range`, the width is scaled up by 1.1×; if it falls below the lower bound, the width is scaled down by 1.1×.
+- **`wavefunction_precision`** (default `null`) — Wavefunction precision mode used for Metropolis-Hastings evaluations (`null` inherits `wf.precision`). On wavefunctions that support a reduced-precision forward mode such as `fp16_mixed`, setting `sampler.wavefunction_precision=fp16_mixed` speeds up the `steps` proposals per iteration (see <project:mixed-precision.md>).
 
 ## Tuning the Sampler
 
@@ -48,7 +49,7 @@ Walkers start from random positions near the atoms, which are usually far from t
 train.run.burn_in=100  # 100 steps × 10 MH updates = 1000 MH updates total
 ```
 
-Burn-in is generally recommended for production runs (e.g., 100–500 steps), and the training default is 100. For quick tests, you can set `train.run.burn_in=0` to start immediately. When resuming from a checkpoint, burn-in is skipped automatically since the walkers are already equilibrated.
+Burn-in is generally recommended for production runs (e.g., 100–500 steps), and the training default is 100. For quick tests, you can set `train.run.burn_in=0` to start immediately. When resuming a stage from its own checkpoint (`workflow.restore_path`), burn-in is skipped automatically since the walkers are already equilibrated. In separate `evaluate` runs loading a training checkpoint via `workflow.source_path`, `run.burn_in` defaults to `0`. Set `run.burn_in` (for example, `run.burn_in=100`) so walkers and proposal widths re-equilibrate when evaluation uses a different precision mode or sampler setting (see <project:mixed-precision.md>).
 
 ## See Also
 

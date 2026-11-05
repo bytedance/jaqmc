@@ -3,7 +3,7 @@
 
 """Public API tests for Forward Laplacian inputs, seeds, and guard helpers."""
 
-import operator
+from operator import add
 
 import jax
 import jax.numpy as jnp
@@ -295,7 +295,7 @@ class TestGuards:
 
 class TestDenseLapTupleContract:
     def test_forward_laplacian_rejects_mismatched_dense_bases(self):
-        fl = forward_laplacian(operator.add)
+        fl = forward_laplacian(add)
         lhs = LapTuple(jnp.array([1.0]), jnp.ones((2, 1)), jnp.zeros(1))
         rhs = LapTuple(jnp.array([2.0]), jnp.ones((3, 1)), jnp.zeros(1))
 

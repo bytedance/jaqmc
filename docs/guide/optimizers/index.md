@@ -33,6 +33,7 @@ KFAC is the default optimizer, so no configuration change is needed. The key tun
 - `norm_constraint` (default `1e-3`) - cap on the approximate squared Fisher norm of each parameter step.
 - `inverse_update_period` (default `1`) - number of training steps between Kronecker-factor inverse updates. Curvature moving averages still update every step while cached factor inverses are reused in between.
 - `use_cholesky_inversion` (default `false`) - whether damped Kronecker factors are inverted with a positive-definite Cholesky solver instead of general LU inversion.
+- `wavefunction_precision` (default `null`) - wavefunction precision mode used when evaluating curvature (`null` inherits `wf.precision`, see <project:../mixed-precision.md>).
 
 For large wavefunctions where KFAC factor inversion takes a noticeable share of step time, Cholesky inversion and a larger inverse update period reduce per-step overhead on GPUs:
 
@@ -42,10 +43,7 @@ train.optim.use_cholesky_inversion=true train.optim.inverse_update_period=2
 
 Values of `inverse_update_period` around `2` to `5` amortize factor inversion across steps with little effect on steady-state convergence, whereas much larger periods can leave cached inverses stale when the wavefunction changes rapidly. Enabling `use_cholesky_inversion=true` skips `kfac-jax`'s per-factor `NaN`/`Inf` conditional check and relies on the damped factors remaining strictly positive-definite. The default `damping=1e-3` typically keeps factors well-conditioned, whereas very small damping values (below `1e-4`) or severe local-energy spikes can cause non-positive-definite factors and `NaN` updates.
 
-JaQMC's KFAC tags cover parameters and inputs that share the same dtype, as
-well as the common mixed case where `float32` parameters receive `float64`
-inputs or produce `float64` values. Other dtype combinations may need
-additional validation against the `float32` graph registration.
+Built-in `wavefunction_precision` modes work with KFAC out of the box because master parameters remain `float32`. For custom wavefunctions or `jax.enable_x64` runs, JaQMC's KFAC tags cover parameters and inputs that share the same dtype, as well as `float32` parameters receiving `float64` inputs or producing `float64` values. Other custom parameter/input dtype combinations may need additional validation against the `float32` graph registration.
 
 See the [configuration reference](#train-optim) for all KFAC options.
 
@@ -77,6 +75,7 @@ The key tunable parameters are:
 - `max_norm` (default `"fixed"`) - ties the update norm to `learning_rate`. Set a float for an explicit cap or `null` to disable the norm constraint.
 - `max_cond_num` (default `1e7`) - adaptively raises damping to limit Gram-matrix conditioning.
 - `score_chunk_size` / `gram_num_chunks` - trade speed for lower memory use on large systems.
+- `wavefunction_precision` (default `null`) - wavefunction precision mode used for score evaluation (`null` inherits `wf.precision`, see <project:../mixed-precision.md>).
 
 For the derivation, failure mode, and efficient kernel-form update used by JaQMC, see {doc}`sr-spring-march`.
 

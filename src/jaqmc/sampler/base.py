@@ -3,6 +3,7 @@
 
 from collections.abc import Mapping
 from dataclasses import replace
+from functools import partial
 from typing import Any, Protocol
 
 import jax
@@ -133,9 +134,16 @@ class SamplePlan:
         Returns:
             A mapping of sampler states to pass back into :meth:`step`.
         """
-        self.batch_log_amplitude = jax.vmap(
-            self.log_amplitude, (None, batched_data.vmap_axis)
-        )
+        self.batch_log_amplitudes = {
+            keys: jax.vmap(
+                partial(
+                    self.log_amplitude,
+                    precision=getattr(sampler, "wavefunction_precision", None),
+                ),
+                (None, batched_data.vmap_axis),
+            )
+            for keys, sampler in self.samplers.items()
+        }
         return {
             ",".join(keys): sampler.init(batched_data.data.subset(keys), rngs)
             for keys, sampler in self.samplers.items()
@@ -170,8 +178,9 @@ class SamplePlan:
         data = batched_data.data
         for keys, sampler in self.samplers.items():
             rngs, sub_rngs = jax.random.split(rngs)
+            batch_log_amplitude = self.batch_log_amplitudes[keys]
             data_part, stats, state[",".join(keys)] = sampler.step(
-                lambda x: 2 * self.batch_log_amplitude(params, data.merge(x)),
+                lambda x, fn=batch_log_amplitude: 2 * fn(params, data.merge(x)),
                 batched_data.data.subset(keys),
                 state[",".join(keys)],
                 sub_rngs,

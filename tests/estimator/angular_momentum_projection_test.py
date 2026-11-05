@@ -17,11 +17,13 @@ from jaqmc.estimator.angular_momentum.spherical import (
 )
 
 
-def _singlet_log_psi(_params, u, v):
+def _singlet_log_psi(params, u, v, *, precision: str | None = None):
+    del params, precision
     return jnp.log(u[0] * v[1] - v[0] * u[1])
 
 
-def _polarized_log_psi(_params, u, _v):
+def _polarized_log_psi(params, u, v, *, precision: str | None = None):
+    del params, v, precision
     return 2 * jnp.log(u[0])
 
 

@@ -120,6 +120,12 @@ reference](train.md) and use `--dry-run workflow.config.verbose=true` to inspect
 the fully resolved config for your run. For checkpointing and resuming longer
 jobs, see <project:../../guide/running-workflows.md>.
 
+:::{admonition} Multi-GPU and mixed-precision training
+:class: tip
+
+MHPO supports the `standard`, `fp16_jac`, and `fp16_mixed` wavefunction precision modes (with LayerNorm always enabled on both `psiformer` and `lapnet` backbones). For faster production runs, see <project:/guide/multi-device.md> and <project:/guide/mixed-precision.md>.
+:::
+
 We used the following hyperparameters in our [paper](https://arxiv.org/abs/2412.14795) and recommend them as a starting point:
 
 | Parameter | Value |

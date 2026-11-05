@@ -38,6 +38,8 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
+    if "JAX_DEFAULT_MATMUL_PRECISION" not in os.environ:
+        jax.config.update("jax_default_matmul_precision", "float32")
     chex.set_n_cpu_devices(config.getoption("n_cpu_devices"))
     config.addinivalue_line("markers", "flaky: mark test as flaky (stochastic)")
     config.addinivalue_line(

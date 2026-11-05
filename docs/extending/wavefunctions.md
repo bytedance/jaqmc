@@ -22,7 +22,9 @@ Both are optional — `class MyWF(Wavefunction):` works fine when you don't need
 The base class provides two methods for free:
 
 - **`init_params(data, rngs)`** — initializes parameters by calling Flax's `self.init(rngs, data)`.
-- **`evaluate(params, data)`** — runs the forward pass by calling `self.apply(params, data)`.
+- **`evaluate(params, data, *, precision=None)`** runs the forward pass with an
+  optional wavefunction-specific precision mode. The base implementation calls
+  `self.apply(params, data)` and accepts only `precision=None`.
 
 These are what the rest of JaQMC (samplers, optimizers, estimators) interact with. You only implement `__call__`.
 
@@ -44,7 +46,7 @@ These three names are related but serve different layers:
 |--------|---------|---------|---------|
 | `__call__` | `(data) -> OutputT` | Your wavefunction subclass | Flax internals via `apply` |
 | `apply` | `(variables, *args, method=...) -> Any` | Flax `nn.Module` | Advanced users and internal wrappers |
-| `evaluate` | `(params, data) -> OutputT` | JaQMC `Wavefunction` base class | Workflow, sampler, optimizer, estimator wiring |
+| `evaluate` | `(params, data, *, precision=None) -> OutputT` | JaQMC `Wavefunction` base class | Workflow, sampler, optimizer, estimator wiring |
 
 - Use **`__call__`** to define model math for one walker.
 - Use **`evaluate`** as the default JaQMC-facing callable with explicit parameters.
@@ -54,10 +56,12 @@ Framework call path in practice:
 
 ```text
 workflow/estimator/sampler -> wf.logpsi or wf.evaluate
-                          -> wf.evaluate(params, data)
+                          -> wf.evaluate(params, data, precision=mode)
                           -> wf.apply(params, data)
                           -> wf.__call__(data)
 ```
+
+When a wavefunction supports multiple [evaluation precision](#wavefunction-evaluation-precision) modes, `evaluate` selects the matching module configuration before calling `apply`.
 
 Minimal example:
 
@@ -175,17 +179,17 @@ For the hydrogen atom, `evaluate` is all you need — it returns a scalar and ev
 
 | Method | Returns | Used by |
 |--------|---------|---------|
-| `logpsi(params, data)` | $\log\lvert\psi\rvert$ (scalar) | VMC loss, MCMC sampling |
-| `phase_logpsi(params, data)` | $(\operatorname{sgn}\psi,\;\log\lvert\psi\rvert)$ | Pseudopotential estimator (needs sign for wavefunction ratios) |
+| `logpsi(params, data, *, precision=None)` | $\log\lvert\psi\rvert$ (scalar) | VMC loss and sampling |
+| `phase_logpsi(params, data, *, precision=None)` | $(\operatorname{sgn}\psi,\;\log\lvert\psi\rvert)$ | Pseudopotential estimator (needs sign for wavefunction ratios) |
 
 When `__call__` returns {class}`~jaqmc.wavefunction.output.logdet.RealLogDetOutput`, both are one-liner extractions from `evaluate`:
 
 ```python
-def logpsi(self, params, data):
-    return self.evaluate(params, data)["logpsi"]
+def logpsi(self, params, data, *, precision=None):
+    return self.evaluate(params, data, precision=precision)["logpsi"]
 
-def phase_logpsi(self, params, data):
-    out = self.evaluate(params, data)
+def phase_logpsi(self, params, data, *, precision=None):
+    out = self.evaluate(params, data, precision=precision)
     return out["sign_logpsi"], out["logpsi"]
 ```
 
@@ -195,10 +199,25 @@ def phase_logpsi(self, params, data):
 The molecule app defines a protocol ({class}`~jaqmc.app.molecule.wavefunction.base.MoleculeWavefunction`) and the solid app defines a base class ({class}`~jaqmc.app.solid.wavefunction.SolidWavefunction`) that formalize which extraction
 methods they expect. The workflow validates the contract at startup — if you forget a
 method, you'll get a clear error. Both also include an `orbitals`
-method for pretraining against Hartree-Fock references — see
+method for pretraining against Hartree-Fock references, and
+{class}`~jaqmc.app.molecule.wavefunction.base.MoleculeWavefunctionModule` provides the standard `evaluate`, `logpsi`, `phase_logpsi`, and `orbitals` adapters for molecular ansatzes that implement `__call__` and `get_orbitals`. See
 {ghsrc}`src/jaqmc/app/molecule/wavefunction/ferminet.py` for the implementation
 pattern.
 :::
+
+(wavefunction-evaluation-precision)=
+### Optional: Supporting Precision Modes
+
+By default, {meth}`~jaqmc.wavefunction.Wavefunction.evaluate` accepts only `precision=None` and raises a `ValueError` for explicit modes, which is sufficient for most custom wavefunctions. To support named <project:../guide/mixed-precision.md> modes, declare a `precision` field, configure layer dtypes and [contraction scopes](#scoped-contraction-precision) from `self.precision`, and dispatch overrides via `self.clone(precision=precision)` in `evaluate` (or inherit {class}`~jaqmc.app.molecule.wavefunction.base.MoleculeWavefunctionModule`):
+
+```python
+@nn.nowrap
+def evaluate(self, params, data, *, precision=None):
+    module = self if precision is None else self.clone(precision=precision)
+    return module.apply(params, data)
+```
+
+See {ghsrc}`src/jaqmc/app/molecule/wavefunction/ferminet.py` for a complete example. Custom estimators, samplers, or optimizers that accept a `wavefunction_precision` setting bind it on the wavefunction callable via {func}`functools.partial` or [`forward_laplacian(..., precision=...)`](#forward-laplacian-fixed-options).
 
 ### Making It YAML-Configurable
 
@@ -241,7 +260,7 @@ jaqmc molecule train wf.module=my_package.my_wf:MyWavefunction wf.ndets=16 wf.hi
 
 - {ghsrc}`src/jaqmc/app/molecule/wavefunction/ferminet.py` — Complete FermiNet implementation (best template to copy).
 - {ghsrc}`src/jaqmc/wavefunction/base.py` — `Wavefunction` base class and protocol definitions.
-- {ghsrc}`src/jaqmc/app/molecule/wavefunction/base.py` — molecule wavefunction protocol definition.
+- {ghsrc}`src/jaqmc/app/molecule/wavefunction/base.py` — molecule wavefunction protocol and execution adapters.
 - {ghsrc}`src/jaqmc/app/molecule/wavefunction/lapnet.py` — LapNet implementation.
 - {ghsrc}`src/jaqmc/app/molecule/wavefunction/psiformer.py` — Psiformer implementation.
 - {ghsrc}`src/jaqmc/app/molecule/workflow.py` — How the workflow resolves and wires the wavefunction.

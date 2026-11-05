@@ -33,10 +33,11 @@ The effective defaults are identical to the [training system config](#hall-train
 
 ## Wavefunction (`wf.*`)
 
-When evaluating a training checkpoint, these settings must match the
-training run. For direct `laughlin` or `free` evaluation, select the
-analytic module with `wf.module`. MHPO options match the
-[training wavefunction config](#hall-train-wf).
+When evaluating a training checkpoint, architecture settings must match the
+training run, though `wf.precision` can be changed (for example, to
+`standard`, see <project:../../guide/mixed-precision.md>). For direct
+`laughlin` or `free` evaluation, select the analytic module with `wf.module`.
+MHPO options match the [training wavefunction config](#hall-train-wf).
 
 ### Laughlin options (`wf.*`)
 

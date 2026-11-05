@@ -78,10 +78,10 @@ default tracked state:
 - the Laplacian starts at zero
 
 If any input leaf is already a `LapTuple`, JaQMC keeps those tracked leaves
-as-is and treats every remaining plain array leaf as an untracked constant.
+as-is (without altering their seed dtypes) and treats every remaining plain array leaf as an untracked constant.
 That all-or-nothing rule is what makes
 {func}`~jaqmc.laplacian.make_laplacian_input` behave like "track only these
-inputs." It does not partially reseed the rest of the tree for you.
+inputs." It does not partially reseed the rest of the tree for you. Note that generic JVP fallback rules still require each Jacobian tangent to match its primal dtype.
 
 Sparse tracking also starts from
 {func}`~jaqmc.laplacian.make_laplacian_input`, but with `sparse_axis=...`.
@@ -115,6 +115,8 @@ While it walks the `jaxpr`, the interpreter keeps an environment for variables,
 stores inputs, constants, and intermediates by variable, and releases
 intermediates after their final downstream use. That keeps the execution model
 close to the `jaxpr` itself without retaining every value for the full graph.
+
+[Contraction precision scopes](#scoped-contraction-precision) are recorded as `jax.named_scope` tags during primal tracing and resolved per equation by {func}`~jaqmc.laplacian.precision.eqn_contraction_scope` during interpretation. Untagged equations inside nested `jit` / `pjit` Jaxprs inherit their enclosing call equation's mode, carrying contraction precision across cached JIT boundaries without retracing per mode. Likewise, `@custom_laplacian` calls use a dedicated trace-cache context so Forward Laplacian staging stays separate from already-warmed primal JIT caches.
 
 If you need to inspect the object the interpreter is walking, this is the
 relevant shape:
@@ -186,7 +188,7 @@ Write a dedicated primitive rule only when those wrappers miss structure that
 matters. Typical reasons are:
 
 - the primitive has a known analytic Hessian correction, such as division
-- the primitive has special contraction structure, such as `dot_general`
+- the primitive has special contraction structure, such as `dot_general` (which honors `preferred_element_type` across primal, Jacobian, and Laplacian contractions, promoting FP32 inputs with FP64 accumulation to FP64 outputs when x64 is enabled while accumulating `scaled_fp16` contractions in FP32)
 - the primitive can preserve sparse ownership exactly in a way the generic
   dense wrappers cannot
 

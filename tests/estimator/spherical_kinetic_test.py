@@ -40,7 +40,8 @@ def _kinetic(estimator, electrons):
 
 
 def _slater_logpsi(orbitals_fn):
-    def log_psi(_, u, v):
+    def log_psi(params, u, v, *, precision: str | None = None):
+        del params, precision
         sign, logdet = jnp.linalg.slogdet(orbitals_fn(u, v))
         return logdet + jnp.log(sign)
 

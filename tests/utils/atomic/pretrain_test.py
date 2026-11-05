@@ -119,8 +119,8 @@ def test_pretrain_loss_uses_spin_block_diagonal_target():
                 jnp.asarray([[5.0]]),
             )
 
-    def orbitals(params, data):
-        del params, data
+    def orbitals(params, data, *, precision: str | None = None):
+        del params, data, precision
         return jnp.asarray([[1.0, 2.0, 10.0], [3.0, 4.0, 20.0], [30.0, 40.0, 5.0]])
 
     estimator = make_pretrain_loss(orbitals, Reference(), (2, 1), full_det=True)
@@ -138,8 +138,8 @@ def test_pretrain_loss_handles_an_empty_spin_block():
             del pos, nspins
             return jnp.asarray([[1.0]]), jnp.zeros((0, 0))
 
-    def orbitals(params, data):
-        del params, data
+    def orbitals(params, data, *, precision: str | None = None):
+        del params, data, precision
         return jnp.asarray([[2.0]])
 
     estimator = make_pretrain_loss(orbitals, Reference(), (1, 0), full_det=True)

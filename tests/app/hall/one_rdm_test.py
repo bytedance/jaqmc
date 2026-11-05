@@ -23,7 +23,8 @@ def _sample(key, batch, nelec):
 
 
 def _make_lll(nelec: int, Q: float):
-    def log_psi(_, data):
+    def log_psi(params, data, *, precision: str | None = None):
+        del params, precision
         electrons = data["electrons"]
         theta, phi = electrons[..., 0], electrons[..., 1]
         u = jnp.cos(theta / 2) * jnp.exp(1j * phi / 2)

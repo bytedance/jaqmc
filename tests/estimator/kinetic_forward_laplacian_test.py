@@ -55,8 +55,10 @@ def test_forward_laplacian_vs_scan_equivalence(n_particles, n_dims, coeff):
     """Test forward_laplacian matches standard across configurations."""
     pytest.importorskip("jax", minversion="0.7.1")
 
-    def log_psi(params, data):
-        del params
+    def log_psi(
+        params: Any, data: SimpleData, *, precision: str | None = None
+    ) -> jnp.ndarray:
+        del params, precision
         return -coeff * jnp.sum(data["positions"] ** 2)
 
     key = jax.random.key(42 + n_particles * 10 + n_dims)
@@ -91,8 +93,10 @@ def test_forward_laplacian_kinetic_with_complex_wavefunction():
 
     # Complex wavefunction: psi = exp(i*k*x) * exp(-x^2/2)
     # log(psi) = i*k*x - x^2/2
-    def log_psi_complex(params, data):
-        del params
+    def log_psi_complex(
+        params: Any, data: SimpleData, *, precision: str | None = None
+    ) -> jnp.ndarray:
+        del params, precision
         positions = data["positions"]
         k = 1.0  # wave vector
         return 1j * k * jnp.sum(positions) - 0.5 * jnp.sum(positions**2)
@@ -139,8 +143,10 @@ def test_forward_laplacian_kinetic_edge_cases():
     """Test edge cases like zero positions and extreme values."""
     pytest.importorskip("jax", minversion="0.7.1")
 
-    def log_psi(params, data):
-        del params
+    def log_psi(
+        params: Any, data: SimpleData, *, precision: str | None = None
+    ) -> jnp.ndarray:
+        del params, precision
         return -0.5 * jnp.sum(data["positions"] ** 2)
 
     params: dict[str, jnp.ndarray] = {}
@@ -218,8 +224,10 @@ def test_euclidean_kinetic_sparse_1d_matches_dense_forward_jacobian():
     """Sparse 1D kinetic seeding matches dense Forward Laplacian seeding."""
     pytest.importorskip("jax", minversion="0.7.1")
 
-    def log_psi(params, data):
-        del params
+    def log_psi(
+        params: Any, data: SimpleData, *, precision: str | None = None
+    ) -> jnp.ndarray:
+        del params, precision
         x = data["positions"]
         return -0.3 * jnp.sum(x**2) + 0.1 * jnp.sum(x)
 
@@ -267,17 +275,14 @@ def test_forward_laplacian_ferminet_wavefunction_matches_scan(orbitals_spin_spli
     )
     params = wf.init_params(data, key)
 
-    def logpsi(params, data):
-        return wf.evaluate(params, data)["logpsi"]
-
     estimator_scan = EuclideanKinetic(
         mode=LaplacianMode.scan,
-        f_log_psi=logpsi,
+        f_log_psi=wf.logpsi,
         data_field="electrons",
     )
     estimator_fwd_lap = EuclideanKinetic(
         mode=LaplacianMode.forward_laplacian,
-        f_log_psi=logpsi,
+        f_log_psi=wf.logpsi,
         data_field="electrons",
     )
     stats_scan, _ = estimator_scan.evaluate_single_walker(params, data, {}, None, key)
@@ -312,18 +317,15 @@ def test_euclidean_kinetic_sparse_ferminet_matches_dense_forward_jacobian(
     )
     params = wf.init_params(data, key)
 
-    def logpsi(params, data):
-        return wf.evaluate(params, data)["logpsi"]
-
     sparse_est = EuclideanKinetic(
         mode=LaplacianMode.forward_laplacian,
-        f_log_psi=logpsi,
+        f_log_psi=wf.logpsi,
         data_field="electrons",
         sparse=True,
     )
     dense_jac_est = EuclideanKinetic(
         mode=LaplacianMode.forward_laplacian,
-        f_log_psi=logpsi,
+        f_log_psi=wf.logpsi,
         data_field="electrons",
         sparse=False,
     )
@@ -355,17 +357,14 @@ def test_forward_laplacian_psiformer_wavefunction_matches_scan(orbitals_spin_spl
     )
     params = wf.init_params(data, key)
 
-    def logpsi(params, data):
-        return wf.evaluate(params, data)["logpsi"]
-
     estimator_scan = EuclideanKinetic(
         mode=LaplacianMode.scan,
-        f_log_psi=logpsi,
+        f_log_psi=wf.logpsi,
         data_field="electrons",
     )
     estimator_fwd_lap = EuclideanKinetic(
         mode=LaplacianMode.forward_laplacian,
-        f_log_psi=logpsi,
+        f_log_psi=wf.logpsi,
         data_field="electrons",
     )
     stats_scan, _ = estimator_scan.evaluate_single_walker(params, data, {}, None, key)
@@ -402,18 +401,15 @@ def test_euclidean_kinetic_sparse_psiformer_matches_dense_forward_jacobian(
     )
     params = wf.init_params(data, key)
 
-    def logpsi(params, data):
-        return wf.evaluate(params, data)["logpsi"]
-
     sparse_est = EuclideanKinetic(
         mode=LaplacianMode.forward_laplacian,
-        f_log_psi=logpsi,
+        f_log_psi=wf.logpsi,
         data_field="electrons",
         sparse=True,
     )
     dense_jac_est = EuclideanKinetic(
         mode=LaplacianMode.forward_laplacian,
-        f_log_psi=logpsi,
+        f_log_psi=wf.logpsi,
         data_field="electrons",
         sparse=False,
     )
@@ -450,17 +446,14 @@ def test_forward_laplacian_lapnet_wavefunction_matches_scan():
     )
     params = wf.init_params(data, key)
 
-    def logpsi(params, data):
-        return wf.evaluate(params, data)["logpsi"]
-
     estimator_scan = EuclideanKinetic(
         mode=LaplacianMode.scan,
-        f_log_psi=logpsi,
+        f_log_psi=wf.logpsi,
         data_field="electrons",
     )
     estimator_fwd_lap = EuclideanKinetic(
         mode=LaplacianMode.forward_laplacian,
-        f_log_psi=logpsi,
+        f_log_psi=wf.logpsi,
         data_field="electrons",
     )
     stats_scan, _ = estimator_scan.evaluate_single_walker(params, data, {}, None, key)
@@ -499,18 +492,15 @@ def test_euclidean_kinetic_sparse_lapnet_matches_dense_forward_jacobian():
     )
     params = wf.init_params(data, key)
 
-    def logpsi(params, data):
-        return wf.evaluate(params, data)["logpsi"]
-
     sparse_est = EuclideanKinetic(
         mode=LaplacianMode.forward_laplacian,
-        f_log_psi=logpsi,
+        f_log_psi=wf.logpsi,
         data_field="electrons",
         sparse=True,
     )
     dense_jac_est = EuclideanKinetic(
         mode=LaplacianMode.forward_laplacian,
-        f_log_psi=logpsi,
+        f_log_psi=wf.logpsi,
         data_field="electrons",
         sparse=False,
     )
@@ -598,8 +588,10 @@ def test_prefactor_scales_kinetic_energy(mode):
         pytest.importorskip("jax", minversion="0.7.1")
 
     # Complex log-psi exercises the same code path the moire spinor model uses.
-    def log_psi(params, data):
-        del params
+    def log_psi(
+        params: Any, data: SimpleData, *, precision: str | None = None
+    ) -> jnp.ndarray:
+        del params, precision
         positions = data["positions"]
         return 0.7 * jnp.sum(positions**2) + 0.2j * jnp.sum(positions)
 
@@ -652,8 +644,10 @@ def test_per_particle_prefactor_matches_reference(mode):
         pytest.importorskip("jax", minversion="0.7.1")
 
     # Complex log-psi with cross terms so the per-particle split is nontrivial.
-    def log_psi(params, data):
-        del params
+    def log_psi(
+        params: Any, data: SimpleData, *, precision: str | None = None
+    ) -> jnp.ndarray:
+        del params, precision
         positions = data["positions"]
         coeffs = jnp.arange(1, positions.size + 1).reshape(positions.shape)
         return 0.7 * jnp.sum(positions**2) + 0.2j * jnp.sum(coeffs * positions)
@@ -683,8 +677,10 @@ def test_uniform_array_prefactor_matches_scalar(mode):
     if mode == LaplacianMode.forward_laplacian:
         pytest.importorskip("jax", minversion="0.7.1")
 
-    def log_psi(params, data):
-        del params
+    def log_psi(
+        params: Any, data: SimpleData, *, precision: str | None = None
+    ) -> jnp.ndarray:
+        del params, precision
         positions = data["positions"]
         return 0.7 * jnp.sum(positions**2) + 0.2j * jnp.sum(positions)
 

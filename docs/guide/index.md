@@ -28,6 +28,7 @@ Use this section when you already picked a system and want to run, analyze, tune
 
 ## Scale and Reliability
 
+- <project:mixed-precision.md> — accelerate Laplacian contractions, sampling, and nonlocal estimators with wavefunction precision modes.
 - <project:multi-device.md> — run across multiple GPUs/devices.
 - <project:troubleshooting.md> — common failures, NaNs, and recovery paths.
 
@@ -44,6 +45,7 @@ optimizers/index.md
 sampling.md
 periodic-boundaries.md
 writers.md
+mixed-precision.md
 multi-device.md
 training-stats.md
 analyzing-evaluations.md

@@ -1,6 +1,7 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+from functools import partial
 from typing import Any, Literal
 
 import optax
@@ -39,6 +40,8 @@ class SROptimizer:
     use on larger systems.
 
     Args:
+        wavefunction_precision: Wavefunction-defined precision mode passed to
+            wavefunction evaluation. ``None`` inherits the wavefunction default.
         learning_rate: Step size (scalar or schedule).
         max_norm: Constrained update norm ``C`` (scalar or schedule). If
             ``"fixed"``, the update is normalized to the norm set by
@@ -96,6 +99,7 @@ class SROptimizer:
     score_norm_clip: float | None = None
     gram_num_chunks: int | None = 4
     gram_dot_prec: str | None = "F64"
+    wavefunction_precision: str | None = None
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
 
     def init(
@@ -112,7 +116,7 @@ class SROptimizer:
         """
         del extra
         self._sr_base = robust_sr(
-            log_psi_fn=self.f_log_psi,
+            log_psi_fn=partial(self.f_log_psi, precision=self.wavefunction_precision),
             learning_rate=self.learning_rate,
             max_norm=self.max_norm,
             damping=self.damping,

@@ -40,7 +40,7 @@ all-electron atoms may coexist in the same molecule or solid.
 
 On PH runs the kinetic energy is computed by the PH estimator rather than by a standalone {class}`~jaqmc.estimator.kinetic.EuclideanKinetic`. The evaluation strategy is selected via `estimators.energy.ph.kinetic_backend`:
 
-- `forward_laplacian` (default) — Forward Laplacian evaluation through JaQMC's internal `jaqmc.laplacian.forward_laplacian` implementation, following [Fu et al. (2025)](https://arxiv.org/abs/2505.19909). This is the fast path and is recommended for production runs.
+- `forward_laplacian` (default) — Forward Laplacian evaluation through JaQMC's internal `jaqmc.laplacian.forward_laplacian` implementation, following [Fu et al. (2025)](https://arxiv.org/abs/2505.19909). This is the fast path and is recommended for production runs. When the wavefunction supports reduced-precision Jacobian contractions (such as `fp16_jac`), this path can be accelerated via `wf.precision` or `estimators.energy.ph.wavefunction_precision` (see <project:../mixed-precision.md>).
 - `standard` — Reverse-mode evaluation via `jax.grad` / `jax.hessian`, following [Bennett et al. (2022)](https://doi.org/10.1021/acs.jctc.1c00992). Slower than `forward_laplacian` but useful as a cross-check and in environments where the Forward Laplacian path is unavailable.
 
 :::{note}

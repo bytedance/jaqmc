@@ -45,7 +45,8 @@ def test_eigenstates_are_stable_near_chart_boundaries(
     if first_theta is not None:
         electrons = electrons.at[0, 0].set(first_theta)
 
-    def log_psi(_params, u, v):
+    def log_psi(params, u, v, *, precision: str | None = None):
+        del params, precision
         pair = u[:, None] * v[None, :] - v[:, None] * u[None, :]
         upper = jnp.triu(jnp.ones((nelec, nelec), dtype=bool), k=1)
         value = pair_power * jnp.sum(jnp.log(jnp.where(upper, pair, 1.0)))

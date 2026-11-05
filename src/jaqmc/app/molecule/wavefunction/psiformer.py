@@ -5,14 +5,16 @@
 
 from dataclasses import field
 from enum import StrEnum
+from typing import Literal, cast
 
+import jax
 from jax import numpy as jnp
 
 from jaqmc.app.molecule.data import MoleculeData
-from jaqmc.array_types import Params
+from jaqmc.app.molecule.wavefunction.base import MoleculeWavefunctionModule
 from jaqmc.geometry import obc
+from jaqmc.laplacian.precision import ContractionMode, jacobian_contraction_scope
 from jaqmc.utils.wiring import runtime_dep
-from jaqmc.wavefunction import Wavefunction
 from jaqmc.wavefunction.backbone.psiformer import LayerNormMode, PsiformerBackbone
 from jaqmc.wavefunction.input.atomic import MoleculeFeatures
 from jaqmc.wavefunction.jastrow import SimpleEEJastrow
@@ -35,12 +37,18 @@ class JastrowType(StrEnum):
     SIMPLE_EE = "simple_ee"
 
 
-class PsiformerWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
+class PsiformerWavefunction(MoleculeWavefunctionModule):
     """Psiformer ansatz with self-attention mechanism.
 
     Implements the :class:`~.base.MoleculeWavefunction` protocol.
 
     Args:
+        precision: ``standard`` follows array dtypes. ``fp16_jac`` uses FP32 neural
+            evaluation and scaled FP16 Forward Laplacian Jacobian contractions.
+            ``fp16_mixed`` runs attention, MLP, and orbital projections in FP16 with
+            the same contractions while retaining an FP32 residual stream and FP32
+            LayerNorm reductions. Both nonstandard modes retain FP32 envelope,
+            Jastrow, and determinant evaluation.
         nspins: Tuple of (num_spin_up, num_spin_down) electrons.
         ndets: Number of determinants.
         num_layers: Number of Psiformer layers.
@@ -70,6 +78,7 @@ class PsiformerWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
 
     """
 
+    precision: Literal["standard", "fp16_jac", "fp16_mixed"] = "standard"
     nspins: tuple[int, int] = runtime_dep()
     ndets: int = 16
     num_layers: int = 4
@@ -92,6 +101,11 @@ class PsiformerWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
         if not self.full_det:
             raise ValueError("Psiformer requires full_det=True.")
         self.feature_layer = MoleculeFeatures(rescale=self.rescale)
+        dtype = {
+            "standard": None,
+            "fp16_jac": jnp.float32,
+            "fp16_mixed": jnp.float16,
+        }[self.precision]
         self.backbone_layer = PsiformerBackbone(
             nspins=self.nspins,
             num_layers=self.num_layers,
@@ -101,6 +115,7 @@ class PsiformerWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
             layer_norm_mode=self.layer_norm_mode,
             with_bias=self.with_bias,
             input_bias=self.input_bias,
+            dtype=dtype,
         )
 
         self.orbital_layer = OrbitalProjection(
@@ -108,6 +123,7 @@ class PsiformerWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
             ndets=self.ndets,
             orbitals_spin_split=self.orbitals_spin_split,
             use_bias=self.bias_orbitals,
+            dtype=dtype,
         )
         self.envelope_layer = Envelope(
             envelope_type=self.envelope,
@@ -115,7 +131,9 @@ class PsiformerWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
             nspins=self.nspins,
             orbitals_spin_split=self.orbitals_spin_split,
         )
-        self.logdet_layer = LogDet()
+        self.logdet_layer = LogDet(
+            dtype=None if self.precision == "standard" else jnp.float32
+        )
 
         self.jastrow_layer: SimpleEEJastrow | None
         # Initialize Jastrow factor based on type
@@ -133,19 +151,26 @@ class PsiformerWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
                     f"Must be one of: {[e.value for e in JastrowType]}"
                 )
 
-    def __call__(self, data: MoleculeData):
-        orbitals = self.get_orbitals(data)
-        output = self.logdet_layer(orbitals)
+    @property
+    def contraction_mode(self) -> ContractionMode:
+        """Forward Laplacian contraction mode for this precision strategy."""
+        return (
+            ContractionMode.SCALED_FP16
+            if self.precision != "standard"
+            else ContractionMode.STANDARD
+        )
 
-        # Add Jastrow in log-space (numerically stable)
+    def __call__(self, data: MoleculeData) -> RealLogDetOutput:
+        output = cast(RealLogDetOutput, self.logdet_layer(self.get_orbitals(data)))
         if self.jastrow_layer is not None:
             _, r_ee = obc.pair_displacements_within(data.electrons)
-            jastrow_value = self.jastrow_layer(r_ee)
-            output = {**output, "logpsi": output["logpsi"] + jastrow_value}
-
+            output = {
+                **output,
+                "logpsi": output["logpsi"] + self.jastrow_layer(r_ee),
+            }
         return output
 
-    def get_orbitals(self, data):
+    def get_orbitals(self, data: MoleculeData) -> jnp.ndarray:
         """Compute orbital matrix from electron and atom positions.
 
         Returns pure orbitals with envelope applied but without Jastrow factor.
@@ -158,9 +183,17 @@ class PsiformerWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
             Orbital matrix of shape ``(ndets, n_electrons, n_electrons)``.
         """
         embedding = self.feature_layer(data.electrons, data.atoms)
-        # Psiformer only uses ae features (ee interactions via attention)
-        h_one = self.backbone_layer(embedding["ae_features"])
-        orbitals = self.orbital_layer(h_one)
+        with (
+            jacobian_contraction_scope(self.contraction_mode),
+            jax.default_matmul_precision(
+                "bfloat16"
+                if self.precision == "fp16_mixed"
+                else jax.default_matmul_precision.value
+            ),
+        ):
+            # Psiformer only uses ae features (ee interactions via attention)
+            h_one = self.backbone_layer(embedding["ae_features"])
+            orbitals = self.orbital_layer(h_one)
 
         # Apply envelope
         orbitals = orbitals * self.envelope_layer(
@@ -168,45 +201,3 @@ class PsiformerWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
         )
 
         return orbitals
-
-    def logpsi(self, params: Params, data: MoleculeData) -> jnp.ndarray:
-        """Evaluate log|psi| given parameters and data.
-
-        Args:
-            params: Wavefunction parameters from ``init_params``.
-            data: MoleculeData containing electrons and atoms.
-
-        Returns:
-            Scalar log-amplitude of the wavefunction.
-        """
-        return self.evaluate(params, data)["logpsi"]
-
-    def phase_logpsi(
-        self, params: Params, data: MoleculeData
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        """Evaluate (phase, log|psi|) given parameters and data.
-
-        Required for ECP calculations where wavefunction ratios need the phase.
-
-        Args:
-            params: Wavefunction parameters from ``init_params``.
-            data: MoleculeData containing electrons and atoms.
-
-        Returns:
-            Tuple of (phase, log|psi|) where phase is +1 or -1 for real
-            wavefunctions, or a complex unit value for complex wavefunctions.
-        """
-        out = self.evaluate(params, data)
-        return out["sign_logpsi"], out["logpsi"]
-
-    def orbitals(self, params: Params, data: MoleculeData) -> jnp.ndarray:
-        """Evaluate orbitals given parameters and data.
-
-        Args:
-            params: Wavefunction parameters from ``init_params``.
-            data: MoleculeData containing electrons and atoms.
-
-        Returns:
-            Orbital matrix of shape ``(ndets, n_electrons, n_electrons)``.
-        """
-        return self.apply(params, data, method=self.get_orbitals)  # type: ignore

@@ -64,6 +64,10 @@ For most production runs, the highest-value decisions are how long to train, whe
 keep pretraining, and whether you need a different optimizer or wavefunction. Everything
 else is usually a second-order adjustment.
 
+#### Speed up runs with mixed precision
+
+Once your baseline configuration is working, you can reduce step time on wavefunctions that support reduced-precision modes by accelerating Forward Laplacian contractions and forward-heavy consumers such as MCMC sampling or nonlocal integrals. See <project:mixed-precision.md>.
+
 #### Fit larger runs in memory
 
 If a run does not fit in device memory, first decide whether you can change the walker

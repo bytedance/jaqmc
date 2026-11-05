@@ -6,6 +6,9 @@ from enum import StrEnum
 
 from flax import linen as nn
 from jax import numpy as jnp
+from jax.typing import DTypeLike
+
+from .layernorm import LayerNorm
 
 __all__ = ["LayerNormMode", "PsiformerBackbone", "PsiformerLayer"]
 
@@ -49,6 +52,10 @@ class PsiformerLayer(nn.Module):
             - :attr:`LayerNormMode.null`: No LayerNorm applied.
 
         with_bias: Whether to use bias in attention QKV projections.
+        dtype: Projection and attention compute dtype. ``None`` allows natural
+            promotion from inputs and parameters. With an explicit dtype,
+            attention contributions and MLP preactivations are cast to the
+            residual stream dtype.
     """
 
     num_heads: int
@@ -56,6 +63,7 @@ class PsiformerLayer(nn.Module):
     mlp_hidden_dims: Sequence[int]
     layer_norm_mode: LayerNormMode = LayerNormMode.pre
     with_bias: bool = True
+    dtype: DTypeLike | None = None
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
@@ -71,7 +79,7 @@ class PsiformerLayer(nn.Module):
 
         x_in = x
         if self.layer_norm_mode == LayerNormMode.pre:
-            x_in = nn.LayerNorm(epsilon=1e-5)(x)
+            x_in = LayerNorm(epsilon=1e-5, param_compute_dtype=self.dtype)(x)
 
         attn_out = nn.MultiHeadDotProductAttention(
             num_heads=self.num_heads,
@@ -79,23 +87,28 @@ class PsiformerLayer(nn.Module):
             out_features=attention_dim,
             deterministic=True,
             use_bias=self.with_bias,
+            dtype=self.dtype,
         )(x_in)
+        if self.dtype is not None:
+            attn_out = attn_out.astype(x.dtype)
         x = x + attn_out
 
         if self.layer_norm_mode == LayerNormMode.pre:
-            mlp_out = nn.LayerNorm(epsilon=1e-5)(x)
+            mlp_out = LayerNorm(epsilon=1e-5, param_compute_dtype=self.dtype)(x)
         elif self.layer_norm_mode == LayerNormMode.post:
-            mlp_out = x = nn.LayerNorm(epsilon=1e-5)(x)
+            mlp_out = x = LayerNorm(epsilon=1e-5, param_compute_dtype=self.dtype)(x)
         elif self.layer_norm_mode == LayerNormMode.null:
             mlp_out = x
 
-        for dim in self.mlp_hidden_dims:
-            mlp_out = nn.tanh(nn.Dense(dim)(mlp_out))
-        mlp_out = nn.tanh(nn.Dense(attention_dim)(mlp_out))
+        for dim in (*self.mlp_hidden_dims, attention_dim):
+            mlp_out = nn.Dense(dim, dtype=self.dtype)(mlp_out)
+            if self.dtype is not None:
+                mlp_out = mlp_out.astype(x.dtype)
+            mlp_out = nn.tanh(mlp_out)
         x = x + mlp_out
 
         if self.layer_norm_mode == LayerNormMode.post:
-            x = nn.LayerNorm(epsilon=1e-5)(x)
+            x = LayerNorm(epsilon=1e-5, param_compute_dtype=self.dtype)(x)
         return x
 
 
@@ -129,6 +142,9 @@ class PsiformerBackbone(nn.Module):
 
         with_bias: Whether to use bias in attention QKV projections.
         input_bias: Whether to use bias in the input projection layer.
+        dtype: Projection and attention compute dtype. ``None`` allows natural
+            promotion from inputs and parameters. An explicit dtype keeps an
+            FP32 residual stream.
     """
 
     nspins: tuple[int, int]
@@ -139,6 +155,7 @@ class PsiformerBackbone(nn.Module):
     layer_norm_mode: LayerNormMode = LayerNormMode.pre
     with_bias: bool = True
     input_bias: bool = True
+    dtype: DTypeLike | None = None
 
     @nn.compact
     def __call__(self, h_one: jnp.ndarray) -> jnp.ndarray:
@@ -164,15 +181,24 @@ class PsiformerBackbone(nn.Module):
             )
 
         attention_dim = self.num_heads * self.heads_dim
+        stream_dtype = None if self.dtype is None else jnp.float32
+        if stream_dtype is not None:
+            h_one = h_one.astype(stream_dtype)
 
         # Create spin encoding: +1 for spin-up, -1 for spin-down
-        spins = jnp.concatenate([jnp.ones(n_up), -jnp.ones(n_down)])
+        spins = jnp.concatenate(
+            [jnp.ones(n_up, dtype=stream_dtype), -jnp.ones(n_down, dtype=stream_dtype)]
+        )
 
         # Concatenate spin feature for permutation equivariance
         features = jnp.concatenate([h_one, spins[..., None]], axis=-1)
 
         # Embed to attention dimension
-        x = nn.Dense(attention_dim, use_bias=self.input_bias)(features)
+        x = nn.Dense(attention_dim, use_bias=self.input_bias, dtype=self.dtype)(
+            features
+        )
+        if self.dtype is not None:
+            x = x.astype(features.dtype)
 
         # Apply Psiformer layers
         for _ in range(self.num_layers):
@@ -182,6 +208,7 @@ class PsiformerBackbone(nn.Module):
                 mlp_hidden_dims=self.mlp_hidden_dims,
                 layer_norm_mode=self.layer_norm_mode,
                 with_bias=self.with_bias,
+                dtype=self.dtype,
             )(x)
 
         return x

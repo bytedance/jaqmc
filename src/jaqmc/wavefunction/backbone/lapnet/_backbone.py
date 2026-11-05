@@ -6,7 +6,11 @@
 import jax
 from flax import linen as nn
 from jax import numpy as jnp
+from jax.typing import DTypeLike
 
+from jaqmc.laplacian.precision import ContractionMode, jacobian_contraction_scope
+
+from ..layernorm import LayerNorm
 from ._attention import lapnet_sparse_attention
 
 QKProjection = tuple[jnp.ndarray, jnp.ndarray]
@@ -29,6 +33,8 @@ class LapNetLayer(nn.Module):
         use_bias: Whether to use bias in dense projections.
         num_local_updates: Number of independent `hs` residual update layers
             between attention blocks.
+        dtype: Dense and LayerNorm compute dtype. ``None`` follows the incoming
+            activation dtype.
     """
 
     num_heads: int
@@ -36,32 +42,37 @@ class LapNetLayer(nn.Module):
     use_layernorm: bool = False
     use_bias: bool = True
     num_local_updates: int = 2
+    dtype: DTypeLike | None = None
 
     def setup(self) -> None:
         if self.num_local_updates < 0:
             raise ValueError("LapNet num_local_updates must be non-negative.")
         attention_dim = self.num_heads * self.heads_dim
         bias_init = nn.initializers.normal(stddev=1.0)
-        self.qk_projection = nn.Dense(
-            2 * attention_dim, use_bias=self.use_bias, bias_init=bias_init
-        )
-        self.value_projection = nn.Dense(
-            attention_dim, use_bias=self.use_bias, bias_init=bias_init
-        )
-        self.output_projection = nn.Dense(
-            attention_dim, use_bias=self.use_bias, bias_init=bias_init
-        )
-        self.value_update = nn.Dense(
-            attention_dim, use_bias=self.use_bias, bias_init=bias_init
-        )
+
+        def dense(features: int) -> nn.Dense:
+            return nn.Dense(
+                features,
+                use_bias=self.use_bias,
+                bias_init=bias_init,
+                dtype=self.dtype,
+            )
+
+        self.qk_projection = dense(2 * attention_dim)
+        self.value_projection = dense(attention_dim)
+        self.output_projection = dense(attention_dim)
+        self.value_update = dense(attention_dim)
         self.qk_update_layers = [
-            nn.Dense(attention_dim, use_bias=self.use_bias, bias_init=bias_init)
-            for _ in range(self.num_local_updates)
+            dense(attention_dim) for _ in range(self.num_local_updates)
         ]
         if self.use_layernorm:
-            self.qk_layernorm = nn.LayerNorm(epsilon=1e-6)
-            self.value_layernorm = nn.LayerNorm(epsilon=1e-6)
-            self.post_attention_layernorm = nn.LayerNorm(epsilon=1e-6)
+            self.qk_layernorm = LayerNorm(epsilon=1e-6, param_compute_dtype=self.dtype)
+            self.value_layernorm = LayerNorm(
+                epsilon=1e-6, param_compute_dtype=self.dtype
+            )
+            self.post_attention_layernorm = LayerNorm(
+                epsilon=1e-6, param_compute_dtype=self.dtype
+            )
 
     def dense_block(
         self, qk_projection: QKProjection, value_stream: jnp.ndarray
@@ -101,6 +112,8 @@ class LapNetLayer(nn.Module):
         attended_values = lapnet_sparse_attention(query, key, value)
         attended_values = attended_values.reshape(n_electrons, attention_dim)
         attended_values = self.output_projection(attended_values)
+        if self.dtype is not None:
+            attended_values = attended_values.astype(value_stream.dtype)
 
         residual_value = value_stream + attended_values
         residual_norm = (
@@ -108,7 +121,10 @@ class LapNetLayer(nn.Module):
             if self.use_layernorm
             else residual_value
         )
-        return residual_value + nn.tanh(self.value_update(residual_norm))
+        mlp_out = self.value_update(residual_norm)
+        if self.dtype is not None:
+            mlp_out = mlp_out.astype(residual_value.dtype)
+        return residual_value + nn.tanh(mlp_out)
 
     def project_qk_stream(self, qk_stream: jnp.ndarray) -> QKProjection:
         """Project one individual-stream vector into query and key features.
@@ -133,7 +149,10 @@ class LapNetLayer(nn.Module):
             Updated individual-stream feature vector.
         """
         for dense in self.qk_update_layers:
-            qk_stream = qk_stream + nn.tanh(dense(qk_stream))
+            upd = dense(qk_stream)
+            if self.dtype is not None:
+                upd = upd.astype(qk_stream.dtype)
+            qk_stream = qk_stream + nn.tanh(upd)
         return qk_stream
 
 
@@ -155,6 +174,8 @@ class LapNetBackbone(nn.Module):
         use_backbone_bias: Whether to use bias in LapNet layer projections.
         num_local_updates: Number of independent individual-stream residual
             updates between attention blocks.
+        dtype: Backbone compute dtype. ``None`` follows the incoming activation
+            dtype.
     """
 
     nspins: tuple[int, int]
@@ -165,6 +186,7 @@ class LapNetBackbone(nn.Module):
     use_input_bias: bool = True
     use_backbone_bias: bool = True
     num_local_updates: int = 2
+    dtype: DTypeLike | None = None
 
     def setup(self) -> None:
         if self.num_layers <= 0:
@@ -174,6 +196,7 @@ class LapNetBackbone(nn.Module):
             attention_dim,
             use_bias=self.use_input_bias,
             bias_init=nn.initializers.normal(stddev=1.0),
+            dtype=self.dtype,
         )
         self.layers = [
             LapNetLayer(
@@ -181,6 +204,7 @@ class LapNetBackbone(nn.Module):
                 heads_dim=self.heads_dim,
                 use_layernorm=self.use_layernorm,
                 use_bias=self.use_backbone_bias,
+                dtype=self.dtype,
                 num_local_updates=(
                     self.num_local_updates if index < self.num_layers - 1 else 0
                 ),
@@ -203,7 +227,10 @@ class LapNetBackbone(nn.Module):
             individual stream.
         """
         features = jnp.concatenate([h_one, spin[None]], axis=-1)
-        hs = self.input_projection(features)
+        with jacobian_contraction_scope(ContractionMode.STANDARD):
+            hs = self.input_projection(features)
+        if self.dtype is not None:
+            hs = hs.astype(features.dtype)
         hd0 = hs
 
         qk_streams = []
@@ -258,6 +285,11 @@ class LapNetBackbone(nn.Module):
                 f"Input h_one has {h_one.shape[0]} electrons, "
                 f"but nspins={self.nspins} expects {n_electrons} electrons."
             )
-        spins = jnp.concatenate([jnp.ones(n_up), -jnp.ones(n_down)])
+        stream_dtype = None if self.dtype is None else jnp.float32
+        if stream_dtype is not None:
+            h_one = h_one.astype(stream_dtype)
+        spins = jnp.concatenate(
+            [jnp.ones(n_up, dtype=stream_dtype), -jnp.ones(n_down, dtype=stream_dtype)]
+        )
         stream_features = jax.vmap(self.individual_stream_block)(h_one, spins)
         return self.dense_block(stream_features)

@@ -70,7 +70,11 @@ def dense_split_jvp(
     y, jvp_fn = jax.linearize(fwd, *laplace_args.x)
     jacobians = laplace_args.jacobian
     grad_y = jax.vmap(jvp_fn)(*jacobians)
-    lapl_y = jvp_fn(*laplace_args.laplacian)
+    lapls = tuple(
+        lap.astype(primal.dtype)
+        for lap, primal in zip(laplace_args.laplacian, laplace_args.x)
+    )
+    lapl_y = jvp_fn(*lapls)
     return y, grad_y, lapl_y
 
 

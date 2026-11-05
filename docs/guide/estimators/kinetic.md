@@ -36,7 +36,7 @@ This avoids materializing the full $O(N^2)$ Hessian. The two modes differ only i
 
 **`forward_laplacian`** uses JaQMC's :mod:`jaqmc.laplacian` transform and requires JAX >= 0.7.1. Instead of extracting the Hessian diagonal, it propagates Laplacian information alongside the function evaluation in a single forward pass. This avoids the $3N$ sequential JVPs entirely and can be significantly faster for large systems.
 
-The default `mode` is version-dependent: `forward_laplacian` on JAX >= 0.7.1, and `scan` on older JAX versions.
+The default `mode` is version-dependent: `forward_laplacian` on JAX >= 0.7.1, and `scan` on older JAX versions. When `mode=forward_laplacian` and the wavefunction supports reduced-precision Jacobian contractions (such as `fp16_jac`), kinetic evaluation can be accelerated through `wf.precision` or `estimators.energy.kinetic.wavefunction_precision` (see <project:../mixed-precision.md>).
 
 Most users can stop at that mode choice. If you need to call the transform
 directly in your own estimator, the extension guide shows the usual

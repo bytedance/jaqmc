@@ -30,10 +30,13 @@ By default, VMC training stops when `loss` becomes NaN
 - If only rare rows spike while most rows are finite, treat it as a local-energy
   tail problem rather than a generic optimizer failure. See
   [Rare Spikes or Heavy Energy Tails](#rare-spikes-or-heavy-energy-tails).
-- Try `jax.enable_x64=true` to check whether the issue is sensitive to
-  numerical precision by enabling `float64`. Note that model parameters remain
-  `float32` by default, but wavefunction inputs and values, determinant
-  calculations, and similar computations are still affected.
+- If reduced-precision evaluation (<project:mixed-precision.md>) is enabled via
+  `wf.precision` or `*.wavefunction_precision`, test with `standard` precision
+  and check the architecture-specific stability notes in <project:wavefunction.md>.
+- Try `jax.enable_x64=true` (with `wf.precision=standard`) to check whether the
+  issue is sensitive to numerical precision by enabling `float64`. Note that
+  model parameters remain `float32` by default, but wavefunction inputs and
+  values, determinant calculations, and similar computations are still affected.
 
 If this started after adding custom code, check shapes early. Custom component
 shape bugs often show up first as NaNs or other errors; see
@@ -53,7 +56,7 @@ Try these first:
 
 - Compare the training and evaluation configs and make sure the system,
   wavefunction, and other relevant settings match.
-- Increase evaluation burn-in if the sampler still looks far from equilibrium.
+- Set or increase evaluation burn-in (`run.burn_in`, which defaults to `0` in `evaluate`) if the sampler still looks far from equilibrium, especially when switching `sampler.wavefunction_precision` from a reduced-precision mode during training to `standard` during evaluation (see <project:mixed-precision.md>).
 - If training `pmove` or energy estimates drift suspiciously, revisit sampler
   settings in training as well.
 

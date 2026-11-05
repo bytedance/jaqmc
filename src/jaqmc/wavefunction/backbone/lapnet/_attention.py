@@ -3,6 +3,9 @@
 
 """LapNet attention helper and its Forward Laplacian specialization."""
 
+from functools import partial
+from typing import assert_never
+
 import jax
 import numpy as np
 from jax import numpy as jnp
@@ -14,6 +17,11 @@ from jaqmc.laplacian import (
     Local1Jacobian,
     custom_laplacian,
     is_local1_laptuple,
+)
+from jaqmc.laplacian.precision import (
+    ContractionMode,
+    current_contraction_mode,
+    scaled_einsum,
 )
 
 
@@ -28,10 +36,11 @@ def lapnet_sparse_attention(
     Returns:
         Attention output with shape `(n_electrons, num_heads, heads_dim)`.
     """
-    scale = jnp.sqrt(jnp.asarray(query.shape[-1], dtype=query.dtype))
-    logits = jnp.einsum("ihd,jhd->hij", query, key) / scale
+    q, k, v = (x.astype(query.dtype) for x in (query, key, value))
+    scale = jnp.sqrt(jnp.asarray(q.shape[-1], dtype=q.dtype))
+    logits = jnp.einsum("ihd,jhd->hij", q, k) / scale
     weights = jax.nn.softmax(logits, axis=-1)
-    return jnp.einsum("hij,jhd->ihd", weights, value)
+    return jnp.einsum("hij,jhd->ihd", weights, v)
 
 
 def _as_dense_laptuple(
@@ -122,30 +131,55 @@ def _lapnet_sparse_attention_local1_rule(
     """
     n_electrons = query.x.shape[0]
     tracked_size = query.jacobian.input_n_particles * query.jacobian.input_coord_dim
-    q = query
-    k = key
+    mode = current_contraction_mode()
+    match mode:
+        case ContractionMode.STANDARD:
+            compute_dtype = query.x.dtype
+            primal_prec = None
+        case ContractionMode.SCALED_FP16:
+            compute_dtype = jnp.float32
+            primal_prec = jax.lax.Precision.HIGHEST
+        case _:
+            assert_never(mode)
+
+    primal_einsum = partial(
+        jnp.einsum, precision=primal_prec, preferred_element_type=compute_dtype
+    )
+    jac_einsum = partial(scaled_einsum, preferred_element_type=compute_dtype)
+    primal_matmul = partial(
+        jnp.matmul, precision=primal_prec, preferred_element_type=compute_dtype
+    )
+
     v = _as_dense_laptuple(value, tracked_size)
     coord_dim = query.jacobian.input_coord_dim
-    eye = jnp.eye(n_electrons, dtype=q.x.dtype)
+    eye = jnp.eye(n_electrons, dtype=compute_dtype)
 
     # Local1 blocks store (support_slot, coord, electron, head, feature).
-    q_blocks = q.jacobian.blocks[0]
-    k_blocks = k.jacobian.blocks[0]
+    q_x = query.x.astype(compute_dtype)
+    k_x = key.x.astype(compute_dtype)
+    q_l = query.laplacian.astype(compute_dtype)
+    k_l = key.laplacian.astype(compute_dtype)
+    q_blocks = query.jacobian.blocks[0]
+    k_blocks = key.jacobian.blocks[0]
 
-    scale = jnp.sqrt(jnp.asarray(q.x.shape[-1], dtype=q.x.dtype))
-    logits_x = jnp.einsum("ihd,jhd->hij", q.x, k.x) / scale
-    logits_grad_i = jnp.einsum("cihd,jhd->chij", q_blocks, k.x) / scale
-    logits_grad_j = jnp.einsum("ihd,cjhd->chij", q.x, k_blocks) / scale
+    scale = jnp.sqrt(jnp.asarray(q_x.shape[-1], dtype=compute_dtype))
+    logits_x = primal_einsum("ihd,jhd->hij", q_x, k_x) / scale
+    logits_grad_i = jac_einsum("cihd,jhd->chij", q_blocks, k_x) / scale
+    logits_grad_j = jac_einsum("ihd,cjhd->chij", q_x, k_blocks) / scale
     logits_l = (
-        jnp.einsum("ihd,jhd->hij", q.laplacian, k.x)
-        + jnp.einsum("ihd,jhd->hij", q.x, k.laplacian)
+        primal_einsum("ihd,jhd->hij", q_l, k_x)
+        + primal_einsum("ihd,jhd->hij", q_x, k_l)
     ) / scale
-    logits_cross = 2 * jnp.einsum("cihd,cihd->hi", q_blocks, k_blocks) / scale
+    logits_cross = (2 * jac_einsum("cihd,cihd->chi", q_blocks, k_blocks) / scale).sum(
+        axis=0
+    )
     logits_l = logits_l + logits_cross[:, :, None] * eye[None, :, :]
 
     logits_trace = jnp.sum(logits_grad_i**2, axis=0) + jnp.sum(logits_grad_j**2, axis=0)
     logits_trace = logits_trace + (
-        2 * jnp.einsum("chij,chij->hij", logits_grad_i, logits_grad_j) * eye[None, :, :]
+        2
+        * primal_einsum("chij,chij->hij", logits_grad_i, logits_grad_j)
+        * eye[None, :, :]
     )
 
     logits_shift = logits_x - jax.lax.stop_gradient(
@@ -164,36 +198,51 @@ def _lapnet_sparse_attention_local1_rule(
     )
     denom_l = jnp.sum(weights_l, axis=-1)
 
-    v_x_h_first = jnp.transpose(v.x, (1, 0, 2))
-    v_l_h_first = jnp.transpose(v.laplacian, (1, 0, 2))
-    numer_x = weights_x @ v_x_h_first
+    v_x = v.x.astype(compute_dtype)
+    v_x_h_first = jnp.transpose(v_x, (1, 0, 2))
+    v_l_h_first = jnp.transpose(v.laplacian.astype(compute_dtype), (1, 0, 2))
+    numer_x = primal_matmul(weights_x, v_x_h_first)
 
-    v_jacobian = v.jacobian.reshape(n_electrons, coord_dim, *v.x.shape)
-    v_jacobian_h_first = jnp.transpose(v_jacobian, (0, 1, 3, 2, 4))
-    numer_grad_i_local = weights_grad_i @ v_x_h_first
+    v_jac_raw = v.jacobian.reshape(n_electrons, coord_dim, *v.x.shape)
+    numer_grad_i_local = jac_einsum("chij,hjd->chid", weights_grad_i, v_x_h_first)
     numer_grad_i = jnp.einsum("pi,chid->pchid", eye, numer_grad_i_local)
     numer_grad_j = (
         jnp.transpose(weights_grad_j, (3, 0, 1, 2))[..., None]
-        * v.x[:, None, :, None, :]
+        * v_x[:, None, :, None, :]
     )
-    numer_grad_v = weights_x @ v_jacobian_h_first
+    numer_grad_v = jac_einsum("hij,pcjhd->pchid", weights_x, v_jac_raw)
     numer_j = (numer_grad_i + numer_grad_j + numer_grad_v).reshape(
         tracked_size, *numer_x.shape
     )
 
-    v_diag_jacobian = v_jacobian[jnp.arange(n_electrons), :, jnp.arange(n_electrons)]
+    v_diag_jacobian = v_jac_raw[
+        jnp.arange(n_electrons), :, jnp.arange(n_electrons)
+    ].astype(compute_dtype)
     v_diag_jacobian_h_first = jnp.transpose(v_diag_jacobian, (1, 2, 0, 3))
+    numer_l_cross = (2 * jac_einsum("chij,icjhd->chid", weights_grad_i, v_jac_raw)).sum(
+        axis=0
+    )
     numer_l = (
-        weights_l @ v_x_h_first
-        + weights_x @ v_l_h_first
-        + 2 * jnp.einsum("chij,icjhd->hid", weights_grad_i, v_jacobian)
+        primal_matmul(weights_l, v_x_h_first)
+        + primal_matmul(weights_x, v_l_h_first)
+        + numer_l_cross
         + 2
         * jnp.sum(
             weights_grad_j[..., None] * v_diag_jacobian_h_first[:, :, None, :, :],
             axis=(0, 3),
         )
     )
-    return _attention_quotient(numer_x, numer_j, numer_l, denom_x, denom_j, denom_l)
+    result = _attention_quotient(numer_x, numer_j, numer_l, denom_x, denom_j, denom_l)
+    if result.x.dtype != query.x.dtype:
+        # SCALED_FP16 accumulates in float32; cast back to the input dtype
+        # expected by the surrounding traced computation (handle_custom_laplacian
+        # replaces result.x with primal_jaxpr's output).
+        return LapTuple(
+            result.x.astype(query.x.dtype),
+            result.jacobian.astype(query.x.dtype),
+            result.laplacian.astype(query.x.dtype),
+        )
+    return result
 
 
 @lapnet_sparse_attention.def_laplacian_rule

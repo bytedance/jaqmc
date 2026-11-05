@@ -514,30 +514,36 @@ class MoireWavefunction(Wavefunction[MoireData, ComplexLogDetOutput]):
         """
         return self.apply(params, data, method=self.get_orbitals)  # type: ignore
 
-    def logpsi(self, params: Params, data: MoireData) -> jnp.ndarray:
+    def logpsi(
+        self, params: Params, data: MoireData, *, precision: str | None = None
+    ) -> jnp.ndarray:
         """Evaluates the log wavefunction amplitude.
 
         Args:
             params: The wavefunction parameters.
             data: The input data containing electron positions and spin angles.
+            precision: ``None`` uses standard evaluation. Explicit modes are
+                unsupported.
 
         Returns:
             Complex logarithm of the wavefunction amplitude.
         """
-        return self.evaluate(params, data)["logpsi"]
+        return self.evaluate(params, data, precision=precision)["logpsi"]
 
     def phase_logpsi(
-        self, params: Params, data: MoireData
+        self, params: Params, data: MoireData, *, precision: str | None = None
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Evaluates the wavefunction phase and log amplitude.
 
         Args:
             params: The wavefunction parameters.
             data: The input data containing electron positions and spin angles.
+            precision: ``None`` uses standard evaluation. Explicit modes are
+                unsupported.
 
         Returns:
             A tuple ``(phase, log_abs)`` where ``phase`` is ``exp(1j * angle)``
             and ``log_abs`` is the real part of ``logpsi``.
         """
-        logpsi = self.logpsi(params, data)
+        logpsi = self.logpsi(params, data, precision=precision)
         return jnp.exp(1j * logpsi.imag), logpsi.real

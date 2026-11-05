@@ -1,6 +1,10 @@
 # Wavefunction Architectures
 
-JaQMC represents the many-electron wavefunction with a neural network ansatz. Several architectures are available, each with configuration choices that trade expressiveness for compute cost. All wavefunction settings live under the `wf.*` config scope.
+JaQMC represents the many-electron wavefunction with a neural network ansatz.
+Several architectures are available, each with configuration choices that trade
+expressiveness for compute cost. All architecture settings live under the `wf.*`
+config scope, and FermiNet, LapNet, and Psiformer support `standard`, `fp16_jac`, and
+`fp16_mixed` <project:mixed-precision.md> modes.
 
 Start with **FermiNet**. It is the default for molecules and the only built-in option that also supports solids. For molecule runs, JaQMC also provides **LapNet** and **Psiformer**.
 
@@ -14,6 +18,7 @@ To switch architectures, set `wf.module` — for example, `wf.module=lapnet` on 
 
 FermiNet captures electron correlations through two parallel feature streams — one for each electron's interaction with atoms, another for explicit pairwise electron-electron features — that exchange information at each layer. The final features are projected into orbital matrices, multiplied by an envelope that enforces exponential decay away from atoms, and combined via a log-sum-of-determinants.
 
+- **Precision modes (`wf.precision`)**: `standard`, `fp16_jac`, and `fp16_mixed` (available on both molecular `FermiNetWavefunction` and periodic `SolidWavefunction`).
 - **Paper**: [Ab initio solution of the many-electron Schrödinger equation with deep neural networks](https://link.aps.org/doi/10.1103/PhysRevResearch.2.033429)
 
 ### Presets
@@ -42,6 +47,7 @@ wf:
 
 LapNet is a lower-cost alternative to Psiformer with similar accuracy on the reported benchmarks. It uses the same molecule input features, Slater-determinant output path, and built-in electron-electron Jastrow factor (`wf.jastrow`) as Psiformer, so switching from FermiNet is mostly a matter of changing `wf.module`.
 
+- **Precision modes (`wf.precision`)**: `standard`, `fp16_jac`, and `fp16_mixed`. When using `fp16_mixed` (either via `wf.precision` or a consumer override such as `sampler.wavefunction_precision=fp16_mixed`), set `wf.use_layernorm=true` so intermediate attention and MLP activations stay well-scaled in FP16.
 - **Paper**: [A computational framework for neural network-based variational Monte Carlo with Forward Laplacian](https://doi.org/10.1038/s42256-024-00794-x)
 
 ### Presets
@@ -76,6 +82,7 @@ Psiformer replaces FermiNet's explicit pairwise stream with **multi-head self-at
 
 As with FermiNet and LapNet, the output features are projected into enveloped orbitals and combined via a log-sum-of-determinants. Like LapNet, Psiformer includes an electron-electron **Jastrow factor** (`wf.jastrow`) that enforces the exact cusp condition (see the paper for details).
 
+- **Precision modes (`wf.precision`)**: `standard`, `fp16_jac`, and `fp16_mixed`. In `fp16_mixed`, Psiformer additionally keeps its residual stream and LayerNorm reductions in FP32.
 - **Paper**: [Self-Attention Ansatz for Ab-Initio Quantum Chemistry](https://openreview.net/forum?id=xveTeHVlF7j)
 
 ### Presets

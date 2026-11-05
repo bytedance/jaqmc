@@ -62,16 +62,20 @@ def make_pretrain_log_amplitude[DataT: Data](
     if ref_fraction <= 0.0:
         return log_psi_fn
 
-    def ref_network(params, data):
-        del params
+    def ref_network(
+        params: Params, data: DataT, *, precision: str | None = None
+    ) -> jnp.ndarray:
+        del params, precision
         return ref_log_amplitude_fn(data)
 
     if ref_fraction >= 1.0:
         return ref_network
 
-    def log_amplitude(params, data):
-        log_psi = log_psi_fn(params, data)
-        log_ref = ref_network(None, data)
+    def log_amplitude(
+        params: Params, data: DataT, *, precision: str | None = None
+    ) -> jnp.ndarray:
+        log_psi = log_psi_fn(params, data, precision=precision)
+        log_ref = ref_network(params, data)
         return (1 - ref_fraction) * log_psi + ref_fraction * log_ref
 
     return log_amplitude

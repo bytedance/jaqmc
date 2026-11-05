@@ -217,7 +217,15 @@ def handle_custom_laplacian(args, kwargs):
             primal_jaxpr.literals,
             *args,
         )
-    return list(jtu.tree_leaves(result, is_leaf=is_laptuple))
+    primal_args = tuple(x.x if isinstance(x, LapTuple) else x for x in args)
+    primal_outs = jaxpr_as_fun(primal_jaxpr)(*primal_args)
+    rule_leaves = list(jtu.tree_leaves(result, is_leaf=is_laptuple))
+    return [
+        LapTuple(p_out, leaf.jacobian, leaf.laplacian)
+        if isinstance(leaf, LapTuple)
+        else p_out
+        for p_out, leaf in zip(primal_outs, rule_leaves, strict=True)
+    ]
 
 
 CUSTOM_LAPLACIAN_HANDLERS: dict[Primitive | str, LaplacianHandler] = {

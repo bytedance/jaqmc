@@ -5,13 +5,20 @@
 
 from typing import Literal
 
+import jax
 import numpy as np
 from flax import linen as nn
 from jax import numpy as jnp
+from jax.typing import DTypeLike
 from scipy import special as ss
 
+from jaqmc.app.hall.data import HallData
+from jaqmc.array_types import Params
 from jaqmc.geometry.sphere import cartesian_from_spinor
+from jaqmc.laplacian.precision import ContractionMode, jacobian_contraction_scope
 from jaqmc.utils.wiring import runtime_dep
+from jaqmc.wavefunction.base import ComplexWFOutput
+from jaqmc.wavefunction.output.logdet import LogDet
 from jaqmc.wavefunction.output.orbital import SplitChannelDense
 
 from ._backbone import build_hall_backbone
@@ -37,19 +44,25 @@ class DirectMonopoleOrbitals(nn.Module):
         Q: Monopole strength; may be negative for anti-holomorphic shells.
         nspins: ``(n_up, n_down)`` electron counts.
         ndets: Number of determinants.
+        dtype: Projection compute dtype. ``None`` follows incoming activations.
     """
 
     Q: float
     nspins: tuple[int, int]
     ndets: int
+    dtype: DTypeLike | None = None
 
     def setup(self) -> None:
         q_abs = abs(self.Q)
         n_orb = round(2 * q_abs + 1)
         self.norm_factor = jnp.array(np.sqrt(ss.comb(2 * q_abs, np.arange(n_orb))))
         features = [n_orb, sum(self.nspins), self.ndets]
-        self.orbitals_real = SplitChannelDense(channels=self.nspins, features=features)
-        self.orbitals_imag = SplitChannelDense(channels=self.nspins, features=features)
+        self.orbitals_real = SplitChannelDense(
+            channels=self.nspins, features=features, dtype=self.dtype
+        )
+        self.orbitals_imag = SplitChannelDense(
+            channels=self.nspins, features=features, dtype=self.dtype
+        )
 
     def __call__(
         self, h_one: jnp.ndarray, u: jnp.ndarray, v: jnp.ndarray
@@ -81,6 +94,7 @@ class FactorizedMonopoleOrbitals(nn.Module):
     nspins: tuple[int, int]
     ndets: int
     Q: float
+    dtype: DTypeLike | None = None
 
     @nn.compact
     def __call__(
@@ -114,19 +128,34 @@ class FactorizedMonopoleOrbitals(nn.Module):
             if h_part.shape[-2] == 0:
                 continue
 
+            out_dtype = (
+                None if self.dtype is None else jnp.result_type(self.dtype, jnp.float32)
+            )
+            env_in = jnp.stack((envelope_part.real, envelope_part.imag), axis=-2)
+            h_in = h_part
+            if self.dtype is not None and out_dtype is not None:
+                env_in = env_in.astype(self.dtype)
+                h_in = h_part.astype(self.dtype).astype(out_dtype)
             projected_envelope = nn.DenseGeneral(
-                features=(self.ndets, feature_dim), use_bias=False
-            )(jnp.stack((envelope_part.real, envelope_part.imag), axis=-2))
-            x = h_part[..., :, None, :] * (
+                features=(self.ndets, feature_dim), use_bias=False, dtype=self.dtype
+            )(env_in)
+            if out_dtype is not None:
+                projected_envelope = projected_envelope.astype(out_dtype)
+            x = h_in[..., :, None, :] * (
                 projected_envelope[..., 0, :, :] + 1j * projected_envelope[..., 1, :, :]
             )
             stacked_x = jnp.stack((x.real, x.imag), axis=-2)
-            real_projected = nn.Dense(nelec, use_bias=False, name=f"out_real_{i}")(
-                stacked_x
-            )
-            imag_projected = nn.Dense(nelec, use_bias=False, name=f"out_imag_{i}")(
-                stacked_x
-            )
+            if self.dtype is not None:
+                stacked_x = stacked_x.astype(self.dtype)
+            real_projected = nn.Dense(
+                nelec, use_bias=False, dtype=self.dtype, name=f"out_real_{i}"
+            )(stacked_x)
+            imag_projected = nn.Dense(
+                nelec, use_bias=False, dtype=self.dtype, name=f"out_imag_{i}"
+            )(stacked_x)
+            if out_dtype is not None:
+                real_projected = real_projected.astype(out_dtype)
+                imag_projected = imag_projected.astype(out_dtype)
             real = real_projected[..., 0, :] + 1j * real_projected[..., 1, :]
             imag = imag_projected[..., 0, :] + 1j * imag_projected[..., 1, :]
             orbitals_parts.append(real + 1j * imag)
@@ -152,6 +181,12 @@ class MHPO(HallWavefunction):
     independent of the selected dressing.
 
     Args:
+        precision: ``standard`` follows array dtypes. ``fp16_jac`` uses FP32 neural
+            evaluation and scaled FP16 Forward Laplacian Jacobian contractions.
+            ``fp16_mixed`` runs the backbone, monopole orbital projections, and
+            learned dressing in FP16 with the same contractions (retaining an FP32
+            residual stream when ``backbone="psiformer"``). Both nonstandard modes
+            retain FP32 Jastrow and complex determinant evaluation.
         nspins: ``(n_up, n_down)`` electron counts.
         monopole_strength: :math:`Q = \text{flux}/2`.
         flux: Magnetic flux :math:`2Q`.
@@ -167,6 +202,7 @@ class MHPO(HallWavefunction):
             the workflow to match the estimators).
     """
 
+    precision: Literal["standard", "fp16_jac", "fp16_mixed"] = "standard"
     nspins: tuple[int, int] = runtime_dep()
     monopole_strength: float = runtime_dep()
     flux: int = runtime_dep()
@@ -186,12 +222,18 @@ class MHPO(HallWavefunction):
             degree=self.dressing.degree,
             nelec=sum(self.nspins),
         )
+        dtype = {
+            "standard": None,
+            "fp16_jac": jnp.float32,
+            "fp16_mixed": jnp.float16,
+        }[self.precision]
         self.backbone_layer = build_hall_backbone(
             backbone=self.backbone,
             nspins=self.nspins,
             num_layers=self.num_layers,
             num_heads=self.num_heads,
             heads_dim=self.heads_dim,
+            dtype=dtype,
         )
         self.orbital_layer: nn.Module
         if self.orbital_readout == "direct":
@@ -199,41 +241,82 @@ class MHPO(HallWavefunction):
                 Q=q_effective,
                 nspins=self.nspins,
                 ndets=self.ndets,
+                dtype=dtype,
             )
         elif self.orbital_readout == "factorized":
             self.orbital_layer = FactorizedMonopoleOrbitals(
                 Q=q_effective,
                 nspins=self.nspins,
                 ndets=self.ndets,
+                dtype=dtype,
             )
         else:
             raise ValueError(f"Unknown orbital readout: {self.orbital_readout!r}")
         self.dressing_layer = Dressing(
             config=self.dressing,
             ndets=self.ndets,
+            dtype=dtype,
         )
         self.jastrow_layer = SphericalCoulombJastrow(
             nspins=self.nspins,
             interaction_strength=self.interaction_strength,
             radius=self.radius,
         )
+        self.logdet_layer = LogDet(
+            dtype=None if self.precision == "standard" else jnp.float32
+        )
+
+    @property
+    def contraction_mode(self) -> ContractionMode:
+        """Forward Laplacian contraction mode for this precision strategy."""
+        return (
+            ContractionMode.SCALED_FP16
+            if self.precision != "standard"
+            else ContractionMode.STANDARD
+        )
+
+    @nn.nowrap
+    def evaluate(
+        self, params: Params, data: HallData, *, precision: str | None = None
+    ) -> ComplexWFOutput:
+        """Return structured wavefunction output with an optional mode."""
+        module = self if precision is None else self.clone(precision=precision)
+        return module.apply(params, data)  # type: ignore
+
+    @nn.nowrap
+    def logpsi_from_spinor(
+        self,
+        params: Params,
+        u: jnp.ndarray,
+        v: jnp.ndarray,
+        *,
+        precision: str | None = None,
+    ) -> jnp.ndarray:
+        """Return log psi from a local monopole spinor with an optional mode."""
+        module = self if precision is None else self.clone(precision=precision)
+        return module.apply(params, u, v, method=module._logpsi_from_spinor)  # type: ignore
 
     def _logpsi_from_spinor(self, u: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
         cartesian = cartesian_from_spinor(u, v)
 
-        # Backbone (appends spin encoding internally)
-        h_one = self.backbone_layer(cartesian)
+        with (
+            jacobian_contraction_scope(self.contraction_mode),
+            jax.default_matmul_precision(
+                "bfloat16"
+                if self.precision == "fp16_mixed"
+                else jax.default_matmul_precision.value
+            ),
+        ):
+            # Backbone (appends spin encoding internally)
+            h_one = self.backbone_layer(cartesian)
 
-        # Monopole harmonic orbitals: (ndets, nelec, nelec)
-        orbitals = self.orbital_layer(h_one, u, v)
-        orbitals = self.dressing_layer(orbitals, u, v, h_one=h_one)
+            # Monopole harmonic orbitals: (ndets, nelec, nelec)
+            orbitals = self.orbital_layer(h_one, u, v)
+            orbitals = self.dressing_layer(orbitals, u, v, h_one=h_one)
 
         # Jastrow factor
         jastrow = self.jastrow_layer(cartesian)
 
         orbitals = jnp.exp(jastrow / sum(self.nspins)) * orbitals
 
-        # Complex slogdet
-        signs, logdets = jnp.linalg.slogdet(orbitals)
-        logmax = jnp.max(logdets)
-        return jnp.log(jnp.sum(signs * jnp.exp(logdets - logmax))) + logmax
+        return self.logdet_layer(orbitals)["logpsi"]

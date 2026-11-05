@@ -12,6 +12,8 @@ ratio psi(swap)/psi = 1. This gives:
 This is analytically checkable without running any real physics.
 """
 
+from typing import Any
+
 import jax
 import numpy as np
 import pytest
@@ -43,7 +45,10 @@ def _make_spin_estimator(n_up, n_down, ndim=3):
     est = SpinSquared()
 
     # Constant wavefunction: phase=1.0 (real positive), log|psi|=0.0
-    def phase_logpsi(params, data):
+    def phase_logpsi(
+        params: Any, data: Data, *, precision: str | None = None
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        del params, data, precision
         return jnp.array(1.0), jnp.array(0.0)
 
     wire(est, n_up=n_up, n_down=n_down, phase_logpsi=phase_logpsi)
@@ -97,7 +102,10 @@ def test_s2_fully_polarized():
     est = SpinSquared()
 
     # Wavefunction should never be called for swaps (no minority electrons)
-    def phase_logpsi(params, data):
+    def phase_logpsi(
+        params: Any, data: Data, *, precision: str | None = None
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        del params, data, precision
         return jnp.array(1.0), jnp.array(0.0)
 
     wire(est, n_up=n_up, n_down=n_down, phase_logpsi=phase_logpsi)
@@ -132,7 +140,7 @@ def test_s2_swap_indices_correct():
         est_balanced,
         n_up=2,
         n_down=2,
-        phase_logpsi=lambda p, d: (jnp.array(1.0), jnp.array(0.0)),
+        phase_logpsi=lambda p, d, *, precision=None: (jnp.array(1.0), jnp.array(0.0)),
     )
     data = _ElectronData(electrons=jnp.ones((4, 3)))
     est_balanced.init(data, jax.random.key(0))
@@ -146,7 +154,7 @@ def test_s2_swap_indices_correct():
         est_unbalanced,
         n_up=3,
         n_down=1,
-        phase_logpsi=lambda p, d: (jnp.array(1.0), jnp.array(0.0)),
+        phase_logpsi=lambda p, d, *, precision=None: (jnp.array(1.0), jnp.array(0.0)),
     )
     data = _ElectronData(electrons=jnp.ones((4, 3)))
     est_unbalanced.init(data, jax.random.key(0))
@@ -160,8 +168,10 @@ def test_s2_custom_data_field():
     """SpinSquared should swap coordinates from the configured data field."""
     est = SpinSquared(data_field="positions")
 
-    def phase_logpsi(params, data):
-        del params
+    def phase_logpsi(
+        params: Any, data: _PositionData, *, precision: str | None = None
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        del params, precision
         positions = data["positions"]
         return jnp.array(1.0), positions[0, 0] - positions[1, 0]
 

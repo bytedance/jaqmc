@@ -212,7 +212,7 @@ def _second_order_term(
     from jaqmc.laplacian import forward_laplacian, make_laplacian_input
 
     def shifted_logpsi(y: jnp.ndarray) -> jnp.ndarray:
-        shift = jnp.einsum("eij,ej->ei", cholesky, y)
+        shift = jnp.einsum("eij,ej->ei", cholesky.astype(electrons.dtype), y)
         return f_log_psi(params, data.merge({electrons_field: electrons + shift}))
 
     result = forward_laplacian(shifted_logpsi)(

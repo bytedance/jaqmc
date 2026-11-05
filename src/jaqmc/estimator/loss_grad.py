@@ -57,6 +57,8 @@ class LossAndGrad(PerWalkerEstimator):
        gradient.
 
     Args:
+        wavefunction_precision: Wavefunction-defined precision mode passed to
+            wavefunction evaluation. ``None`` inherits the wavefunction default.
         loss_key: Key in prev_walker_stats to use as the loss.
         clip_method: Outlier clipping rule used for gradient weighting.
             ``"iqr"`` clips to :math:`[Q_1 - s \cdot \text{IQR},\;
@@ -74,6 +76,7 @@ class LossAndGrad(PerWalkerEstimator):
     loss_key: str = "total_energy"
     clip_method: Literal["iqr", "mad", "none"] = "mad"
     clip_scale: float = 5.0
+    wavefunction_precision: str | None = None
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
 
     def evaluate_single_walker(
@@ -85,7 +88,10 @@ class LossAndGrad(PerWalkerEstimator):
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], None]:
         del rngs
-        value_and_grad_f = transform_maybe_complex(self.f_log_psi, jax.value_and_grad)
+        value_and_grad_f = transform_maybe_complex(
+            partial(self.f_log_psi, precision=self.wavefunction_precision),
+            jax.value_and_grad,
+        )
         # Wrap params with pvary so grads inherit the correct (varying) sharding.
         # Without this, JAX assumes grads share params' non-varying sharding,
         # which confuses the compiler (known bug in JAX 0.8.1).
