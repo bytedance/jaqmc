@@ -183,22 +183,37 @@ explicitly when you need a different charge or spin state.
 
 ### Reference Does Not Match the Configured System
 
-A molecule or solid run aborts while loading `reference.npz`:
+**Symptom:** a molecule or solid run aborts while loading `reference.npz` with
+one of these errors:
 
 ```text
-ValueError: Reference k-points do not match the configured supercell and twist.
+ValueError: Reference occupied k-points do not match the configured supercell twist.
+ValueError: Reference geometry does not match the configured solid.
+ValueError: Reference lattice does not match the configured solid.
+ValueError: Reference nspins=(...) does not match (...).
+ValueError: Reference geometry does not match the configured molecule.
+ValueError: Reference electron spins do not match the configured molecule.
 ```
 
-Molecule runs report a similar mismatch of atoms, effective charges, or
-electron spins. The `reference.npz` was generated for a different geometry,
-electron count, supercell, or twist. For an automatically discovered file in a
-run directory, deletion allows JaQMC to regenerate it, while replacement
-provides a new reference. An explicit `reference=` path instead requires a
-valid replacement file or removal of the override. Automatic generation
-supports standard all-electron, `ccecp`, and PH systems; custom per-atom
-effective charges and other ECP families require a prepared reference. The
-system-specific details are on the
-[molecule](../systems/molecule/reference.md) and
+**Cause:** `reference.npz` was generated for a different geometry, primitive
+lattice, electron count, supercell, or twist. This typically happens when
+reusing a run
+directory (`workflow.save_path`, `workflow.restore_path`, or
+`workflow.source_path`) after editing `system.*` or when passing a stale
+`reference=` file.
+
+**Fix:**
+
+- **Unset `reference`:** delete the stale `reference.npz` in the searched run
+  directory (or choose a new `workflow.save_path`) so the next run can generate
+  a matching reference automatically, or run `jaqmc <app> reference prepare` to
+  replace it.
+- **Explicit `reference=`:** point `reference=` to a file prepared for the
+  current system, or omit the `reference=` setting so automatic resolution can
+  run.
+
+Resolution order, automatic-generation requirements, and preparation options
+are covered on the [molecule](../systems/molecule/reference.md) and
 [solid](../systems/solid/reference.md) reference pages.
 
 ### Checkpoint Resume Ends Immediately

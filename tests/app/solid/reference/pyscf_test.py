@@ -26,30 +26,32 @@ def test_pyscf_convert_flattens_occupied_multik_layout(tmp_path, monkeypatch, la
     )
     cell.build()
     kpoints = np.asarray([[0.0, 0.0, 0.0], [0.2, 0.0, 0.0]])
-    # Each k-point must account for the full unit-cell electron count
-    # (cell.nelec == (1, 1) for He); per-k occupied columns vary instead.
+    # Integer per-k counts may differ from cell.nelec == (1, 1), provided
+    # their spin-channel totals equal nk * cell.nelec.
     if layout == "restricted":
         coefficients: Any = [
             np.asarray([[1.0, 10.0]]),
             np.asarray([[2.0, 20.0]]),
         ]
-        occupations: Any = [np.asarray([2.0, 0.0]), np.asarray([0.0, 2.0])]
-        expected_alpha = [[1.0, 20.0]]
-        expected_beta = [[1.0, 20.0]]
+        occupations: Any = [np.asarray([2.0, 2.0]), np.asarray([0.0, 0.0])]
+        expected_alpha = [[1.0, 10.0]]
+        expected_beta = [[1.0, 10.0]]
+        expected_beta_counts = [2, 0]
     else:
         coefficients = [
             [np.asarray([[1.0, 10.0]]), np.asarray([[2.0, 20.0]])],
             [np.asarray([[3.0, 30.0]]), np.asarray([[4.0, 40.0]])],
         ]
         occupations = [
-            [np.asarray([1.0, 0.0]), np.asarray([0.0, 1.0])],
-            [np.asarray([0.0, 1.0]), np.asarray([1.0, 0.0])],
+            [np.asarray([1.0, 1.0]), np.asarray([0.0, 0.0])],
+            [np.asarray([0.0, 0.0]), np.asarray([1.0, 1.0])],
         ]
         if layout == "ndarray":
             coefficients = np.asarray(coefficients)
             occupations = np.asarray(occupations)
-        expected_alpha = [[1.0, 20.0]]
-        expected_beta = [[30.0, 4.0]]
+        expected_alpha = [[1.0, 10.0]]
+        expected_beta = [[4.0, 40.0]]
+        expected_beta_counts = [0, 2]
     values: dict[str, Any] = {
         "kpts": kpoints,
         "mo_coeff": coefficients,
@@ -66,15 +68,14 @@ def test_pyscf_convert_flattens_occupied_multik_layout(tmp_path, monkeypatch, la
     )
     loaded = SolidReference.load(tmp_path / "reference.npz")
 
-    assert reference.nspins == (2, 2)
-    assert loaded.alpha_counts.tolist() == [1, 1]
-    assert loaded.beta_counts.tolist() == [1, 1]
+    assert reference.nspins == loaded.nspins == (2, 2)
+    assert loaded.alpha_counts.tolist() == [2, 0]
+    assert loaded.beta_counts.tolist() == expected_beta_counts
     np.testing.assert_allclose(loaded.kpoints, kpoints)
     np.testing.assert_allclose(loaded.alpha_coeffs, expected_alpha)
     np.testing.assert_allclose(loaded.beta_coeffs, expected_beta)
-    assert loaded.get_kpoint_occupancies()[1][1:] == (
-        1,
-        1,
+    assert [entry[1:] for entry in loaded.get_kpoint_occupancies()] == list(
+        zip([2, 0], expected_beta_counts, strict=True)
     )
 
 

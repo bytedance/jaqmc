@@ -27,10 +27,10 @@ contains `reference.npz`, the command generates a default PySCF reference in
 - An explicit path is loaded in place and not copied into
   `workflow.save_path`; evaluation therefore requires the same explicit path.
 
-Whether found by the search or passed explicitly, a loaded reference must use
-the same unreduced twisted-supercell k-point mesh as the QMC run, modulo
-primitive reciprocal lattice vectors; a mismatched reference is rejected when
-loaded.
+A loaded reference must match the configured primitive-cell atomic
+coordinates, primitive lattice, and the alpha and beta electron counts in the
+simulation cell. Its occupied k-points must satisfy the simulation cell's
+[twisted boundary conditions](#twisted-boundary-conditions).
 
 ## Custom reference preparation
 
@@ -190,17 +190,15 @@ object, the generated job raises before calling `mf.kernel()`.
 
 ## Quantum ESPRESSO references
 
-Quantum ESPRESSO (QE) provides a plane-wave reference. JaQMC currently accepts
-only collinear PBE SCF output from QE 7.x, with wavefunction files written in
-HDF5 format. Output reporting an unconverged SCF calculation or another
-exchange-correlation functional is rejected.
+Quantum ESPRESSO (QE) provides a plane-wave reference. JaQMC accepts collinear
+SCF output from QE 7.x, with wavefunction files written in HDF5 format. Output
+reporting an unconverged SCF calculation is rejected.
 Conversion expects an unreduced k-point mesh (`nosym=.true.`,
-`noinv=.true.`) on the QMC twisted-supercell k-points, which the generated
-input already sets.
+`noinv=.true.`), which the generated input already sets.
 
 ### QE prerequisites
 
-QE reference jobs require UPFs made for the PBE functional and a `pw.x` build
+QE reference jobs require UPF files and a `pw.x` build
 with HDF5 support. For a CMake QE build, `-DQE_ENABLE_HDF5=ON` enables that
 support. The [official Quantum ESPRESSO CMake build
 guide](https://gitlab.com/QEF/q-e/-/wikis/Developers/CMake-build-system)
@@ -325,8 +323,8 @@ electron count reported by QE.
 
 ### Generated QE input constraints
 
-JaQMC writes and expects an explicit, unreduced QMC
-[twisted-supercell](../../guide/periodic-boundaries.md) k-point list which sets
+JaQMC writes an explicit, unreduced QMC
+[twisted-supercell](../../guide/periodic-boundaries.md) k-point list and sets
 `nosym=.true.` and `noinv=.true.`. Conversion requires finite, positive,
 uniform k-point weights. K-point lists with unequal
 weights or zero-weight band-path points cannot be converted.

@@ -20,7 +20,7 @@ def convert_save_directory(
 ) -> PlaneWaveSolidReference:
     """Convert an unreduced QE 7.x XML/HDF5 ``prefix.save`` directory.
 
-    Only collinear PBE SCF output with ``nosym=.true.`` and ``noinv=.true.`` is
+    Only collinear SCF output with ``nosym=.true.`` and ``noinv=.true.`` is
     accepted. Fractional occupations are projected to a single determinant by
     filling the lowest-energy orbitals matching QE's integer electron count.
 

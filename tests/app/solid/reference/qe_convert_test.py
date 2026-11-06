@@ -53,6 +53,7 @@ def test_qe_convert_accepts_fixed_integer_occupations(
         save_dir / "data-file-schema.xml",
         [("0 0 0", " ".join(["1"] * 8 + ["0"] * 8))],
         symbol="Fe",
+        functional="PZ",
     )
     coefficients = np.arange(64, dtype=float).reshape(16, 4)
     _write_qe_wfc(

@@ -83,7 +83,6 @@ def read_qe_calculation(save_dir: Path) -> QECalculation:
     _require_unreduced_mesh(root)
     output = _require(root, "{*}output")
     _require_scf_converged(output)
-    _require_pbe(output)
     symbols, positions, lattice, alat = _read_atomic_structure(output)
     kpoints, alpha_occ, alpha_energy, beta_occ, beta_energy, spin_polarized = (
         _normalized_band_channels(output, alat)
@@ -168,17 +167,6 @@ def _require_scf_converged(output: ET.Element) -> None:
     achieved = _require(scf_conv, "{*}convergence_achieved")
     if not _qe_boolean(achieved.text):
         raise ValueError("Quantum ESPRESSO SCF calculation did not converge.")
-
-
-def _require_pbe(output: ET.Element) -> None:
-    functional_node = output.find(".//{*}functional")
-    functional = (
-        functional_node.text.strip()
-        if functional_node is not None and functional_node.text
-        else None
-    )
-    if functional not in (None, "PBE", "pbe"):
-        raise ValueError("Only PBE Quantum ESPRESSO references are supported.")
 
 
 def _read_atomic_structure(

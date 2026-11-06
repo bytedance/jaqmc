@@ -230,7 +230,9 @@ def convert_checkpoint(
         alpha_coeffs_by_k = coeff
         beta_coeffs_by_k = coeff
     alpha_masks, beta_masks = occupied_orbital_masks(
-        occ_array, unrestricted=unrestricted, nelec=cell.nelec
+        occ_array,
+        unrestricted=unrestricted,
+        nelec=(nk * cell.nelec[0], nk * cell.nelec[1]),
     )
     alpha_blocks: list[np.ndarray] = []
     beta_blocks: list[np.ndarray] = []

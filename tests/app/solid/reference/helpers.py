@@ -45,6 +45,7 @@ def _write_qe_xml(
     lattice: float = 4.0,
     nelec: float | None = None,
     symbol: str = "He",
+    functional: str = "PBE",
     converged: bool | None = True,
     opt_converged: bool | None = None,
     weights: list[float] | None = None,
@@ -125,7 +126,7 @@ def _write_qe_xml(
   {symmetry_metadata}
   <output>
     {convergence}
-    <dft><functional>PBE</functional></dft>
+    <dft><functional>{functional}</functional></dft>
     <atomic_structure alat="{lattice}">
       <cell>
         <a1>{lattice} 0 0</a1>
