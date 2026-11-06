@@ -58,7 +58,8 @@ def _write_qe_xml(
         len(kpoints) if packed_spin else (len(kpoints) // 2 if lsda else len(kpoints))
     )
     if weights is None:
-        weights = [1 / nkpoints] * len(kpoints)
+        spin_degeneracy = 1.0 if lsda else 2.0
+        weights = [spin_degeneracy / nkpoints] * len(kpoints)
     assert len(weights) == len(kpoints)
     if nelec is None:
         nelec = sum(

@@ -313,21 +313,25 @@ solver:
   degauss: 0.01
 ```
 
-The value `smearing: off` selects fixed occupations. When QE reports
-fractional occupations, conversion logs a warning and fills the lowest-energy orbitals.
-Without spin polarization, QE counts spin-up and spin-down electrons together,
-with up to two electrons per orbital, so conversion assigns half of them to
-each spin. A spin-polarized calculation already counts the two spins
-separately.
+The value `smearing: off` selects fixed occupations. The converted reference
+is a single determinant and requires an integer electron count for each spin.
+When QE reports fractional occupations, conversion logs a warning and fills
+the lowest-energy orbitals across the full k-point mesh separately for each spin.
+
+Conversion accounts for QE's k-point weights and spin degeneracy when
+determining electron counts and checks the weighted total against the
+electron count reported by QE.
 
 ### Generated QE input constraints
 
 JaQMC writes and expects an explicit, unreduced QMC
 [twisted-supercell](../../guide/periodic-boundaries.md) k-point list which sets
-`nosym=.true.` and `noinv=.true.`. QE k-point weights cannot
-recover the plane-wave coefficients omitted from a symmetry- or
-time-reversal-reduced mesh. Existing conventional QE outputs that used either
-reduction cannot be converted.
+`nosym=.true.` and `noinv=.true.`. Conversion requires finite, positive,
+uniform k-point weights. K-point lists with unequal
+weights or zero-weight band-path points cannot be converted.
+QE k-point weights cannot recover the plane-wave coefficients omitted from a
+symmetry- or time-reversal-reduced mesh. Existing conventional QE outputs that
+used either reduction cannot be converted.
 
 A nonzero `system.s_z` selects collinear spin (`nspin = 2`) and sets
 `tot_magnetization` to `n_alpha - n_beta`. The generated k-point list is the QMC
