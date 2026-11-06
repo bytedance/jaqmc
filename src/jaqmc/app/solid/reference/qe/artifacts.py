@@ -163,11 +163,10 @@ def _require_unreduced_mesh(root: ET.Element) -> None:
 
 
 def _require_scf_converged(output: ET.Element) -> None:
-    convergence = output.find("{*}convergence_info")
-    achieved = (
-        convergence.find("{*}convergence_achieved") if convergence is not None else None
-    )
-    if achieved is not None and not _qe_boolean(achieved.text):
+    convergence = _require(output, "{*}convergence_info")
+    scf_conv = _require(convergence, "{*}scf_conv")
+    achieved = _require(scf_conv, "{*}convergence_achieved")
+    if not _qe_boolean(achieved.text):
         raise ValueError("Quantum ESPRESSO SCF calculation did not converge.")
 
 

@@ -192,7 +192,8 @@ object, the generated job raises before calling `mf.kernel()`.
 
 Quantum ESPRESSO (QE) provides a plane-wave reference. JaQMC currently accepts
 only collinear PBE SCF output from QE 7.x, with wavefunction files written in
-HDF5 format. Output from other exchange-correlation functionals is rejected.
+HDF5 format. Output reporting an unconverged SCF calculation or another
+exchange-correlation functional is rejected.
 Conversion expects an unreduced k-point mesh (`nosym=.true.`,
 `noinv=.true.`) on the QMC twisted-supercell k-points, which the generated
 input already sets.

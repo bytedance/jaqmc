@@ -460,15 +460,29 @@ def test_qe_convert_rejects_inconsistent_electron_count(tmp_path):
         qe.convert_save_directory(save_dir, tmp_path / "reference.npz")
 
 
-def test_qe_convert_rejects_unconverged_scf(tmp_path):
+@pytest.mark.parametrize(
+    ("converged", "opt_converged", "match"),
+    [
+        (False, None, "did not converge"),
+        (False, True, "did not converge"),
+        (None, True, "missing 'scf_conv'"),
+        (None, None, "missing 'convergence_info'"),
+    ],
+)
+def test_qe_convert_rejects_unconverged_or_missing_scf_convergence(
+    tmp_path, converged, opt_converged, match
+):
     save_dir = tmp_path / "test.save"
     save_dir.mkdir()
     _write_qe_xml(
         save_dir / "data-file-schema.xml",
         [("0 0 0", "1")],
-        converged=False,
+        converged=converged,
+        opt_converged=opt_converged,
     )
     _write_qe_wfc(save_dir / "wfc1.hdf5", [[0, 0, 0]], [[1.0, 0.0]])
 
-    with pytest.raises(ValueError, match="did not converge"):
-        qe.convert_save_directory(save_dir, tmp_path / "reference.npz")
+    output_path = tmp_path / "reference.npz"
+    with pytest.raises(ValueError, match=match):
+        qe.convert_save_directory(save_dir, output_path)
+    assert not output_path.exists()
