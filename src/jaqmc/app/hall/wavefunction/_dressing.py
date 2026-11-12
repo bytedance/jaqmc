@@ -9,6 +9,7 @@ Learnable dressings multiply orbitals by pair factors
 
 from typing import Literal
 
+import numpy as np
 from flax import linen as nn
 from jax import numpy as jnp
 from jax.typing import DTypeLike
@@ -17,15 +18,30 @@ from jaqmc.utils.config import configurable_dataclass
 
 from ._pair_factor import log_pair_factor
 
-PAIR_SPINOR_MATRIX = jnp.asarray([[0.0, 1.0], [-1.0, 0.0]])
+PAIR_SPINOR_MATRIX = np.array([[0.0, 1.0], [-1.0, 0.0]])
 
 
-@configurable_dataclass(frozen=True)
+@configurable_dataclass
 class DressingConfig:
     """Configuration for the flux dressing applied to Hall orbitals.
 
     ``laughlin`` ignores ``conditioning``, ``orbital_dependent``, and
     ``det_dependent``.
+
+    Args:
+        type: Dressing parameterization (``"full"`` learned pair-spinor dressing
+            or ``"laughlin"`` analytic Laughlin factor).
+        degree: Flux-attachment degree :math:`p` (must be nonnegative, and even
+            when ``type="full"``).
+        conditioning: Whether ``"full"`` dressing matrices are read out from the
+            backbone features (``"backbone"``) or learned as constant parameters
+            (``"constant"``).
+        orbital_dependent: Whether ``"full"`` dressing uses separate factors per
+            orbital.
+        det_dependent: Whether ``"full"`` dressing uses separate factors per
+            determinant.
+        random_init: Whether to initialize ``"full"`` dressing readout weights
+            randomly instead of around the antisymmetric Laughlin spinor matrix.
     """
 
     type: Literal["laughlin", "full"] = "full"

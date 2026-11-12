@@ -4,9 +4,6 @@ logging:
 workflow:
   seed: 1234
   batch_size: 4096
-  config:
-    ignore_extra: false
-    verbose: false
 
 system:
   module: atom

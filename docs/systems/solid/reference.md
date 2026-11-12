@@ -39,11 +39,12 @@ A custom reference supports a non-default
 automatic basis, solver input that can be inspected before execution, and
 plane-wave references from Quantum ESPRESSO.
 `jaqmc solid reference prepare` takes the same `system.*` definition as
-training, passed with `--yml` files or as CLI overrides; keys it does not
-consume, such as `workflow.*` or `pretrain.*`, are rejected. The command writes
-a standalone solver job (the solver input only, no QMC) into `--output`. The
-selected solver is PySCF by default, or Quantum ESPRESSO when
-`solver.module=qe`.
+training, passed with `--yml` files or as CLI overrides. It reads only
+`system.*`, `solver.*`, and the root-level `logging.*` keys (see
+<project:../../guide/runtime-configuration.md>), rejecting other keys such as
+`workflow.*` or `pretrain.*`. The command writes a standalone solver job (the
+solver input only, no QMC) into `--output`. The selected solver is PySCF by
+default, or Quantum ESPRESSO when `solver.module=qe`.
 
 ### Automatic solver execution
 
@@ -122,7 +123,6 @@ commands consume these keys.
 .. config-defaults:: jaqmc.app.solid.config.pyscf.SolidPySCFSolverConfig
    :prefix: solver
    :scope: solid-pyscf-reference
-   :exclude-fields: extra
 ```
 
 ### Basis sets and pseudopotentials
@@ -175,8 +175,8 @@ jaqmc solid reference prepare --output ./runs/f_solid/dft --run \
 
 ### SCF convergence settings
 
-Additional `solver.*` keys, typically convergence settings such as `conv_tol`
-and `max_cycle`, are forwarded to the generated PySCF mean-field object:
+SCF convergence options such as `conv_tol`, `max_cycle`, `diis_space`,
+`level_shift`, `damp`, and `init_guess` are configured under `solver.*`:
 
 ```bash
 jaqmc solid reference prepare --yml lih_solid.yml \
@@ -185,8 +185,6 @@ jaqmc solid reference prepare --yml lih_solid.yml \
   solver.max_cycle=200
 ```
 
-If a forwarded key is not an attribute of the selected PySCF mean-field
-object, the generated job raises before calling `mf.kernel()`.
 
 ## Quantum ESPRESSO references
 

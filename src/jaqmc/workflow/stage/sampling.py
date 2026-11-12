@@ -7,22 +7,22 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, ClassVar, Self
+from typing import Any, Self
 
 import jax
 from upath import UPath
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import BatchedData
-from jaqmc.estimator import EstimatorLike, EstimatorPipeline
+from jaqmc.estimator import Estimator, EstimatorPipeline
+from jaqmc.estimator.base import EstimatorCollection
 from jaqmc.sampler.base import SamplePlan, SamplerLike
 from jaqmc.utils import parallel_jax
 from jaqmc.utils.checkpoint import NumPyCheckpointManager
-from jaqmc.utils.config import ConfigManagerLike
 from jaqmc.utils.jax_dataclass import JAXDataclassMeta
 from jaqmc.wavefunction import WavefunctionLike
 from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
-from jaqmc.writer import Writers
+from jaqmc.writer import Writer, Writers
 
 from .base import StageState, WorkStage, WorkStageConfig
 
@@ -66,32 +66,29 @@ class SamplingStageBuilder:
 
     Usage::
 
-        builder = VMCWorkStage.builder(cfg.scoped("train"), wf)
-        sampler = cfg.get_module("sampler", "jaqmc.sampler.mcmc:MCMCSampler")
+        builder = VMCWorkStage.builder(run_config, wf, name="train")
         builder.configure_sample_plan(wf.logpsi, {"electrons": sampler})
-        builder.configure_optimizer(default="jaqmc.optimizer.kfac", f_log_psi=wf.logpsi)
-        builder.configure_estimators(kinetic=..., potential=..., total=...)
-        builder.configure_loss_grads(f_log_psi=wf.logpsi)
+        builder.configure_optimizer(optimizer, f_log_psi=wf.logpsi)
+        builder.configure_estimators({"kinetic": ..., "potential": ..., "total": ...})
+        builder.configure_loss_grads(loss_grads, f_log_psi=wf.logpsi)
+        builder.configure_writers(writers)
         stage = builder.build()
 
     Args:
-        cfg: Scoped configuration manager (e.g. ``cfg.scoped("train")``).
+        config: Resolved stage run configuration.
         wavefunction: Wavefunction instance.
-        name: Stage name. Defaults to ``cfg.name`` or the class name.
+        name: Stage name.
     """
-
-    config_class: ClassVar[type[WorkStageConfig]] = WorkStageConfig
 
     def __init__(
         self,
-        cfg: ConfigManagerLike,
+        config: WorkStageConfig,
         wavefunction: WavefunctionLike,
         *,
-        name: str | None = None,
+        name: str,
     ):
-        self.cfg = cfg
-        self.name = name or cfg.name or type(self).__name__
-        self.config = cfg.get("run", self.config_class)
+        self.name = name
+        self.config = config
         self.wavefunction = wavefunction
 
     def configure_sample_plan(
@@ -107,42 +104,34 @@ class SamplingStageBuilder:
         """
         self.sample_plan = SamplePlan(f_log_amplitude, samplers)
 
-    def configure_estimators(self, **estimators: EstimatorLike) -> None:
+    def configure_estimators(
+        self, estimators: EstimatorCollection | Mapping[str, Estimator]
+    ) -> None:
         """Configure estimators.
 
         Args:
-            **estimators: Named estimators (e.g. ``kinetic=..., total=...``).
+            estimators: Named configured estimators.
         """
-        self.estimators = EstimatorPipeline(estimators)
+        self.estimators: dict[str, Estimator] = dict(estimators)
 
-    def configure_writers(self, writers: Writers | None = None) -> None:
-        """Configure writers. If no argument, loads defaults from config.
+    def configure_writers(self, writers: Mapping[str, Writer | None]) -> None:
+        """Configure writers from resolved writer instances.
 
         Args:
-            writers: Pre-built writers, or None to load from config.
+            writers: Named writers, where ``None`` disables an entry.
         """
-        if writers is not None:
-            self.writers = writers
-        else:
-            writers_map = self.cfg.get_collection(
-                "writers",
-                defaults={
-                    "console": "jaqmc.writer.console:ConsoleWriter",
-                    "npy": "jaqmc.writer.npy:NPYWriter",
-                    "csv": "jaqmc.writer.csv:CSVWriter",
-                },
-                context={"config": self.config, "name": self.name},
-            )
-            self.writers = Writers(list(writers_map.values()))
+        self.writers = Writers([writer for writer in writers.values() if writer])
 
     def ensure_configured(self) -> None:
-        """Resolve defaults and validate. Called by :meth:`build`.
+        """Validate that every required configure method was called.
+
+        Called by :meth:`build`.
 
         Raises:
-            ValueError: If :meth:`configure_estimators` was not called.
+            ValueError: If a required configure method was not called.
         """
         if not hasattr(self, "writers"):
-            self.configure_writers()
+            raise ValueError(f"{self.name}: configure_writers() was not called.")
         if not hasattr(self, "sample_plan"):
             raise ValueError(f"{self.name}: configure_sample_plan() was not called.")
         if not hasattr(self, "estimators"):

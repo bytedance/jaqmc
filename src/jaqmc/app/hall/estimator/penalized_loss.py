@@ -15,6 +15,7 @@ from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
 from jaqmc.estimator.base import PerWalkerEstimator
 from jaqmc.utils.config import configurable_dataclass
+from jaqmc.utils.wiring import runtime_dep
 
 
 @configurable_dataclass
@@ -26,14 +27,14 @@ class PenalizedLoss(PerWalkerEstimator):
     ``prev_walker_stats`` and outputs a ``penalized_loss`` key.
 
     Args:
-        lz_center: Target :math:`L_z` value.
-        lz_penalty: Penalty strength for :math:`(L_z - L_{z,0})^2`.
-        l2_penalty: Penalty strength for :math:`L^2`.
+        lz_center: Target :math:`L_z` value (runtime dep).
+        lz_penalty: Penalty strength for :math:`(L_z - L_{z,0})^2` (runtime dep).
+        l2_penalty: Penalty strength for :math:`L^2` (runtime dep).
     """
 
-    lz_center: float = 0.0
-    lz_penalty: float = 0.0
-    l2_penalty: float = 0.0
+    lz_center: float = runtime_dep()
+    lz_penalty: float = runtime_dep()
+    l2_penalty: float = runtime_dep()
 
     def evaluate_single_walker(
         self,

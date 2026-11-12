@@ -62,10 +62,9 @@ import numpy as np
 import pyblock.blocking
 
 from jaqmc.app.hydrogen_atom import (
-    hydrogen_atom_eval_workflow,
-    hydrogen_atom_train_workflow,
+    HydrogenAtomEvalWorkflow,
+    HydrogenAtomTrainWorkflow,
 )
-from jaqmc.utils.config import ConfigManager
 ```
 
 ```{code-cell} ipython3
@@ -84,12 +83,14 @@ We run a very short VMC training (10 iterations) to create an undertrained check
 jaqmc hydrogen-atom train --yml tutorial-train.yml
 ```
 
-Here, `tutorial-train.yml` stands for a YAML config with the same settings as the Python `ConfigManager(...)` configuration shown below. Here we use the Python API which is more convenient in notebooks.
+Here, `tutorial-train.yml` stands for a YAML config with the same settings as
+the typed workflow configuration shown below. The Python API is convenient in
+this notebook.
 
 ```{code-cell} ipython3
 :tags: [remove-output]
 
-train_cfg = ConfigManager(
+train_workflow = HydrogenAtomTrainWorkflow.from_config(
     {
         "workflow": {
             "batch_size": 256,
@@ -100,19 +101,18 @@ train_cfg = ConfigManager(
     }
 )
 
-train_workflow = hydrogen_atom_train_workflow(train_cfg)
+train_workflow.initialize_runtime()
 train_workflow()
 ```
 
 ## 2. Running Evaluation
 
-Evaluation uses a separate workflow — `hydrogen_atom_eval_workflow` — that loads trained parameters from a checkpoint and runs MCMC sampling without updating the wavefunction. The key config difference is `workflow.source_path`, which points to the training run directory (or a specific checkpoint file). If you prefer the CLI, the equivalent command would look like:
-
-```bash
-jaqmc hydrogen-atom evaluate --yml tutorial-eval.yml
-```
-
-Here, `tutorial-eval.yml` stands for a YAML config with the same settings as the Python `ConfigManager(...)` configuration shown below.
+Evaluation uses a separate workflow, `HydrogenAtomEvalWorkflow`, that loads
+trained parameters from a checkpoint and runs MCMC sampling without updating
+the wavefunction. The key config difference is `workflow.source_path`, which
+points to the training run directory (or a specific checkpoint file). Production
+apps such as `jaqmc molecule evaluate` expose this workflow on the CLI, while
+the hydrogen-atom tutorial runs evaluation through the Python API below.
 
 ```{tip}
 Evaluation stage keys (`run.*`, `sampler.*`, `writers.*`) live at the config root, not under a `train.*` prefix.
@@ -121,7 +121,7 @@ Evaluation stage keys (`run.*`, `sampler.*`, `writers.*`) live at the config roo
 ```{code-cell} ipython3
 :tags: [remove-output]
 
-eval_cfg = ConfigManager(
+eval_workflow = HydrogenAtomEvalWorkflow.from_config(
     {
         "workflow": {
             "batch_size": 256,
@@ -134,13 +134,12 @@ eval_cfg = ConfigManager(
             "burn_in": 100,
         },
         "estimators": {
-            "enabled": {"density": True},
-            "density": {"axes": {"z": {"range": [-6, 6]}}},
+            "density": {"enabled": True, "axes": {"z": {"range": [-6, 6]}}},
         },
     }
 )
 
-eval_workflow = hydrogen_atom_eval_workflow(eval_cfg)
+eval_workflow.initialize_runtime()
 eval_workflow()
 ```
 

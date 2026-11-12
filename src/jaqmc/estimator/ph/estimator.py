@@ -81,8 +81,8 @@ class PHEnergy(PerWalkerEstimator):
     atom_symbols: list[str] = runtime_dep()
     ph: list[str] = runtime_dep()
     kinetic_backend: Literal["standard", "forward_laplacian"] = "forward_laplacian"
-    electrons_field: str = "electrons"
-    atoms_field: str = "atoms"
+    electrons_field: str = runtime_dep(default="electrons")
+    atoms_field: str = runtime_dep(default="atoms")
     distance_fn: DistanceFunction = runtime_dep(default=pair_displacements_between)
 
     def init(self, data: Data, rngs: PRNGKey) -> None:

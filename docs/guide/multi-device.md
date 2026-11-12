@@ -135,17 +135,15 @@ jaqmc molecule train --yml my_system.yml \
 (programmatic-multi-host)=
 ## Programmatic (API) Usage
 
-The CLI handles distributed initialization automatically, but if you're calling a workflow from Python, create a {class}`jaqmc.utils.config.ConfigManager` and initialize the distributed runtime yourself:
+The CLI handles distributed initialization automatically. API callers create a
+workflow and initialize its process-wide settings before invocation:
 
 ```python
-from jaqmc.utils.config import ConfigManager
-from jaqmc.utils.runtime import configure_runtime
+from jaqmc.app.molecule.workflow import MoleculeTrainWorkflow
 
-cfg = ConfigManager(my_config_dict)
-
-configure_runtime(cfg)  # no-op for single-process runs
-
-my_workflow(cfg)
+workflow = MoleculeTrainWorkflow.from_config(my_config_dict)
+workflow.initialize_runtime()  # no-op for single-process runs
+workflow()
 ```
 
 JAX and distributed settings can both be configured from the root config:
@@ -161,9 +159,7 @@ distributed:
   process_id: 1
 ```
 
-JAX requires distributed initialization before any process- or device-dependent setup, so {func}`jaqmc.utils.runtime.configure_runtime` applies logging and JAX-global flags first and initializes the distributed runtime before the workflow runs.
-
-Without {func}`jaqmc.utils.runtime.configure_runtime`, multi-host config keys are ignored, the workflow runs on a single process, and configured JAX global flags are not applied.
+JAX requires distributed initialization to happen before process- or device-dependent runtime setup. In JaQMC, {meth}`~jaqmc.workflow.base.Workflow.initialize_runtime` applies logging and JAX-global flags first, then initializes the distributed runtime so that all startup settings apply before any device-dependent setup.
 
 ## Simulating Multiple Devices in Tests
 

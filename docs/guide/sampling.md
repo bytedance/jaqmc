@@ -43,13 +43,13 @@ The default `steps` value works for most systems. Increase it if you observe hig
 
 ### Burn-in
 
-Walkers start from random positions near the atoms, which are usually far from the equilibrium distribution $|\psi|^2$. Training on these early, unequilibrated samples produces noisy gradients. The `train.run.burn_in` setting (default 100) runs a number of sampling-only steps before training begins — walkers are moved but no gradients are computed. This gives the MCMC chains time to equilibrate and the adaptive width to stabilize. Each burn-in step performs `steps` Metropolis-Hastings updates, so the total burn-in MH updates is `burn_in * steps`.
+In a fresh run, walkers start from an initial distribution (such as random positions near the nuclei in molecular and solid systems, or uniform coordinates on the sphere or supercell) that is far from the equilibrium distribution $|\psi|^2$. Training or evaluating on these early, unequilibrated samples introduces bias and noisy gradients. Each work stage exposes a `burn_in` setting (`train.run.burn_in` and `pretrain.run.burn_in` default to 100, while evaluation `run.burn_in` defaults to 0) that runs sampling-only steps before the stage loop begins — walkers are moved and the adaptive width stabilizes, without computing observables or gradients. Each burn-in step performs `steps` Metropolis-Hastings updates, so the total burn-in MH updates is `burn_in * steps`.
 
 ```bash
 train.run.burn_in=100  # 100 steps × 10 MH updates = 1000 MH updates total
 ```
 
-Burn-in is generally recommended for production runs (e.g., 100–500 steps), and the training default is 100. For quick tests, you can set `train.run.burn_in=0` to start immediately. When resuming a stage from its own checkpoint (`workflow.restore_path`), burn-in is skipped automatically since the walkers are already equilibrated. In separate `evaluate` runs loading a training checkpoint via `workflow.source_path`, `run.burn_in` defaults to `0`. Set `run.burn_in` (for example, `run.burn_in=100`) so walkers and proposal widths re-equilibrate when evaluation uses a different precision mode or sampler setting (see <project:mixed-precision.md>).
+Burn-in is generally recommended for production training runs (e.g., 100–500 steps), and for evaluation runs that start without an equilibrated training checkpoint (e.g., `run.burn_in=100`). For quick tests, you can set `train.run.burn_in=0` to start immediately. When resuming a stage from its own checkpoint (`workflow.restore_path`), burn-in is skipped automatically since the walkers are already equilibrated. In separate `evaluate` runs loading a training checkpoint via `workflow.source_path`, `run.burn_in` defaults to `0`. Set `run.burn_in` (for example, `run.burn_in=100`) so walkers and proposal widths re-equilibrate when evaluation uses a different precision mode or sampler setting (see <project:mixed-precision.md>).
 
 ## See Also
 

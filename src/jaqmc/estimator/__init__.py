@@ -2,19 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from .base import (
-    EstimateFn,
     Estimator,
-    EstimatorLike,
+    EstimatorCollection,
     EstimatorPipeline,
-    FunctionEstimator,
     PerWalkerEstimator,
+    WithToggles,
 )
 
 __all__ = [
-    "EstimateFn",
     "Estimator",
-    "EstimatorLike",
+    "EstimatorCollection",
     "EstimatorPipeline",
-    "FunctionEstimator",
     "PerWalkerEstimator",
+    "WithToggles",
 ]

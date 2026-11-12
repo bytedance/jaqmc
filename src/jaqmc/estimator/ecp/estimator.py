@@ -122,8 +122,8 @@ class ECPEnergy(PerWalkerEstimator):
 
     max_core: int = 2
     quadrature_id: ECPQuadrature | None = None
-    electrons_field: str = "electrons"
-    atoms_field: str = "atoms"
+    electrons_field: str = runtime_dep(default="electrons")
+    atoms_field: str = runtime_dep(default="atoms")
 
     wavefunction_precision: str | dict[str, tuple[float, float]] | None = None
     phase_logpsi: WavefunctionEvaluate = runtime_dep()

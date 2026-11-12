@@ -146,6 +146,17 @@ def linkcode_resolve(domain: str, info):
     return f"https://github.com/bytedance/jaqmc/blob/main/src/{filename}.py"
 
 
+def _link_missing_app_ref(app: Sphinx, env, node, contnode):
+    target = node.get("reftarget", "")
+    if node.get("refdomain") != "py" or not target.startswith("jaqmc.app."):
+        return None
+    module_name, _, attr = target.rpartition(".")
+    url = linkcode_resolve("py", {"module": module_name, "fullname": attr})
+    return (
+        nodes.reference("", "", contnode, internal=False, refuri=url) if url else None
+    )
+
+
 typehints_defaults = "comma"
 always_use_bars_union = True
 typehints_formatter = TypehintsFormatter()
@@ -206,4 +217,5 @@ def setup(app: Sphinx):
             app.config.nb_execution_mode = "off"
 
     app.connect("builder-inited", configure_for_builder)
+    app.connect("missing-reference", _link_missing_app_ref)
     app.connect("html-page-context", _remap_contrib_source_buttons, priority=502)

@@ -3,18 +3,18 @@
 
 """Explicit CPU postprocessing for the article's saved-LIT line fit."""
 
-from __future__ import annotations
-
 import logging
+from collections.abc import Mapping, Sequence
 from dataclasses import field
 from pathlib import Path
-from typing import SupportsInt, cast
+from typing import Any, Self, SupportsInt, cast
 
 import numpy as np
 from numpy.typing import ArrayLike
 from upath import UPath
 
-from jaqmc.utils.config import ConfigManager, configurable_dataclass
+from jaqmc.utils.config import config_to_yaml, configurable_dataclass, parse_config
+from jaqmc.utils.runtime import LoggingConfig
 from jaqmc_contrib_lit.inversion import initialize_lit_poles
 from jaqmc_contrib_lit.inversion_io import (
     LITInversionSettings,
@@ -65,21 +65,38 @@ class LITInversionPostprocessConfig:
     solver_max_iterations: int | None = None
 
 
+@configurable_dataclass
 class LITInversionPostprocessor:
     """Load raw LIT NPZs and write one article-aligned line-fit NPZ."""
 
-    def __init__(self, cfg: ConfigManager):
-        self.cfg = cfg
-        self.config = cfg.get("inversion", LITInversionPostprocessConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
+    inversion: LITInversionPostprocessConfig = field(
+        default_factory=LITInversionPostprocessConfig
+    )
+
+    def __post_init__(self) -> None:
         self._validate_config()
 
+    @classmethod
+    def from_config(
+        cls,
+        configs: Mapping[str, Any] | Sequence[Mapping[str, Any]],
+        dotlist: Sequence[str] = (),
+    ) -> Self:
+        """Create a postprocessor from layered configuration.
+
+        Returns:
+            A validated postprocessor.
+        """
+        return parse_config(cls, configs, dotlist)
+
     def __call__(self, dry_run: bool = False) -> None:
-        self.cfg.finalize()
+        logger.info("Resolved configurations:\n%s", config_to_yaml(self))
         if not dry_run:
             self.run()
 
     def _validate_config(self) -> None:  # noqa: C901
-        config = self.config
+        config = self.inversion
         paths = config.input_paths
         if not paths or any(not isinstance(path, str) or not path for path in paths):
             raise ValueError(
@@ -148,7 +165,7 @@ class LITInversionPostprocessor:
                 )
 
     def run(self) -> None:
-        config = self.config
+        config = self.inversion
         paths = tuple(config.input_paths)
         data = aggregate_lit_npz(
             paths,

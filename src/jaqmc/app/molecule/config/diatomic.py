@@ -4,11 +4,12 @@
 import re
 
 from jaqmc.utils.atomic import elements
+from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.units import ONE_ANGSTROM_IN_BOHR, LengthUnit
 
 from .base import AtomConfig, MoleculeConfig
 
-__all__ = ["diatomic_config"]
+__all__ = ["DiatomicBuilder"]
 
 
 def _parse_diatomic_formula(formula: str) -> tuple[str, str]:
@@ -45,15 +46,9 @@ def _parse_diatomic_formula(formula: str) -> tuple[str, str]:
     return (symbols[0], symbols[1])
 
 
-def diatomic_config(
-    formula: str = "H2",
-    bond_length: float = 1.4,
-    unit: LengthUnit = LengthUnit.bohr,
-    pp: str | dict[str, str] | None = None,
-    s_z: float = 0,
-    electron_init_width: float = 1.0,
-):
-    """Create a MoleculeConfig for a diatomic molecule.
+@configurable_dataclass
+class DiatomicBuilder:
+    """Builder for a diatomic molecular system.
 
     The two atoms are placed along the z-axis, centered at the origin.
 
@@ -70,24 +65,35 @@ def diatomic_config(
             Defaults to 0 (singlet).
         electron_init_width: Width of Gaussian for electron initialization.
 
-    Returns:
-        MoleculeConfig for the diatomic molecule.
     """
-    sym1, sym2 = _parse_diatomic_formula(formula)
 
-    if unit == LengthUnit.angstrom:
-        bond_length *= ONE_ANGSTROM_IN_BOHR
-    half = bond_length / 2
+    formula: str = "H2"
+    bond_length: float = 1.4
+    unit: LengthUnit = LengthUnit.bohr
+    pp: str | dict[str, str] | None = None
+    s_z: float = 0
+    electron_init_width: float = 1.0
 
-    atoms = []
-    for i, symbol in enumerate((sym1, sym2)):
-        sign = -1 if i == 0 else 1
-        coord = [0.0, 0.0, sign * half]
-        atoms.append(AtomConfig(symbol=symbol, coords=coord))
+    def __post_init__(self) -> None:
+        _parse_diatomic_formula(self.formula)
 
-    return MoleculeConfig(
-        atom_configs=atoms,
-        s_z=s_z,
-        electron_init_width=electron_init_width,
-        pp=pp,
-    )
+    def __call__(self) -> MoleculeConfig:
+        sym1, sym2 = _parse_diatomic_formula(self.formula)
+
+        bond_length = self.bond_length
+        if self.unit == LengthUnit.angstrom:
+            bond_length *= ONE_ANGSTROM_IN_BOHR
+        half = bond_length / 2
+
+        atoms = []
+        for i, symbol in enumerate((sym1, sym2)):
+            sign = -1 if i == 0 else 1
+            coord = [0.0, 0.0, sign * half]
+            atoms.append(AtomConfig(symbol=symbol, coords=coord))
+
+        return MoleculeConfig(
+            atoms=atoms,
+            s_z=self.s_z,
+            electron_init_width=self.electron_init_width,
+            pp=self.pp,
+        )

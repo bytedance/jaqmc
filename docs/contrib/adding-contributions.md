@@ -64,8 +64,7 @@ dependencies = [
 ```
 
 Then create `src/jaqmc_contrib_<short_name>/cli.py`. A contribution CLI must
-expose a `click.Command` or `click.Group`; the following minimal group keeps
-JaQMC imports inside its command callback:
+expose a `click.Command` or `click.Group`:
 
 ```python
 import click
@@ -78,15 +77,12 @@ def cli() -> None:
 
 @cli.command(help="Show contribution information.")
 def info() -> None:
-    from jaqmc.utils.config import ConfigManager
-
-    config = ConfigManager({"package_name": "jaqmc-contrib-my-feature"})
-    click.echo(f"configured package: {config.get('package_name', '')}")
+    click.echo("jaqmc-contrib-my-feature")
 ```
 
-This follows the core CLI pattern: once Click resolves a command, its callback
-imports the workflow, optional backend, or other heavyweight code it needs.
-Keep the entry-point module limited to Click and small standard-library imports.
+Import workflows and optional backends inside the command callback so that
+discovering the command does not load them. Keep the entry-point module limited
+to Click and small standard-library imports.
 
 Then register the completed `cli` object with a unique `jaqmc.apps` name that
 does not collide with a built-in command:

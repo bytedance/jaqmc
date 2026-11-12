@@ -59,7 +59,6 @@ class FractionalDensity(HistogramEstimator):
     axes: dict[str, FractionalAxis | None] = field(default_factory=dict)
     inv_lattice: jnp.ndarray = runtime_dep()
     data_field: str = runtime_dep(default="electrons")
-    name: str = "density"
 
     def _sorted_axes(self) -> list[FractionalAxis]:
         return sorted(

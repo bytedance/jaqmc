@@ -6,14 +6,21 @@
 import logging
 import shlex
 from collections.abc import Callable
+from dataclasses import field
 from pathlib import Path
+from typing import Annotated
 
 import click
 from upath import UPath
 
 from jaqmc.app.molecule.config import MoleculeConfig, MoleculeSolverConfig
 from jaqmc.utils.cli import load_yaml
-from jaqmc.utils.config import ConfigError, ConfigManager
+from jaqmc.utils.config import (
+    ModuleConfig,
+    config_to_yaml,
+    configurable_dataclass,
+    parse_config,
+)
 from jaqmc.utils.runtime import LoggingConfig
 
 from . import pyscf
@@ -21,6 +28,18 @@ from . import pyscf
 logger = logging.LoggerAdapter(
     logging.getLogger(__name__), extra={"category": "reference"}
 )
+
+
+@configurable_dataclass
+class MoleculeReferenceConfig:
+    """Configuration consumed by ``jaqmc molecule reference prepare``."""
+
+    system: Annotated[
+        MoleculeConfig | Callable[[], MoleculeConfig],
+        ModuleConfig(package="jaqmc.app.molecule.config"),
+    ] = field(default_factory=MoleculeConfig)
+    solver: MoleculeSolverConfig = field(default_factory=MoleculeSolverConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
 
 
 def _load_reference_inputs(
@@ -35,16 +54,11 @@ def _load_reference_inputs(
     for path in yml:
         with open(path, encoding="utf-8") as stream:
             yaml_configs.append(load_yaml(stream))
-    cfg = ConfigManager(yaml_configs, list(dotlist))
-    cfg.get("logging", LoggingConfig).apply()
-    system: MoleculeConfig | Callable[[], MoleculeConfig] = cfg.get_module(
-        "system", MoleculeConfig
-    )
-    if callable(system):
-        system = system()
-    solver: MoleculeSolverConfig = cfg.get_module("solver", MoleculeSolverConfig)
-    cfg.finalize()
-    return system, solver
+    config = parse_config(MoleculeReferenceConfig, yaml_configs, dotlist)
+    config.logging.apply()
+    logger.info("Resolved configurations:\n%s", config_to_yaml(config))
+    system = config.system() if callable(config.system) else config.system
+    return system, config.solver
 
 
 @click.group(name="reference", help="Prepare and convert molecular references.")
@@ -119,8 +133,6 @@ def prepare(
         job.run(job_dir)
         job.finalize_npz(job_dir, target)
         logger.info("Wrote reference to %s", target)
-    except ConfigError as e:
-        raise click.ClickException(str(e)) from None
     except (RuntimeError, ValueError) as e:
         raise click.ClickException(str(e)) from None
 

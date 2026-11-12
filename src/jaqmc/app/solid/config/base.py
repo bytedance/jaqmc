@@ -5,7 +5,7 @@ from dataclasses import field
 from typing import Protocol
 
 import numpy as np
-import serde
+from pydantic import Field
 
 from jaqmc.utils.atomic import Atom, AtomicSystemConfig, AtomInitialization
 from jaqmc.utils.config import configurable_dataclass
@@ -41,7 +41,9 @@ class LatticeSpec(Protocol):
 
 
 @configurable_dataclass
-class LatticeDirect(LatticeSpec):
+class LatticeVectors(LatticeSpec):
+    """Primitive-cell lattice specified by three Cartesian vectors."""
+
     a: tuple[float | int, float | int, float | int]
     b: tuple[float | int, float | int, float | int]
     c: tuple[float | int, float | int, float | int]
@@ -51,7 +53,9 @@ class LatticeDirect(LatticeSpec):
 
 
 @configurable_dataclass
-class LatticeParams(LatticeSpec):
+class LatticeParameters(LatticeSpec):
+    """Primitive-cell lattice specified by edge lengths and angles (in degrees)."""
+
     a: float | int
     b: float | int
     c: float | int
@@ -92,19 +96,19 @@ class SolidConfig(AtomicSystemConfig):
     Args:
         atoms: Primitive-cell atom basis in fractional coordinates.
         lattice: Primitive-cell lattice, given either as direct vectors
-            (`a`, `b`, `c`) or as cell parameters (`a`, `b`, `c`,
-            `alpha`, `beta`, `gamma`).
+            (``a``, ``b``, ``c``) or as cell parameters (``a``, ``b``, ``c``,
+            ``alpha``, ``beta``, ``gamma``).
         supercell_matrix: Optional 3x3 integer matrix defining a supercell.
         twist: Twist vector in fractional supercell reciprocal coordinates.
         unit: Length unit applied to lattice vectors.
     """
 
-    lattice: LatticeDirect | LatticeParams = field(
-        default_factory=lambda: LatticeParams(a=2, b=2, c=2)
+    lattice: LatticeVectors | LatticeParameters = field(
+        default_factory=lambda: LatticeParameters(a=2, b=2, c=2)
     )
     unit: LengthUnit = LengthUnit.bohr
-    atom_configs: list[SolidAtomConfig] = serde.field(
-        rename="atoms",
+    atom_configs: list[SolidAtomConfig] = Field(
+        alias="atoms",
         default_factory=lambda: [
             SolidAtomConfig(symbol="H", frac_coords=[0, 0, 0]),
             SolidAtomConfig(symbol="H", frac_coords=[0.5, 0, 0]),

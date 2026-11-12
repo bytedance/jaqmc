@@ -3,8 +3,6 @@
 
 """SPRING, SR, and held-out selection numerics for LIT."""
 
-from __future__ import annotations
-
 import logging
 import operator
 from collections.abc import Mapping

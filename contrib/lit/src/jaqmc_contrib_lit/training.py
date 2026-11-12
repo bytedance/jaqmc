@@ -4,8 +4,6 @@
 
 """Frequency optimization and estimators for the molecular LIT workflow."""
 
-from __future__ import annotations
-
 import hashlib
 import logging
 

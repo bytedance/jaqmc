@@ -160,7 +160,7 @@ def test_charged_molecule_initialization_uses_local_charge(
     symbol, local_charge, total_charge
 ):
     config = MoleculeConfig(
-        atom_configs=[_atom_config(symbol, local_charge=local_charge)],
+        atoms=[_atom_config(symbol, local_charge=local_charge)],
         total_charge=total_charge,
         s_z=0,
     )
@@ -175,7 +175,7 @@ def test_charged_molecule_initialization_uses_local_charge(
 
 def test_charged_solid_initialization_uses_local_charge():
     config = SolidConfig(
-        atom_configs=[
+        atoms=[
             SolidAtomConfig(
                 symbol="H",
                 frac_coords=[0.0, 0.0, 0.0],
@@ -199,14 +199,14 @@ def test_atomic_system_rejects_unallocated_total_charge():
         match="local_charge values must sum to the system total_charge",
     ):
         MoleculeConfig(
-            atom_configs=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
+            atoms=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
             total_charge=1,
         )
 
 
 def test_atomic_system_accepts_zero_electron_state():
     cfg = MoleculeConfig(
-        atom_configs=[_atom_config("H", local_charge=1)],
+        atoms=[_atom_config("H", local_charge=1)],
         total_charge=1,
         s_z=0,
     )
@@ -231,29 +231,29 @@ def test_atom_spin_config_uses_eager_all_electron_charge_resolution():
 
 def test_atom_initialization_rejects_non_integer_local_charge():
     invalid_local_charge: Any = 0.5
-    with pytest.raises(ValueError, match="local_charge must be an integer"):
+    with pytest.raises(ValueError, match="valid integer"):
         AtomInitialization(local_charge=invalid_local_charge)
 
 
 def test_atom_with_initialization_rejects_spin_parity_mismatch():
     with pytest.raises(ValueError, match=r"Atom-local initialization requests s_z=0"):
-        MoleculeConfig(atom_configs=[_atom_config("H", local_s_z=0)])
+        MoleculeConfig(atoms=[_atom_config("H", local_s_z=0)])
 
 
 def test_atom_with_initialization_rejects_spin_magnitude_mismatch():
     with pytest.raises(ValueError, match=r"Atom-local initialization requests s_z=1.5"):
-        MoleculeConfig(atom_configs=[_atom_config("H", local_s_z=1.5)])
+        MoleculeConfig(atoms=[_atom_config("H", local_s_z=1.5)])
 
 
 def test_atom_with_initialization_rejects_negative_local_electron_count():
     with pytest.raises(ValueError, match="local electron count must be non-negative"):
-        MoleculeConfig(atom_configs=[_atom_config("H", local_charge=2)])
+        MoleculeConfig(atoms=[_atom_config("H", local_charge=2)])
 
 
 def test_atomic_system_rejects_spin_magnitude_mismatch():
     with pytest.raises(ValueError, match=r"Impossible s_z=1.5"):
         MoleculeConfig(
-            atom_configs=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
+            atoms=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
             s_z=1.5,
         )
 
@@ -261,14 +261,14 @@ def test_atomic_system_rejects_spin_magnitude_mismatch():
 def test_atomic_system_rejects_negative_total_electron_count():
     with pytest.raises(ValueError, match="total_electron_count >= 0"):
         MoleculeConfig(
-            atom_configs=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
+            atoms=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
             total_charge=2,
         )
 
 
 def test_atomic_system_accepts_fully_polarized_one_electron_state():
     cfg = MoleculeConfig(
-        atom_configs=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
+        atoms=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
         s_z=0.5,
     )
 
@@ -309,7 +309,7 @@ def test_atomic_system_resolves_implicit_charge_from_system_pp(
     atom_configs, pp, s_z, expected_charges, expected_spins
 ):
     cfg = MoleculeConfig(
-        atom_configs=atom_configs,
+        atoms=atom_configs,
         pp=pp,
         s_z=s_z,
     )
@@ -324,7 +324,7 @@ def test_atomic_system_rejects_explicit_charge_conflicting_with_system_pp():
         match="cannot use PH treatment with a custom charge",
     ):
         MoleculeConfig(
-            atom_configs=[_atom_config("Cu", charge=29, local_s_z=0.5)],
+            atoms=[_atom_config("Cu", charge=29, local_s_z=0.5)],
             pp="ph",
             s_z=0.5,
         )

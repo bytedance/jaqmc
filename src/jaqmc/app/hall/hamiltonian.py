@@ -13,6 +13,7 @@ from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
 from jaqmc.estimator.base import PerWalkerEstimator
 from jaqmc.utils.config import configurable_dataclass
+from jaqmc.utils.wiring import runtime_dep
 
 
 @configurable_dataclass
@@ -23,14 +24,14 @@ class SpherePotential(PerWalkerEstimator):
     Coulomb repulsion from the chord distance.
 
     Args:
-        interaction_strength: Overall Coulomb scaling factor.
-        monopole_strength: :math:`Q = \text{flux}/2`.
-        radius: Sphere radius.
+        interaction_strength: Overall Coulomb scaling factor (runtime dep).
+        monopole_strength: :math:`Q = \text{flux}/2` (runtime dep).
+        radius: Sphere radius (runtime dep).
     """
 
-    interaction_strength: float
-    monopole_strength: float = 1.0
-    radius: float = 1.0
+    interaction_strength: float = runtime_dep(default=1.0)
+    monopole_strength: float = runtime_dep(default=1.0)
+    radius: float = runtime_dep(default=1.0)
 
     def evaluate_single_walker(
         self,

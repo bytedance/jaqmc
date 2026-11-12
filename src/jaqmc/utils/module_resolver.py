@@ -3,8 +3,8 @@
 
 import importlib.util
 import sys
-import uuid
 from importlib import import_module
+from pathlib import Path
 from typing import Any
 
 
@@ -54,6 +54,9 @@ def split_module_and_object(name: str) -> tuple[str, str | None]:
 def import_module_or_file(module_name: str, package: str | None = None) -> Any:
     """Import a python module or a python file.
 
+    A file is loaded once per process and named after its resolved path, so
+    every spelling of that path yields the same module.
+
     Args:
         module_name: The name of the module or file.
             If it ends with ".py", it will be considered as a file, otherwise module.
@@ -68,10 +71,12 @@ def import_module_or_file(module_name: str, package: str | None = None) -> Any:
             cannot be imported.
     """
     if module_name.endswith(".py"):
-        # generate unique module name
-        module_id = "jaqmc_" + str(uuid.uuid4()).replace("-", "_")
-        # `imp` is deprecated. Using `importlib` way
-        spec = importlib.util.spec_from_file_location(module_id, module_name)
+        # Objects defined here take this name as `__module__`, so it must resolve
+        # back to the same file, and one identity per file keeps merging stable.
+        module_id = str(Path(module_name).resolve())
+        if (loaded := sys.modules.get(module_id)) is not None:
+            return loaded
+        spec = importlib.util.spec_from_file_location(module_id, module_id)
         if spec is None or spec.loader is None:
             raise OSError(f"Failed to load {module_name}")
         module = importlib.util.module_from_spec(spec)

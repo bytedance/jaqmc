@@ -17,8 +17,7 @@ from jaqmc.app.molecule.data import MoleculeData
 from jaqmc.app.molecule.wavefunction.ferminet import FermiNetWavefunction
 from jaqmc.app.molecule.wavefunction.lapnet import LapNetWavefunction
 from jaqmc.app.molecule.wavefunction.psiformer import PsiformerWavefunction
-from jaqmc.estimator import FunctionEstimator
-from jaqmc.utils.atomic import make_pretrain_loss
+from jaqmc.utils.atomic import PretrainLossEstimator, make_pretrain_loss
 
 TEST_KEY = jax.random.key(42)
 
@@ -101,7 +100,7 @@ class TestPretrainOrbitalShape:
             full_det=wf.full_det,
         )
         loss_estimator.init(data, TEST_KEY)
-        assert isinstance(loss_estimator, FunctionEstimator)
+        assert isinstance(loss_estimator, PretrainLossEstimator)
         stats, _ = loss_estimator.evaluate_single_walker(
             params, data, {}, None, TEST_KEY
         )
@@ -124,7 +123,7 @@ def test_pretrain_loss_uses_spin_block_diagonal_target():
         return jnp.asarray([[1.0, 2.0, 10.0], [3.0, 4.0, 20.0], [30.0, 40.0, 5.0]])
 
     estimator = make_pretrain_loss(orbitals, Reference(), (2, 1), full_det=True)
-    assert isinstance(estimator, FunctionEstimator)
+    assert isinstance(estimator, PretrainLossEstimator)
     stats, _ = estimator.evaluate_single_walker(
         {}, make_test_data((2, 1)), {}, None, TEST_KEY
     )
@@ -143,7 +142,7 @@ def test_pretrain_loss_handles_an_empty_spin_block():
         return jnp.asarray([[2.0]])
 
     estimator = make_pretrain_loss(orbitals, Reference(), (1, 0), full_det=True)
-    assert isinstance(estimator, FunctionEstimator)
+    assert isinstance(estimator, PretrainLossEstimator)
     stats, _ = estimator.evaluate_single_walker(
         {}, make_test_data((1, 0)), {}, None, TEST_KEY
     )

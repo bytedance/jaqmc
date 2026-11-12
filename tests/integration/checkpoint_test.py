@@ -7,20 +7,18 @@ import numpy as np
 import pytest
 
 from jaqmc.app.hydrogen_atom import (
-    hydrogen_atom_eval_workflow,
-    hydrogen_atom_train_workflow,
+    HydrogenAtomEvalWorkflow,
+    HydrogenAtomTrainWorkflow,
 )
-from jaqmc.utils.config import ConfigManager
 
 
 def _train_hydrogen(save_path: Path) -> None:
-    cfg = ConfigManager(
+    HydrogenAtomTrainWorkflow.from_config(
         {
             "workflow": {"save_path": str(save_path), "batch_size": 128},
             "train": {"run": {"iterations": 5}},
         }
-    )
-    hydrogen_atom_train_workflow(cfg)()
+    )()
 
 
 def _evaluation_config(
@@ -32,8 +30,8 @@ def _evaluation_config(
     seed: int,
     save_step_interval: int = 1000,
     save_time_interval: int = 600,
-) -> ConfigManager:
-    return ConfigManager(
+) -> HydrogenAtomEvalWorkflow:
+    return HydrogenAtomEvalWorkflow.from_config(
         {
             "workflow": {
                 "seed": seed,
@@ -59,7 +57,7 @@ def test_stats_truncated_on_restore(tmp_path: Path):
     def create_config(
         iterations, *, seed, save_step_interval=1000, save_time_interval=600
     ):
-        return ConfigManager(
+        return HydrogenAtomTrainWorkflow.from_config(
             {
                 "workflow": {"seed": seed, "save_path": str(tmp_path)},
                 "train": {
@@ -77,7 +75,7 @@ def test_stats_truncated_on_restore(tmp_path: Path):
     cfg = create_config(
         iterations=5, seed=1, save_step_interval=3, save_time_interval=0
     )
-    hydrogen_atom_train_workflow(cfg)()
+    cfg()
 
     ckpts = sorted((tmp_path).glob("train_ckpt_*.npz"))
     ckpt_steps = [int(c.stem.split("_")[-1]) for c in ckpts]
@@ -100,7 +98,7 @@ def test_stats_truncated_on_restore(tmp_path: Path):
     # step 2 + 1), so stats for steps 3-4 from the first run must be
     # discarded before appending steps 3-7.
     cfg = create_config(iterations=8, seed=2)
-    hydrogen_atom_train_workflow(cfg)()
+    cfg()
 
     f = np.load(tmp_path / "train_stats.npy")
     np.testing.assert_array_equal(f["loss"][:resume_step], expected_npy_prefix)
@@ -120,7 +118,7 @@ def test_cross_directory_resume_inherits_stats(tmp_path: Path):
     target_dir = tmp_path / "target"
 
     def create_config(save_path: Path, iterations: int):
-        return ConfigManager(
+        return HydrogenAtomTrainWorkflow.from_config(
             {
                 "workflow": {
                     "seed": 42,
@@ -139,8 +137,8 @@ def test_cross_directory_resume_inherits_stats(tmp_path: Path):
             }
         )
 
-    hydrogen_atom_train_workflow(create_config(source_dir, 5))()
-    hydrogen_atom_train_workflow(create_config(target_dir, 8))()
+    create_config(source_dir, 5)()
+    create_config(target_dir, 8)()
 
     f = np.load(target_dir / "train_stats.npy")
     assert len(f["loss"]) == 8
@@ -166,7 +164,7 @@ def test_evaluation_stats_truncated_on_restore(tmp_path: Path):
         save_step_interval=3,
         save_time_interval=0,
     )
-    hydrogen_atom_eval_workflow(cfg)()
+    cfg()
     f = np.load(eval_dir / "evaluation_stats.npy")
     expected_prefix = f["total_energy"][:resume_step].copy()
 
@@ -178,7 +176,7 @@ def test_evaluation_stats_truncated_on_restore(tmp_path: Path):
         iterations=8,
         seed=2,
     )
-    hydrogen_atom_eval_workflow(cfg)()
+    cfg()
 
     f = np.load(eval_dir / "evaluation_stats.npy")
     np.testing.assert_array_equal(f["total_energy"][:resume_step], expected_prefix)
@@ -203,7 +201,7 @@ def test_evaluation_cross_directory_resume_inherits_stats(tmp_path: Path):
         iterations=resume_step,
         seed=1,
     )
-    hydrogen_atom_eval_workflow(cfg)()
+    cfg()
     f = np.load(source_dir / "evaluation_stats.npy")
     expected_prefix = f["total_energy"][:].copy()
 
@@ -214,7 +212,7 @@ def test_evaluation_cross_directory_resume_inherits_stats(tmp_path: Path):
         iterations=8,
         seed=2,
     )
-    hydrogen_atom_eval_workflow(cfg)()
+    cfg()
 
     f = np.load(target_dir / "evaluation_stats.npy")
     np.testing.assert_array_equal(f["total_energy"][:resume_step], expected_prefix)

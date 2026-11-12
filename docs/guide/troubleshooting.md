@@ -128,9 +128,8 @@ Short transients at the start of a run are normal. Persistent extremes are the
 signal to act.
 
 If `pmove` stays very high, for example above `0.8`, increase the starting
-proposal width: `sampler.initial_width=...` for training or
-`sampler.initial_width=...` for evaluation. If `pmove` stays very low, reduce
-the width instead.
+proposal width with `sampler.initial_width=...`. If `pmove` stays very low,
+reduce the width instead.
 
 See <project:sampling.md> for the sampler parameters and adaptation behavior.
 
@@ -138,29 +137,23 @@ See <project:sampling.md> for the sampler parameters and adaptation behavior.
 
 ### Config Typo or Unused Config Keys
 
-The run aborts immediately with an error like:
+**Symptom:** the run aborts during parsing with a validation error:
 
 ```text
-Unused config keys detected:
-- from CLI: {'solver.basis'}
+train.run.iteration
+  Unexpected keyword argument [type=unexpected_keyword_argument, ...]
 ```
 
-or:
+**Cause:** typed parsing rejects unknown fields. Common causes include a typo
+such as `train.run.iteration` instead of `train.run.iterations`, keys meant for
+another command (`solver.*` belongs to `jaqmc <app> reference prepare`, not
+`train`), and leftovers from older configs such as `pretrain.reference.*`.
 
-```text
-Invalid config at 'train.run': unknown fields: {'iteration'}, expected one of {...}
-```
+**Fix:**
 
-The first error lists keys that were passed but never read: a typo, keys meant
-for another command (`solver.*` belongs to `jaqmc <app> reference prepare`,
-not `train`), or leftovers from older configs such as `pretrain.reference.*`.
-The second is a typo inside a known section, such as `train.run.iteration`
-instead of `train.run.iterations`, and lists the valid field names.
-
-- `--dry-run` displays the resolved config.
-- `workflow.config.verbose=true` includes available fields and their
-  descriptions.
-- `workflow.config.ignore_extra=true` permits intentional unused keys.
+- Check the spelling of the key named in the error message.
+- Run with `--dry-run` to inspect the resolved config.
+- Consult the matching system configuration reference for available fields.
 
 ```{tip}
 CLI override syntax has no spaces around `=`: `key=value`, not `key = value`.

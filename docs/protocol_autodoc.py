@@ -7,8 +7,6 @@ This extension supplements ``autoclass`` output for ``typing.Protocol`` classes:
 - annotation-only protocol attributes (from ``__annotations__``).
 """
 
-from __future__ import annotations
-
 import inspect
 from collections.abc import Iterable
 from typing import Any, get_origin

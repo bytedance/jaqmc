@@ -57,7 +57,6 @@ def test_lit_rejects_pseudopotential_hamiltonians(pseudopotential):
         ],
     )
 
-    assert result.exit_code != 0
-    assert isinstance(result.exception, ValueError)
-    assert "supports only all-electron molecular Hamiltonians" in str(result.exception)
-    assert f"Fe={pseudopotential}" in str(result.exception)
+    assert result.exit_code == 1
+    assert "supports only all-electron molecular Hamiltonians" in result.output
+    assert f"Fe={pseudopotential}" in result.output

@@ -6,56 +6,69 @@
 Usage in MyST markdown::
 
     ```{eval-rst}
-    .. config-context::
-       :preset: jaqmc.app.molecule.workflow.MoleculeTrainWorkflow.default_preset
-    ```
-
-    ```{eval-rst}
     .. config-defaults:: jaqmc.optimizer.kfac.kfac.KFACOptimizer
        :prefix: train.optim
        :scope: KFAC
     ```
 
-Each field renders as a compact stacked row showing the key, effective
+Each field renders as a compact stacked row showing the key,
 default, type, and a short description.
 """
-
-from __future__ import annotations
 
 import enum
 import importlib
 import inspect
 import re
+import textwrap
 from collections.abc import Callable, Iterator
-from dataclasses import MISSING, dataclass, is_dataclass
+from collections.abc import Set as AbstractSet
+from dataclasses import MISSING, dataclass, is_dataclass, replace
 from dataclasses import fields as dc_fields
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import (
+    Annotated,
+    Any,
+    ClassVar,
+    TypeAliasType,
+    cast,
+    get_args,
+    get_origin,
+)
 
-import serde
 from docutils import nodes
+from docutils.nodes import Element
 from docutils.parsers.rst import directives
+from pydantic.fields import FieldInfo
+from sphinx.addnodes import pending_xref
 from sphinx.application import Sphinx
+from sphinx.builders import Builder
 from sphinx.domains import Domain, ObjType
+from sphinx.environment import BuildEnvironment
 from sphinx.ext.napoleon.docstring import GoogleDocstring
 from sphinx.locale import _, __
 from sphinx.roles import XRefRole
 from sphinx.util import logging
 from sphinx.util.docutils import SphinxDirective
 from sphinx.util.nodes import make_refnode
+from sphinx_autodoc_typehints import format_annotation
 
-from jaqmc.utils.module_resolver import resolve_object
+from jaqmc.estimator.base import EstimatorCollection
+from jaqmc.utils.config import (
+    ModuleConfig,
+    config_to_dict,
+    is_configurable_dataclass,
+    materialize_config_default,
+)
 from jaqmc.utils.yaml_format import dump_yaml
-
-if TYPE_CHECKING:
-    from docutils.nodes import Element
-    from sphinx.addnodes import pending_xref
-    from sphinx.builders import Builder
-    from sphinx.environment import BuildEnvironment
 
 logger = logging.getLogger(__name__)
 
-_NO_OVERRIDE = object()
 _OptionSpec = dict[str, Callable[[str], Any]]
+
+
+def _has_module_config(tp: Any) -> bool:
+    return get_origin(tp) is Annotated and any(
+        isinstance(meta, ModuleConfig) for meta in get_args(tp)[1:]
+    )
 
 
 class ConfigDefaultsSeparatorNode(nodes.General, nodes.Element):
@@ -75,7 +88,7 @@ class ConfigDefaultEntry:
     default_block_str: str | None = None
     type_str: str | None = None
     description: str | None = None
-    children: list[ConfigDefaultEntry] | None = None
+    children: list["ConfigDefaultEntry"] | None = None
     classes: tuple[str, ...] = ()
     anchor_id: str | None = None
     ref_label: str | None = None
@@ -84,8 +97,10 @@ class ConfigDefaultEntry:
 
 def _save_field(result: dict[str, str], name: str | None, desc: list[str]) -> None:
     """Save a parsed field into the result dict."""
-    if name is not None:
-        text = "\n".join(desc).strip()
+    if name is not None and desc:
+        head, *tail = desc
+        body = textwrap.dedent("\n".join(tail))
+        text = f"{head}\n{body}".strip() if body else head.strip()
         if text:
             result[name] = text
 
@@ -110,20 +125,16 @@ def _parse_args_section(docstring: str | None) -> dict[str, str]:
                 continue
             _save_field(result, current_name, current_desc)
             current_name = match.group(1)
-            current_desc = [match.group(2)] if match.group(2) else []
+            current_desc = [match.group(2)]
             continue
 
         if current_name is None:
             continue
 
-        if line.startswith(":"):
+        if line.startswith(":") or (line and not line[0].isspace()):
             _save_field(result, current_name, current_desc)
             current_name = None
             current_desc = []
-            continue
-
-        if not line.strip():
-            current_desc.append("")
             continue
 
         current_desc.append(line)
@@ -145,92 +156,78 @@ def _collect_dataclass_descriptions(obj: Any) -> dict[str, str]:
     return descriptions
 
 
-def _type_name(t) -> str:
-    """Return a plain-text type name without RST markup.
-
-    Recursively formats generic types, unions, etc. into a readable string
-    like ``list[int | None]``.
-    """
-    if t is inspect.Parameter.empty:
-        return ""
-
-    if isinstance(t, str):
-        return t
-
-    origin = getattr(t, "__origin__", None)
-    args = getattr(t, "__args__", ())
-
-    # X | Y syntax or typing.Union
-    import typing
-
-    if origin is type(int | str) or origin is typing.Union:
-        return " | ".join(_type_name(a) for a in args)
-
-    # list[X], tuple[X, Y], etc.
-    if origin is not None:
-        origin_name = getattr(origin, "__name__", str(origin))
-        if args:
-            inner = ", ".join(_type_name(a) for a in args)
-            return f"{origin_name}[{inner}]"
-        return origin_name
-
-    # NoneType
-    if t is type(None):
-        return "None"
-
-    return getattr(t, "__name__", None) or getattr(t, "_name", None) or str(t)
-
-
-def _format_type_str(param: inspect.Parameter) -> str:
-    """Format parameter type annotation as inline code, or empty string.
+def _class_summary(cls: Any) -> str | None:
+    """Extract the leading summary paragraph from a class docstring.
 
     Returns:
-        RST inline-code string, or empty string if no annotation.
+        Summary paragraph, or ``None`` if unavailable.
     """
-    if param.annotation is inspect.Parameter.empty:
-        return ""
-    type_name = _type_name(param.annotation)
-    return f"``{type_name}``" if type_name else ""
+    doc = inspect.getdoc(cls)
+    if not doc or doc.startswith(f"{cls.__name__}("):
+        return None
+    lines: list[str] = []
+    for line in doc.splitlines():
+        if not line.strip():
+            break
+        lines.append(line.strip())
+    return " ".join(lines) if lines else None
 
 
-def _format_compact_type(field_type, mc) -> str | None:
-    """Format a field type for compact contextual defaults.
+def _format_class_ref(cls: type[Any]) -> str:
+    return f":py:obj:`{cls.__name__} <{cls.__module__}.{cls.__qualname__}>`"
+
+
+def _field_public_name(field: Any) -> str:
+    """Return the serialized/public config key for a dataclass field."""
+    if isinstance(field.default, FieldInfo) and field.default.alias:
+        return field.default.alias
+    return field.name
+
+
+def _field_value(instance: Any | None, field: Any) -> Any:
+    """Return a field's value on ``instance`` or its declared default."""
+    if instance is not None:
+        return getattr(instance, field.name)
+    if isinstance(field.default, FieldInfo):
+        if field.default.is_required():
+            return MISSING
+        if field.default.default_factory is not None:
+            return materialize_config_default(field.default.default_factory)
+        return field.default.default
+    if field.default is not MISSING:
+        return field.default
+    if field.default_factory is not MISSING:
+        return materialize_config_default(field.default_factory)
+    return MISSING
+
+
+def _doc_value(value: Any) -> Any:
+    """Convert config defaults into user-facing, serialization-like values.
 
     Returns:
-        Compact RST-formatted type string, or ``None`` if unavailable.
+        A docs-friendly value with dataclasses and enums recursively converted
+        into plain dict/list/scalar structures.
     """
-    if mc is not None:
-        direct_type = (
-            _type_name(mc.direct_value_type)
-            if mc.direct_value_type is not None
-            else None
-        )
-        if direct_type:
-            return f"``{direct_type}`` or swappable"
-        return "swappable"
-    name = _type_name(field_type)
-    return f"``{name}``" if name else None
+    if isinstance(value, enum.Enum):
+        return value.value
+    if is_configurable_dataclass(value) and not isinstance(value, type):
+        return _doc_value(config_to_dict(value))
+    if isinstance(value, list):
+        return [_doc_value(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_doc_value(v) for v in value)
+    if isinstance(value, dict):
+        return {k: _doc_value(v) for k, v in value.items()}
+    return value
 
 
-def _format_default_str(param: inspect.Parameter) -> str:
-    """Format parameter default value as RST markup.
-
-    Returns:
-        RST string showing the default, or "*(required)*" if none.
-    """
-    return _format_value(
-        param.default,
-        required=param.default is inspect.Parameter.empty,
-    )
-
-
-def _format_value(value: Any, *, required: bool = False) -> str:
+def _format_value(value: Any) -> str:
     """Format an arbitrary default value as RST markup.
 
     Returns:
         RST-formatted default value string.
     """
-    if required:
+    if value is MISSING:
         return "*(required)*"
     if isinstance(value, enum.Enum):
         fq = _enum_target(value)
@@ -238,47 +235,41 @@ def _format_value(value: Any, *, required: bool = False) -> str:
     return f"``{_doc_value(value)!r}``"
 
 
-def _field_public_name(field) -> str:
-    """Return the serialized/public config key for a dataclass field."""
-    rename = field.metadata.get("serde_rename")
-    return rename if isinstance(rename, str) and rename else field.name
-
-
-def _serialize_dataclass_value(value: Any) -> dict[str, Any]:
-    """Serialize a dataclass instance for docs display.
-
-    Prefers pyserde so renamed fields match user-facing config keys. Falls back
-    to a manual serialization path for plain dataclasses.
+def _format_default_block(value: Any) -> str | None:
+    """Return YAML text for complex field defaults that read poorly inline.
 
     Returns:
-        Serialized dataclass content using user-facing config keys.
+        Multiline YAML text for nested list/dict defaults, or ``None`` when the
+        field should stay on the compact inline metadata line.
     """
-    try:
-        return cast(dict[str, Any], serde.to_dict(value))
-    except Exception:
-        result: dict[str, Any] = {}
-        for field in dc_fields(type(value)):
-            if field.metadata.get("runtime") or field.metadata.get("serde_skip"):
-                continue
-            result[_field_public_name(field)] = _doc_value(getattr(value, field.name))
-        return result
+    if value is MISSING:
+        return None
+    block_value = _doc_value(value)
+    if not isinstance(block_value, (list, dict)) or not block_value:
+        return None
+    yaml_str = dump_yaml(block_value).strip()
+    return yaml_str if "\n" in yaml_str else None
 
 
-def _doc_value(value: Any) -> Any:
-    """Convert config defaults into user-facing, serialization-like values.
+def _select_default(value: Any, path: str) -> Any:
+    """Select a nested default using public config keys and mapping keys.
 
     Returns:
-        A docs-friendly value with dataclasses recursively converted into
-        serialization-like dict/list structures.
+        The value named by the public configuration path.
     """
-    if is_dataclass(value):
-        return _serialize_dataclass_value(value)
-    if isinstance(value, list):
-        return [_doc_value(v) for v in value]
-    if isinstance(value, tuple):
-        return tuple(_doc_value(v) for v in value)
-    if isinstance(value, dict):
-        return {k: _doc_value(v) for k, v in value.items()}
+    for part in path.split(".") if path else ():
+        if is_dataclass(value) and not isinstance(value, type):
+            attr = next(
+                (
+                    field.name
+                    for field in dc_fields(value)
+                    if _field_public_name(field) == part
+                ),
+                part,
+            )
+            value = getattr(value, attr)
+        else:
+            value = value[part]
     return value
 
 
@@ -384,7 +375,7 @@ class ConfigKeyDomain(Domain):
     object_types: ClassVar[dict[str, ObjType]] = {
         "key": ObjType(_("config key"), "cfgkey"),
     }
-    roles: ClassVar[dict[str, XRefRole]] = {
+    roles: ClassVar[dict[str, Any]] = {
         "cfgkey": XRefRole(innernodeclass=nodes.literal, warn_dangling=True),
     }
     initial_data: ClassVar[dict[str, Any]] = {
@@ -422,7 +413,9 @@ class ConfigKeyDomain(Domain):
         for key in to_remove:
             del self.data["objects"][key]
 
-    def merge_domaindata(self, docnames: set[str], otherdata: dict[str, Any]) -> None:
+    def merge_domaindata(
+        self, docnames: AbstractSet[str], otherdata: dict[str, Any]
+    ) -> None:
         for key, data in otherdata["objects"].items():
             if data[0] in docnames:
                 self.data["objects"][key] = data
@@ -476,7 +469,7 @@ class ConfigKeyDomain(Domain):
 
 
 def _resolve_qualified(name: str) -> Any:
-    """Resolve a dotted ``module.attr`` path, including attribute chains.
+    """Resolve a dotted ``module.attr`` path.
 
     Returns:
         The resolved object.
@@ -484,206 +477,26 @@ def _resolve_qualified(name: str) -> Any:
     Raises:
         ValueError: If the path cannot be resolved.
     """
-    parts = name.split(".")
-    last_exc: Exception | None = None
-    for i in range(len(parts), 0, -1):
-        module_name = ".".join(parts[:i])
-        try:
-            obj: Any = importlib.import_module(module_name)
-        except ImportError as exc:
-            last_exc = exc
-            continue
-        try:
-            for attr in parts[i:]:
-                obj = getattr(obj, attr)
-        except AttributeError as exc:
-            last_exc = exc
-            continue
-        return obj
-    raise ValueError(f"Cannot resolve {name}: {last_exc}")
-
-
-def _resolve_preset(name: str) -> dict[str, Any]:
-    """Resolve and call a preset provider.
-
-    Returns:
-        The preset dictionary returned by the provider.
-
-    Raises:
-        TypeError: If the provider is not callable or does not return a dict.
-    """
-    preset = _resolve_qualified(name)
-    if not callable(preset):
-        raise TypeError(f"Preset provider {name} is not callable.")
-    value = preset()
-    if not isinstance(value, dict):
-        raise TypeError(
-            f"Preset provider {name} must return a dict, got {type(value)}."
-        )
-    return value
-
-
-def _get_prefixed_override(data: dict[str, Any], prefix: str) -> dict[str, Any]:
-    """Return the nested override dict at ``prefix``."""
-    if not prefix:
-        return data
-    current: Any = data
-    for part in prefix.split("."):
-        if not isinstance(current, dict):
-            return {}
-        current = current.get(part, {})
-    return current if isinstance(current, dict) else {}
-
-
-def _merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """Recursively merge dicts, with ``override`` winning leaf values.
-
-    Returns:
-        A new merged dictionary.
-    """
-    result = dict(base)
-    for key, value in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = _merge_dicts(result[key], value)
-        else:
-            result[key] = value
-    return result
-
-
-def _module_config_package(
-    default_module: str | None, module_import_base: str | None = None
-) -> str | None:
-    """Return the package used for relative resolution of ``module_config``."""
-    if module_import_base is not None:
-        return module_import_base
-    if default_module is None:
-        return None
-    if "." not in default_module:
-        return None
-    return default_module[: default_module.rfind(".")]
-
-
-def _format_module_value(module_name: str, package: str | None = None) -> str:
-    """Format a module path for compact display in contextual defaults.
-
-    Returns:
-        RST-formatted module value string.
-    """
+    module_name, _, attr = name.rpartition(".")
+    if not module_name or not attr:
+        raise ValueError(f"Cannot resolve {name}: expected 'module.object'")
     try:
-        obj = resolve_object(module_name, package=package)
-    except Exception:
-        display = (
-            module_name
-            if ":" not in module_name or "." not in module_name.split(":", 1)[0]
-            else module_name.rsplit(":", 1)[1]
-        )
-        return f"``{display}``"
-
-    target = f"{obj.__module__}.{obj.__qualname__}"
-    display = getattr(obj, "__name__", obj.__qualname__.split(".")[-1])
-    return f":py:obj:`{display} <{target}>`"
+        return getattr(importlib.import_module(module_name), attr)
+    except (ImportError, AttributeError) as exc:
+        raise ValueError(f"Cannot resolve {name}: {exc}") from exc
 
 
-def _format_module_default(module_name: str, kwargs: dict[str, Any]) -> str:
-    """Format a module-config default as a constructor-style object reference.
-
-    Returns:
-        RST-formatted module default string.
-    """
-    target = module_name.replace(":", ".")
-    class_short = module_name.rsplit(":", 1)[1]
-    kwargs_str = ", ".join(f"{k}={v!r}" for k, v in kwargs.items())
-    display = f"{class_short}({kwargs_str})" if kwargs_str else f"{class_short}()"
-    return f":py:obj:`{display} <{target}>`"
-
-
-def _format_field_default(field) -> str:
-    """Format a dataclass field default or default factory output.
-
-    Returns:
-        RST-formatted default value string.
-    """
-    if field.default is not MISSING:
-        return _format_value(field.default)
-    if field.default_factory is not MISSING:
-        try:
-            return _format_value(field.default_factory())
-        except Exception:
-            return "*(factory)*"
-    return "*(required)*"
-
-
-def _format_default(field, mc, override: Any = _NO_OVERRIDE) -> str:
-    """Format a field's default value for display.
-
-    Returns:
-        RST-formatted default value string.
-    """
-    if override is not _NO_OVERRIDE:
-        if mc is not None and isinstance(override, dict):
-            module_name = override.get("module", mc.default)
-            kwargs = _merge_dicts(
-                mc.kwargs, {k: v for k, v in override.items() if k != "module"}
-            )
-            return _format_module_default(module_name, kwargs)
-        return _format_value(override)
-
-    if mc is not None:
-        if mc.default is None:
-            return _format_field_default(field)
-        return _format_module_default(mc.default, mc.kwargs)
-
-    return _format_field_default(field)
-
-
-def _format_default_block(field, mc, override: Any = _NO_OVERRIDE) -> str | None:
-    """Return YAML text for complex field defaults that read poorly inline.
-
-    Returns:
-        Multiline YAML text for nested list/dict defaults, or ``None`` when the
-        field should stay on the compact inline metadata line.
-    """
-    if override is not _NO_OVERRIDE:
-        if mc is not None and isinstance(override, dict):
-            return None
-        value = _doc_value(override)
-    elif mc is not None and mc.default is not None:
-        return None
-    elif field.default is not MISSING:
-        value = _doc_value(field.default)
-    elif field.default_factory is not MISSING:
-        try:
-            value = _doc_value(field.default_factory())
-        except Exception:
-            return None
-    else:
-        return None
-
-    if not isinstance(value, (list, dict)) or not value:
-        return None
-
-    yaml_str = dump_yaml(value).strip()
-    return yaml_str if "\n" in yaml_str else None
-
-
-class ConfigContext(SphinxDirective):
-    """Store page-scoped config rendering context for later directives."""
+class ConfigDefaults(SphinxDirective):
+    """Render effective contextual defaults as compact stacked rows."""
 
     has_content = False
     required_arguments = 0
+    optional_arguments = 1
     option_spec: ClassVar[_OptionSpec] = {
-        "preset": directives.unchanged,
+        "prefix": directives.unchanged,
+        "scope": directives.unchanged,
+        "defaults-from": directives.unchanged,
     }
-
-    def run(self) -> list[nodes.Node]:
-        self.env.temp_data["config-context"] = {
-            key: value for key, value in self.options.items()
-        }
-        return []
-
-
-class ConfigDirectiveBase(SphinxDirective):
-    """Shared plumbing for config-rendering directives."""
 
     def _report_error(self, message: str) -> list[nodes.Node]:
         error = self.state_machine.reporter.error(
@@ -693,69 +506,67 @@ class ConfigDirectiveBase(SphinxDirective):
         )
         return [error]
 
-    def _get_context_preset(self) -> str | None:
-        if "preset" in self.options:
-            return self.options["preset"]
-        context = self.env.temp_data.get("config-context", {})
-        if not isinstance(context, dict):
-            return None
-        preset = context.get("preset")
-        return preset if isinstance(preset, str) else None
+    def _resolve_render_target(
+        self, prefix: str
+    ) -> tuple[type[Any], Any | None] | list[nodes.Node]:
+        """Resolve the dataclass type and default instance rendered by this directive.
 
-    def _resolve_target(self, qualified: str) -> tuple[Any, object] | list[nodes.Node]:
-        try:
-            obj = _resolve_qualified(qualified)
-            mod = importlib.import_module(getattr(obj, "__module__", "__main__"))
-        except (ImportError, AttributeError, ValueError) as e:
-            return self._report_error(f"Cannot import {qualified}: {e}")
-        return obj, mod
-
-    def _resolve_overrides(
-        self, qualified: str, prefix: str
-    ) -> dict[str, Any] | list[nodes.Node]:
-        preset_name = self._get_context_preset()
-        try:
-            return _get_prefixed_override(
-                _resolve_preset(preset_name) if preset_name else {},
-                prefix,
+        Returns:
+            The target dataclass type and its default instance, or an error node.
+        """
+        qualified = self.arguments[0] if self.arguments else None
+        source_name = self.options.get("defaults-from")
+        if qualified is None and source_name is None:
+            return self._report_error(
+                "config-defaults requires a class argument or :defaults-from:"
             )
-        except (TypeError, ValueError, ImportError, AttributeError) as e:
-            return self._report_error(f"Cannot resolve preset for {qualified}: {e}")
-
-    def _collect_exclude_names(self, obj: Any) -> set[str]:
-        exclude_names: set[str] = set()
-        if "exclude-inherited" in self.options:
-            for base in obj.__mro__[1:]:
-                if is_dataclass(base):
-                    exclude_names.update(f.name for f in dc_fields(base))
-        if "exclude-fields" in self.options:
-            exclude_names.update(
-                field.strip()
-                for field in self.options["exclude-fields"].split(",")
-                if field.strip()
+        if qualified is not None and source_name is not None:
+            return self._report_error(
+                "config-defaults cannot combine a class argument with :defaults-from:"
             )
-        return exclude_names
 
+        try:
+            if source_name is None:
+                assert qualified is not None
+                try:
+                    target = _resolve_qualified(qualified)
+                except ValueError as exc:
+                    return self._report_error(f"Cannot import {qualified}: {exc}")
+                if not (isinstance(target, type) and is_dataclass(target)):
+                    return self._report_error(f"{qualified} is not a dataclass")
+                try:
+                    instance = materialize_config_default(target)
+                except Exception:
+                    instance = None
+                return target, instance
 
-class ConfigDefaults(ConfigDirectiveBase):
-    """Render effective contextual defaults as compact stacked rows."""
-
-    has_content = False
-    required_arguments = 1
-    option_spec: ClassVar[_OptionSpec] = {
-        "prefix": directives.unchanged,
-        "preset": directives.unchanged,
-        "scope": directives.unchanged,
-        "exclude-fields": directives.unchanged,
-        "exclude-inherited": directives.flag,
-    }
+            source = _resolve_qualified(source_name)
+            if not (isinstance(source, type) and is_dataclass(source)):
+                return self._report_error(
+                    f"Cannot resolve defaults for {source_name}: "
+                    "source is not a dataclass type"
+                )
+            selected = _select_default(materialize_config_default(source), prefix)
+            if not is_dataclass(selected) or isinstance(selected, type):
+                return self._report_error(
+                    f"Cannot resolve defaults for {source_name}:{prefix}: "
+                    "selected value is not a dataclass"
+                )
+            return type(selected), selected
+        except (
+            ImportError,
+            AttributeError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            label = qualified or f"{source_name}:{prefix}"
+            return self._report_error(f"Cannot resolve defaults for {label}: {exc}")
 
     def _module_group_description(
         self,
         description: str | None,
         field_key: str,
         module_str: str | None,
-        direct_value_type: str | None = None,
     ) -> str:
         """Build the explanatory line for a swappable component block.
 
@@ -766,28 +577,21 @@ class ConfigDefaults(ConfigDirectiveBase):
         if description:
             parts.append(description.rstrip("."))
         if module_str is None:
-            if direct_value_type:
-                parts.append(
-                    f"Accepts direct ``{direct_value_type}`` values by default. "
-                    f"Set ``{field_key}.module`` to switch to a configurable "
-                    "component."
-                )
-            else:
-                parts.append(
-                    f"Set ``{field_key}.module`` to choose a configurable component."
-                )
-        else:
-            prefix = (
-                f"Accepts direct ``{direct_value_type}`` values too. "
-                if direct_value_type
-                else ""
-            )
             parts.append(
-                f"{prefix}Swappable component; the nested keys below are the "
+                f"Set ``{field_key}.module`` to switch to a configurable component."
+            )
+        else:
+            parts.append(
+                f"Swappable component; the nested keys below are the "
                 f"options for the current module {module_str} and change when "
                 f"``{field_key}.module`` changes."
             )
         return ". ".join(parts)
+
+    def _format_type(self, field_type: Any) -> str:
+        if isinstance(field_type, TypeAliasType):
+            field_type = field_type.__value__
+        return format_annotation(field_type, self.config)
 
     def _meta_text(self, entry: ConfigDefaultEntry) -> str:
         """Build the compact metadata line shown under the key.
@@ -796,18 +600,11 @@ class ConfigDefaults(ConfigDirectiveBase):
             Inline metadata string containing default and type.
         """
         parts: list[str] = []
-        if entry.default_block_str is None:
+        if entry.default_block_str is None and entry.default_str:
             parts.append(f"Default: {entry.default_str}")
         if entry.type_str:
             parts.append(f"Type: {entry.type_str}")
         return " · ".join(parts)
-
-    def _description(
-        self, descriptions: dict[str, str], name: str, mod: object
-    ) -> str | None:
-        """Return the compact rendered description for a field or parameter."""
-        text = descriptions.get(name)
-        return _resolve_refs(text, mod) if text else None
 
     def _field_description(
         self, descriptions: dict[str, str], field: Any, mod: object
@@ -890,16 +687,9 @@ class ConfigDefaults(ConfigDirectiveBase):
             )
             for child in entry.children:
                 child_item, child_messages = self._make_item(
-                    ConfigDefaultEntry(
-                        key=child.key,
-                        default_str=child.default_str,
-                        type_str=child.type_str,
-                        description=child.description,
-                        children=child.children,
+                    replace(
+                        child,
                         classes=(*child.classes, "config-defaults-item-nested"),
-                        anchor_id=child.anchor_id,
-                        ref_label=child.ref_label,
-                        anchor_scope=child.anchor_scope,
                     )
                 )
                 nested_wrapper += child_item
@@ -938,41 +728,24 @@ class ConfigDefaults(ConfigDirectiveBase):
 
     def _collect_module_config_item(
         self,
-        field,
+        field: Any,
         field_key: str,
-        module_config,
-        override: Any,
+        value: Any,
         descriptions: dict[str, str],
         mod: object,
         anchor_scope: str | None,
     ) -> ConfigDefaultEntry:
-        """Collect a grouped entry for a swappable ``module_config`` field.
+        """Collect a grouped entry for a swappable ``ModuleConfig`` field.
 
         Returns:
             Parent entry with nested current-module options.
         """
-        direct_value_type = (
-            _type_name(module_config.direct_value_type)
-            if module_config.direct_value_type is not None
-            else None
-        )
-        module_name = (
-            override.get("module", module_config.default)
-            if isinstance(override, dict)
-            else module_config.default
-        )
-        package = _module_config_package(
-            module_config.default, module_config.module_import_base
-        )
-        nested_overrides = (
-            {k: v for k, v in override.items() if k != "module"}
-            if isinstance(override, dict)
-            else {}
-        )
         nested_items: list[ConfigDefaultEntry] = []
-        module_default_str = _format_default(field, module_config, override=override)
-        if module_name is not None:
-            module_default_str = _format_module_value(module_name, package=package)
+        has_module_default = is_dataclass(value)
+        if has_module_default:
+            nested_cls = value if isinstance(value, type) else type(value)
+            nested_instance = None if isinstance(value, type) else value
+            module_default_str = _format_class_ref(nested_cls)
             nested_items.append(
                 ConfigDefaultEntry(
                     key=f"{field_key}.module",
@@ -982,70 +755,100 @@ class ConfigDefaults(ConfigDirectiveBase):
                     anchor_scope=anchor_scope,
                 )
             )
-            nested_obj = resolve_object(module_name, package=package)
-            if is_dataclass(nested_obj):
-                nested_items.extend(
-                    self._collect_dataclass_items(
-                        nested_obj,
-                        field_key,
-                        nested_overrides,
-                        importlib.import_module(nested_obj.__module__),
-                        anchor_scope=anchor_scope,
-                    )
-                )
-        else:
-            nested_items.append(
-                ConfigDefaultEntry(
-                    key=f"{field_key}.module",
-                    default_str="*(optional)*",
-                    type_str="module path",
-                    description=(
-                        "Set this to switch from a direct value to a configurable "
-                        "component."
-                    ),
+            nested_items.extend(
+                self._collect_dataclass_items(
+                    nested_cls,
+                    field_key,
+                    nested_instance,
                     anchor_scope=anchor_scope,
                 )
             )
+        else:
+            module_default_str = _format_value(value)
         return ConfigDefaultEntry(
             key=field_key,
-            default_str=_format_default(field, module_config, override=override),
-            type_str=_format_compact_type(field.type, module_config),
+            default_str=module_default_str,
+            type_str=self._format_type(field.type),
             description=self._module_group_description(
                 self._field_description(descriptions, field, mod),
                 field_key,
-                module_default_str if module_name is not None else None,
-                direct_value_type,
+                module_default_str if has_module_default else None,
             ),
-            children=nested_items,
-            classes=("config-defaults-item-group",),
+            children=nested_items or None,
+            classes=("config-defaults-item-group",) if nested_items else (),
             anchor_scope=anchor_scope,
         )
 
-    def _collect_callable_items(
+    def _collect_estimator_collection_items(
         self,
-        fn: object,
+        cls: type[EstimatorCollection],
         prefix: str,
-        mod: object,
-        overrides: dict[str, Any],
+        instance: Any | None,
         anchor_scope: str | None = None,
     ) -> list[ConfigDefaultEntry]:
         items: list[ConfigDefaultEntry] = []
-        callable_fn = cast(Callable[..., Any], fn)
-        descriptions = _parse_args_section(inspect.getdoc(fn))
-        for param in inspect.signature(callable_fn).parameters.values():
-            override = overrides.get(param.name, _NO_OVERRIDE)
-            default_str = (
-                _format_value(override)
-                if override is not _NO_OVERRIDE
-                else _format_default_str(param)
+        mod = importlib.import_module(cls.__module__)
+        descriptions = _collect_dataclass_descriptions(cls)
+        enabled_defaults = getattr(instance, "_enabled", {})
+        for field in dc_fields(cls):
+            field_type = (
+                get_args(field.type)[0]
+                if get_origin(field.type) is Annotated
+                else field.type
             )
-            key = f"{prefix}.{param.name}" if prefix else param.name
+            if not isinstance(field_type, type):
+                continue
+            name = _field_public_name(field)
+            field_key = f"{prefix}.{name}" if prefix else name
+            child_val = _field_value(instance, field)
+            child_instance = (
+                child_val
+                if is_dataclass(child_val) and not isinstance(child_val, type)
+                else None
+            )
+            child_mod = importlib.import_module(field_type.__module__)
+            desc = self._field_description(descriptions, field, mod) or _resolve_refs(
+                _class_summary(field_type) or "", child_mod
+            )
+            is_togglable = field.name in enabled_defaults
+            en_key = f"{field_key}.enabled"
+            en_val = enabled_defaults[field.name] if is_togglable else None
+
+            if issubclass(field_type, EstimatorCollection):
+                if is_togglable:
+                    items.append(
+                        ConfigDefaultEntry(
+                            key=en_key,
+                            default_str=_format_value(en_val),
+                            type_str="bool",
+                            description=desc or None,
+                            anchor_scope=anchor_scope,
+                        )
+                    )
+                items.extend(
+                    self._collect_estimator_collection_items(
+                        field_type, field_key, child_instance, anchor_scope
+                    )
+                )
+                continue
+
+            cls_ref = _format_class_ref(field_type)
+            en_str = (
+                "always"
+                if not is_togglable
+                else f"{_format_value(en_val)} (``{en_key}``)"
+            )
+            children = self._collect_dataclass_items(
+                field_type, field_key, child_instance, anchor_scope
+            )
             items.append(
                 ConfigDefaultEntry(
-                    key=key,
-                    default_str=default_str,
-                    type_str=_format_type_str(param) or None,
-                    description=self._description(descriptions, param.name, mod),
+                    key=field_key,
+                    default_str="",
+                    type_str=f"{cls_ref} · Enabled: {en_str}",
+                    description=desc or None,
+                    children=children or None,
+                    classes=("config-defaults-item-group",) if children else (),
                     anchor_scope=anchor_scope,
                 )
             )
@@ -1053,36 +856,32 @@ class ConfigDefaults(ConfigDirectiveBase):
 
     def _collect_dataclass_items(
         self,
-        cls: Any,
+        cls: type[Any],
         prefix: str,
-        overrides: dict[str, Any],
-        mod: object,
-        exclude_names: set[str] | None = None,
+        instance: Any | None,
         anchor_scope: str | None = None,
     ) -> list[ConfigDefaultEntry]:
+        if issubclass(cls, EstimatorCollection):
+            return self._collect_estimator_collection_items(
+                cls, prefix, instance, anchor_scope=anchor_scope
+            )
         items: list[ConfigDefaultEntry] = []
+        mod = importlib.import_module(cls.__module__)
         descriptions = _collect_dataclass_descriptions(cls)
         for field in dc_fields(cls):
-            if exclude_names and field.name in exclude_names:
-                continue
-            if field.metadata.get("runtime") or field.metadata.get("serde_skip"):
+            if field.metadata.get("runtime") or field.metadata.get("exclude"):
                 continue
 
             public_name = _field_public_name(field)
-            override = overrides.get(
-                public_name, overrides.get(field.name, _NO_OVERRIDE)
-            )
+            value = _field_value(instance, field)
             field_key = f"{prefix}.{public_name}" if prefix else public_name
-            module_config = field.metadata.get("module_config")
-            field_type = field.type if not isinstance(field.type, str) else None
 
-            if module_config is not None:
+            if _has_module_config(field.type):
                 items.append(
                     self._collect_module_config_item(
                         field,
                         field_key,
-                        module_config,
-                        override,
+                        value,
                         descriptions,
                         mod,
                         anchor_scope,
@@ -1090,32 +889,33 @@ class ConfigDefaults(ConfigDirectiveBase):
                 )
                 continue
 
-            if (
-                field_type is not None
-                and isinstance(field_type, type)
-                and is_dataclass(field_type)
-            ):
+            field_type = (
+                get_args(field.type)[0]
+                if get_origin(field.type) is Annotated
+                else field.type
+            )
+            if isinstance(field_type, type) and is_dataclass(field_type):
+                nested_instance = (
+                    value
+                    if is_dataclass(value) and not isinstance(value, type)
+                    else None
+                )
                 items.extend(
                     self._collect_dataclass_items(
                         field_type,
                         field_key,
-                        override if isinstance(override, dict) else {},
-                        importlib.import_module(field_type.__module__),
+                        nested_instance,
                         anchor_scope=anchor_scope,
                     )
                 )
                 continue
 
-            default_str = _format_default(field, module_config, override=override)
-            default_block_str = _format_default_block(
-                field, module_config, override=override
-            )
             items.append(
                 ConfigDefaultEntry(
                     key=field_key,
-                    default_str=default_str,
-                    default_block_str=default_block_str,
-                    type_str=_format_compact_type(field.type, module_config),
+                    default_str=_format_value(value),
+                    default_block_str=_format_default_block(value),
+                    type_str=self._format_type(field.type),
                     description=self._field_description(descriptions, field, mod),
                     anchor_scope=anchor_scope,
                 )
@@ -1144,38 +944,19 @@ class ConfigDefaults(ConfigDirectiveBase):
             doc_scopes[entry_key] = str(self.lineno)
 
     def run(self) -> list[nodes.Node]:
-        qualified = self.arguments[0]
-        target = self._resolve_target(qualified)
-        if isinstance(target, list):
-            return target
-        obj, mod = target
-
+        self.env.note_dependency(__file__)
         prefix = self.options.get("prefix", "")
         scope = self.options.get("scope")
         if scope is not None:
             scope = scope.strip() or None
         self._warn_duplicate_scope(prefix, scope)
-        overrides = self._resolve_overrides(qualified, prefix)
-        if isinstance(overrides, list):
-            return overrides
-
-        if is_dataclass(obj):
-            lines = self._collect_dataclass_items(
-                obj,
-                prefix,
-                overrides,
-                mod,
-                exclude_names=self._collect_exclude_names(obj),
-                anchor_scope=scope,
-            )
-        elif callable(obj):
-            lines = self._collect_callable_items(
-                obj, prefix, mod, overrides, anchor_scope=scope
-            )
-        else:
-            return self._report_error(
-                f"{qualified} is neither a dataclass nor a callable"
-            )
+        resolved = self._resolve_render_target(prefix)
+        if isinstance(resolved, list):
+            return resolved
+        target, instance = resolved
+        lines = self._collect_dataclass_items(
+            target, prefix, instance, anchor_scope=scope
+        )
 
         if not lines:
             return []
@@ -1242,6 +1023,5 @@ def setup(app: Sphinx):
         ConfigKeyRole(innernodeclass=nodes.literal, warn_dangling=True),
         override=True,
     )
-    app.add_directive("config-context", ConfigContext)
     app.add_directive("config-defaults", ConfigDefaults)
     return {"version": "0.1", "parallel_read_safe": True}

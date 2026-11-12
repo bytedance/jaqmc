@@ -3,9 +3,8 @@
 
 """Quantum ESPRESSO solver configuration for solid orbital references."""
 
+from dataclasses import field
 from typing import Literal
-
-import serde
 
 from jaqmc.utils.config import configurable_dataclass
 
@@ -37,4 +36,4 @@ class SolidQESolverConfig:
     prefix: str = "jaqmc"
     smearing: Literal["off", "gauss", "mp", "mv", "fd"] = "off"
     degauss: float = 0.01
-    pseudo_file: dict[str, str] = serde.field(default_factory=dict)
+    pseudo_file: dict[str, str] = field(default_factory=dict)

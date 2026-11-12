@@ -8,10 +8,12 @@ from operator import itemgetter
 import jax
 import numpy as np
 import pytest
+import yaml
 from jax import numpy as jnp
 
 from jaqmc.app.hall.data import HallData
 from jaqmc.app.hall.estimator.one_rdm import OneRDM, make_monopole_harm
+from jaqmc.app.hall.workflow import HallEvalWorkflow
 from jaqmc.data import BatchedData
 
 
@@ -208,3 +210,17 @@ class TestOneRDMPipeline:
         assert "one_rdm:trace" in final
         assert final["one_rdm"].shape == (norbs, norbs)
         assert final["one_rdm:diagonal"].shape == (norbs,)
+
+
+def test_one_rdm_flux_is_wired_from_the_system_and_omitted_from_yaml():
+    workflow = HallEvalWorkflow.from_config(
+        {
+            "system": {"flux": 6, "nspins": [3, 0]},
+            "estimators": {"one_rdm": {"enabled": True}},
+        }
+    )
+    dumped = yaml.safe_load(workflow.to_yaml())
+
+    assert "flux" not in dumped["estimators"]["one_rdm"]
+    workflow.build_runtime()
+    assert workflow.estimators.one_rdm.flux == 6

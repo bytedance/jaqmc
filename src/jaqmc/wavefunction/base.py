@@ -2,16 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
-from typing import Protocol, TypedDict
+from typing import Protocol, TypedDict, runtime_checkable
 
-import serde
 from flax import linen as nn
 from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import Data
+from jaqmc.utils.config import configurable_dataclass
 
 
+@runtime_checkable
 class WavefunctionInit[DataT: Data](Protocol):
     def __call__(self, data: DataT, rngs: PRNGKey) -> Params:
         """Initialize wavefunction parameters from one walker sample.
@@ -21,6 +22,7 @@ class WavefunctionInit[DataT: Data](Protocol):
         """
 
 
+@runtime_checkable
 class WavefunctionEvaluate[DataT: Data, OutputT](Protocol):
     def __call__(
         self, params: Params, data: DataT, *, precision: str | None = None
@@ -46,6 +48,7 @@ which are typically log-amplitude values such as ``log|psi|``.
 """
 
 
+@runtime_checkable
 class SpinorWavefunctionEvaluate(Protocol):
     """Callable protocol for evaluating log-psi from local monopole spinors."""
 
@@ -71,6 +74,7 @@ class SpinorWavefunctionEvaluate(Protocol):
         """
 
 
+@runtime_checkable
 class WavefunctionLike[DataT: Data, OutputT](Protocol):
     """Minimal wavefunction interface required by framework components.
 
@@ -78,8 +82,11 @@ class WavefunctionLike[DataT: Data, OutputT](Protocol):
     ``logpsi``, ``phase_logpsi``, or ``orbitals``.
     """
 
-    init_params: WavefunctionInit[DataT]
-    evaluate: WavefunctionEvaluate[DataT, OutputT]
+    @property
+    def init_params(self) -> WavefunctionInit[DataT]: ...
+
+    @property
+    def evaluate(self) -> WavefunctionEvaluate[DataT, OutputT]: ...
 
 
 class Wavefunction[DataT: Data, OutputT](
@@ -149,13 +156,19 @@ class Wavefunction[DataT: Data, OutputT](
         """Auto-register subclass for config serialization.
 
         Wavefunction subclasses do not need ``@configurable_dataclass``:
-        this hook marks Flax internal fields as ``serde_skip`` and applies
-        ``serde.serde(..., type_check=serde.coerce)``.
+        this hook marks Flax internal fields as ``exclude`` and applies the
+        standard serialization settings.
         """
         super().__init_subclass__(cls)
-        cls.__dataclass_fields__["parent"].metadata = {"serde_skip": True}
-        cls.__dataclass_fields__["name"].metadata = {"serde_skip": True}
-        serde.serde(cls, type_check=serde.coerce, deny_unknown_fields=True)
+        cls.__dataclass_fields__["parent"].metadata = {
+            "exclude": True,
+            "validation_alias": "",
+        }
+        cls.__dataclass_fields__["name"].metadata = {
+            "exclude": True,
+            "validation_alias": "",
+        }
+        configurable_dataclass(cls)
 
 
 class LogPsiWFOutput(TypedDict):

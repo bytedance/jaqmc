@@ -24,7 +24,6 @@ from jaqmc.app.molecule.reference import (
     pyscf as reference_pyscf,
 )
 from jaqmc.app.molecule.workflow import MoleculeTrainWorkflow
-from jaqmc.utils.config import ConfigManager
 
 
 @pytest.fixture(autouse=True)
@@ -95,7 +94,7 @@ def test_load_validates_geometry_and_spins_and_warns_on_symbols(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     system = MoleculeConfig(
-        atom_configs=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
+        atoms=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
         s_z=0.5,
     )
     path = tmp_path / "reference.npz"
@@ -120,7 +119,7 @@ def test_load_validates_geometry_and_spins_and_warns_on_symbols(
 
 def test_prepare_run_and_convert_is_solver_only(tmp_path):
     system = MoleculeConfig(
-        atom_configs=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
+        atoms=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
         s_z=0.5,
     )
     solver = MoleculeSolverConfig(basis="sto-3g", method="UHF", verbose=0)
@@ -138,24 +137,22 @@ def test_prepare_run_and_convert_is_solver_only(tmp_path):
     assert not mol.cart
     assert reference.nspins == (1, 0)
 
-    workflow = MoleculeTrainWorkflow(
-        ConfigManager(
-            {
-                "system": {
-                    "s_z": 0.5,
-                    "atoms": [{"symbol": "H", "coords": [0.0, 0.0, 0.0]}],
-                },
-                "reference": str(job_dir / "reference.npz"),
-                "pretrain": {"run": {"iterations": 1}},
-                "train": {"run": {"iterations": 0}},
-                "wf": {
-                    "hidden_dims_single": [2, 2],
-                    "hidden_dims_double": [2, 2],
-                },
-            }
-        )
+    workflow = MoleculeTrainWorkflow.from_config(
+        {
+            "system": {
+                "s_z": 0.5,
+                "atoms": [{"symbol": "H", "coords": [0.0, 0.0, 0.0]}],
+            },
+            "reference": str(job_dir / "reference.npz"),
+            "pretrain": {"run": {"iterations": 1}},
+            "train": {"run": {"iterations": 0}},
+            "wf": {
+                "hidden_dims_single": [2, 2],
+                "hidden_dims_double": [2, 2],
+            },
+        }
     )
-    workflow.prepare(dry_run=True)
+    workflow.build_runtime()
     assert workflow.pretrain_stage is not None
 
 
@@ -285,7 +282,7 @@ def test_molecule_prepare_cli_dry_run_prints_config_without_writing(
 
 def test_prepare_runs_from_job_directory(tmp_path, monkeypatch):
     system = MoleculeConfig(
-        atom_configs=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
+        atoms=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
         s_z=0.5,
     )
     solver = MoleculeSolverConfig(basis="sto-3g", method="UHF", verbose=0)
@@ -340,7 +337,7 @@ def test_molecule_convert_cli_writes_explicit_output(
 
 def test_prepare_rejects_inconsistent_explicit_charge(tmp_path):
     system = MoleculeConfig(
-        atom_configs=[
+        atoms=[
             AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0], charge=2),
         ],
     )
@@ -359,7 +356,7 @@ def test_prepare_rejects_inconsistent_explicit_charge(tmp_path):
 
 def test_prepare_uses_solver_pp_override_for_gth(tmp_path):
     system = MoleculeConfig(
-        atom_configs=[AtomConfig(symbol="F", coords=[0.0, 0.0, 0.0])],
+        atoms=[AtomConfig(symbol="F", coords=[0.0, 0.0, 0.0])],
         pp="ccecp",
         s_z=0.5,
     )
@@ -383,7 +380,7 @@ def test_prepare_uses_solver_pp_override_for_gth(tmp_path):
 
 def test_prepare_uses_automatic_double_zeta_basis_when_omitted(tmp_path):
     system = MoleculeConfig(
-        atom_configs=[
+        atoms=[
             AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0]),
             AtomConfig(symbol="Li", coords=[0.0, 0.0, 1.0]),
             AtomConfig(symbol="Fe", coords=[0.0, 0.0, 2.0]),
@@ -408,7 +405,7 @@ def test_convert_stores_pyscf_effective_charges_for_ecp(tmp_path):
     mean_field.chkfile = str(checkpoint)
     mean_field.kernel()
     system = MoleculeConfig(
-        atom_configs=[AtomConfig(symbol="C", coords=[0.0, 0.0, 0.0])],
+        atoms=[AtomConfig(symbol="C", coords=[0.0, 0.0, 0.0])],
         pp="ccecp",
     )
 
@@ -420,8 +417,16 @@ def test_convert_stores_pyscf_effective_charges_for_ecp(tmp_path):
     assert reference.nspins == system.electron_spins
 
 
-def test_molecule_train_skips_reference_when_pretraining_is_disabled():
-    cfg = ConfigManager(
+def test_molecule_train_skips_reference_when_pretraining_is_disabled(monkeypatch):
+    monkeypatch.setattr(
+        "jaqmc.app.molecule.workflow.load_reference",
+        lambda *_: pytest.fail("pretraining is disabled"),
+    )
+    monkeypatch.setattr(
+        "jaqmc.app.molecule.workflow.auto_generate_reference",
+        lambda **_: pytest.fail("pretraining is disabled"),
+    )
+    workflow = MoleculeTrainWorkflow.from_config(
         {
             "system": {"module": "atom", "symbol": "H"},
             "pretrain": {"run": {"iterations": 0}},
@@ -433,10 +438,9 @@ def test_molecule_train_skips_reference_when_pretraining_is_disabled():
         }
     )
 
-    workflow = MoleculeTrainWorkflow(cfg)
+    workflow.build_runtime()
 
     assert workflow.pretrain_stage is None
-    assert workflow.reference is None
 
 
 def test_convert_matches_occupied_pyscf_orbital(tmp_path):
@@ -556,21 +560,13 @@ def test_convert_rejects_cartesian_basis(tmp_path):
         reference_pyscf.convert_checkpoint(checkpoint, tmp_path / "reference.npz")
 
 
-def test_prepared_job_rejects_unknown_pyscf_setting(tmp_path, capfd):
-    system = MoleculeConfig(
-        atom_configs=[AtomConfig(symbol="H", coords=[0.0, 0.0, 0.0])],
-        s_z=0.5,
-    )
-    job_dir = tmp_path / "job"
-    job = reference_pyscf.MoleculePySCFReferenceJob(
-        system,
-        MoleculeSolverConfig(basis="sto-3g", extra={"not_a_pyscf_attr": 1}),
-    )
-    job.prepare(job_dir)
+def test_solver_config_rejects_unknown_pyscf_setting():
+    from pydantic import ValidationError
 
-    with pytest.raises(RuntimeError, match="PySCF job failed"):
-        job.run(job_dir)
+    from jaqmc.utils.config import parse_config
 
-    assert (
-        "Unknown PySCF mean-field setting: not_a_pyscf_attr" in capfd.readouterr().err
-    )
+    with pytest.raises(ValidationError, match="not_a_pyscf_attr"):
+        parse_config(
+            MoleculeSolverConfig,
+            {"basis": "sto-3g", "not_a_pyscf_attr": 1},
+        )

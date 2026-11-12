@@ -3,19 +3,22 @@
 
 """Shared orbital-reference pretraining utilities."""
 
-from collections.abc import Callable, Mapping
-from typing import Any, Protocol
+from collections.abc import Callable
+from typing import Protocol, runtime_checkable
 
 import jax
 from jax import numpy as jnp
 
-from jaqmc.array_types import Params, PRNGKey
+from jaqmc.array_types import Params
 from jaqmc.data import Data
-from jaqmc.estimator import Estimator, FunctionEstimator
+from jaqmc.estimator.base import Estimator, PerWalkerEstimator
 from jaqmc.utils import parallel_jax
+from jaqmc.utils.config import configurable_dataclass
+from jaqmc.utils.wiring import runtime_dep, wire
 from jaqmc.wavefunction import NumericWavefunctionEvaluate, WavefunctionEvaluate
 
 
+@runtime_checkable
 class OrbitalReference(Protocol):
     """Protocol for references that evaluate separate alpha and beta orbitals.
 
@@ -27,6 +30,47 @@ class OrbitalReference(Protocol):
     def eval_orbitals(
         self, pos: jnp.ndarray, nspins: tuple[int, int]
     ) -> tuple[jnp.ndarray, jnp.ndarray]: ...
+
+
+@configurable_dataclass
+class PretrainLossEstimator(PerWalkerEstimator):
+    """Estimator matching neural-network orbitals to a reference."""
+
+    orbitals_fn: NumericWavefunctionEvaluate = runtime_dep()
+    orbital_ref: OrbitalReference = runtime_dep()
+    nspins: tuple[int, int] = runtime_dep()
+    full_det: bool = False
+
+    def evaluate_single_walker(self, params, data, prev_walker_stats, state, rngs):
+        del prev_walker_stats, rngs
+
+        def loss_fn(current_params):
+            target = self.orbital_ref.eval_orbitals(data["electrons"], self.nspins)
+            orbitals = self.orbitals_fn(current_params, data)
+            if self.full_det:
+                na = target[0].shape[-2]
+                nb = target[1].shape[-2]
+                concat_target = jnp.block(
+                    [
+                        [target[0], jnp.zeros((na, nb))],
+                        [jnp.zeros((nb, na)), target[1]],
+                    ]
+                )
+                return jnp.mean(jnp.abs(concat_target - orbitals) ** 2)
+            losses = [
+                jnp.mean(jnp.abs(target_spin - orbital_spin) ** 2)
+                for count, target_spin, orbital_spin in zip(
+                    self.nspins, target, orbitals, strict=True
+                )
+                if count
+            ]
+            return jnp.sum(jnp.stack(losses)) if losses else jnp.array(0.0)
+
+        # Wrap params with pvary so grads inherit the correct (varying) sharding.
+        # grads varies across the batch axis but params does not, and without pvary
+        # the JAX compiler can miscompile this (observed in JAX 0.8.1).
+        loss, grads = jax.value_and_grad(loss_fn)(parallel_jax.pvary(params))
+        return {"loss": loss, "grads": grads}, state
 
 
 def make_pretrain_log_amplitude[DataT: Data](
@@ -99,43 +143,10 @@ def make_pretrain_loss(
         full_det: Whether ``orbitals_fn`` returns one full determinant matrix
             instead of separate matrices for the two spin channels.
     """
-
-    def loss_fn(params: Params, data: Data) -> jnp.ndarray:
-        target = orbital_ref.eval_orbitals(data["electrons"], nspins)
-        orbitals = orbitals_fn(params, data)
-        if full_det:
-            na = target[0].shape[-2]
-            nb = target[1].shape[-2]
-            concat_target = jnp.block(
-                [
-                    [target[0], jnp.zeros((na, nb))],
-                    [jnp.zeros((nb, na)), target[1]],
-                ]
-            )
-            return jnp.mean(jnp.abs(concat_target - orbitals) ** 2)
-        losses = [
-            jnp.mean(jnp.abs(target_spin - orbital_spin) ** 2)
-            for count, target_spin, orbital_spin in zip(
-                nspins, target, orbitals, strict=True
-            )
-            if count
-        ]
-        return jnp.sum(jnp.stack(losses)) if losses else jnp.array(0.0)
-
-    loss_and_grad_fn = jax.value_and_grad(loss_fn, argnums=0)
-
-    def evaluate(
-        params: Params,
-        data: Data,
-        prev_walker_stats: Mapping[str, Any],
-        state: None,
-        rngs: PRNGKey,
-    ) -> tuple[dict[str, Any], None]:
-        del prev_walker_stats, rngs
-        # By default the sharding of grads will follow params in JAX. However, grads is
-        # varying but params is not varying, and this can confuse the JAX compiler.
-        # This can cause bug in JAX 0.8.1. To fix this, simply add pvary to params.
-        loss, grads = loss_and_grad_fn(parallel_jax.pvary(params), data)
-        return {"loss": loss, "grads": grads}, state
-
-    return FunctionEstimator(evaluate)
+    estimator = PretrainLossEstimator(full_det=full_det)
+    return wire(
+        estimator,
+        orbitals_fn=orbitals_fn,
+        orbital_ref=orbital_ref,
+        nspins=nspins,
+    )

@@ -6,8 +6,9 @@
 import logging
 import shlex
 from collections.abc import Callable
+from dataclasses import field
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import click
 from upath import UPath
@@ -18,7 +19,12 @@ from jaqmc.app.solid.config import (
     SolidQESolverConfig,
 )
 from jaqmc.utils.cli import load_yaml
-from jaqmc.utils.config import ConfigError, ConfigManager
+from jaqmc.utils.config import (
+    ModuleConfig,
+    config_to_yaml,
+    configurable_dataclass,
+    parse_config,
+)
 from jaqmc.utils.runtime import LoggingConfig
 
 from . import pyscf, qe
@@ -26,6 +32,21 @@ from . import pyscf, qe
 logger = logging.LoggerAdapter(
     logging.getLogger(__name__), extra={"category": "reference"}
 )
+
+
+@configurable_dataclass
+class SolidReferenceConfig:
+    """Configuration consumed by ``jaqmc solid reference prepare``."""
+
+    system: Annotated[
+        SolidConfig | Callable[[], SolidConfig],
+        ModuleConfig(package="jaqmc.app.solid.config"),
+    ] = field(default_factory=SolidConfig)
+    solver: Annotated[
+        SolidPySCFSolverConfig | SolidQESolverConfig,
+        ModuleConfig(package="jaqmc.app.solid.config"),
+    ] = field(default_factory=SolidPySCFSolverConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
 
 
 def _load_reference_inputs(
@@ -40,18 +61,11 @@ def _load_reference_inputs(
     for path in yml:
         with open(path, encoding="utf-8") as stream:
             yaml_configs.append(load_yaml(stream))
-    cfg = ConfigManager(yaml_configs, list(dotlist))
-    cfg.get("logging", LoggingConfig).apply()
-    system: SolidConfig | Callable[[], SolidConfig] = cfg.get_module(
-        "system", SolidConfig
-    )
-    if callable(system):
-        system = system()
-    solver: SolidPySCFSolverConfig | SolidQESolverConfig = cfg.get_module(
-        "solver", SolidPySCFSolverConfig
-    )
-    cfg.finalize()
-    return system, solver
+    config = parse_config(SolidReferenceConfig, yaml_configs, dotlist)
+    config.logging.apply()
+    logger.info("Resolved configurations:\n%s", config_to_yaml(config))
+    system = config.system() if callable(config.system) else config.system
+    return system, config.solver
 
 
 def _reference_job(
@@ -64,13 +78,13 @@ def _reference_job(
         A job bound to ``system`` and ``solver``.
 
     Raises:
-        ConfigError: If the selected solver is unsupported.
+        ValueError: If the selected solver is unsupported.
     """
     if isinstance(solver, SolidQESolverConfig):
         return qe.SolidQEReferenceJob(system, solver)
     if isinstance(solver, SolidPySCFSolverConfig):
         return pyscf.SolidPySCFReferenceJob(system, solver)
-    raise ConfigError(f"Unsupported solid solver config: {type(solver)!r}.")
+    raise ValueError(f"Unsupported solid solver config: {type(solver)!r}.")
 
 
 @click.group(name="reference", help="Prepare and convert solid references.")
@@ -146,8 +160,6 @@ def prepare(
         job.run(job_dir)
         job.finalize_npz(job_dir, target)
         logger.info("Wrote reference to %s", target)
-    except ConfigError as e:
-        raise click.ClickException(str(e)) from None
     except (RuntimeError, ValueError) as e:
         raise click.ClickException(str(e)) from None
 

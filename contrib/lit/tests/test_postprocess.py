@@ -7,8 +7,7 @@ import numpy as np
 import pytest
 from jaqmc_contrib_lit.inversion import forward_lit
 from jaqmc_contrib_lit.postprocess import LITInversionPostprocessor
-
-from jaqmc.utils.config import ConfigManager
+from pydantic import ValidationError
 
 
 def _write_single_pole_lit(
@@ -57,19 +56,17 @@ def test_manual_postprocessor_runs_article_fit_and_writes_separate_output(
     input_path = tmp_path / "lit_spectrum.npz"
     output_path = tmp_path / "inversion_k1.npz"
     _write_single_pole_lit(input_path)
-    cfg = ConfigManager(
-        {
-            "inversion": {
-                "input_paths": [str(input_path)],
-                "output_path": str(output_path),
-                "pole_count": 1,
-                "background_order": 0,
-                "pole_fit_tolerance": 1e-9,
-            }
+    cfg = {
+        "inversion": {
+            "input_paths": [str(input_path)],
+            "output_path": str(output_path),
+            "pole_count": 1,
+            "background_order": 0,
+            "pole_fit_tolerance": 1e-9,
         }
-    )
+    }
 
-    LITInversionPostprocessor(cfg)()
+    LITInversionPostprocessor.from_config(cfg)()
 
     assert input_path.exists()
     assert output_path.exists()
@@ -94,20 +91,18 @@ def test_manual_postprocessor_outputs_xyz_oscillator_strength(tmp_path: Path):
     output_path = tmp_path / "line_fit_xyz.npz"
     strengths = (0.1, 0.2, 0.3)
     _write_single_pole_lit(input_path, axes="xyz", strengths=strengths)
-    cfg = ConfigManager(
-        {
-            "inversion": {
-                "input_paths": [str(input_path)],
-                "output_path": str(output_path),
-                "pole_energies": [0.779],
-                "pole_energy_bounds": [[0.77, 0.79]],
-                "background_order": 0,
-                "pole_fit_tolerance": 1e-9,
-            }
+    cfg = {
+        "inversion": {
+            "input_paths": [str(input_path)],
+            "output_path": str(output_path),
+            "pole_energies": [0.779],
+            "pole_energy_bounds": [[0.77, 0.79]],
+            "background_order": 0,
+            "pole_fit_tolerance": 1e-9,
         }
-    )
+    }
 
-    LITInversionPostprocessor(cfg)()
+    LITInversionPostprocessor.from_config(cfg)()
 
     with np.load(output_path, allow_pickle=False) as result:
         assert result["oscillator_strengths_available"].item()
@@ -122,30 +117,26 @@ def test_manual_postprocessor_outputs_xyz_oscillator_strength(tmp_path: Path):
 def test_manual_postprocessor_requires_an_explicit_model_hypothesis(tmp_path: Path):
     input_path = tmp_path / "lit_spectrum.npz"
     _write_single_pole_lit(input_path)
-    cfg = ConfigManager(
-        {
-            "inversion": {
-                "input_paths": [str(input_path)],
-            }
+    cfg = {
+        "inversion": {
+            "input_paths": [str(input_path)],
         }
-    )
+    }
 
-    with pytest.raises(ValueError, match="article line model is empty"):
-        LITInversionPostprocessor(cfg)
+    with pytest.raises(ValidationError, match="article line model is empty"):
+        LITInversionPostprocessor.from_config(cfg)
 
 
 def test_manual_postprocessor_never_overwrites_raw_input(tmp_path: Path):
     input_path = tmp_path / "lit_spectrum.npz"
     _write_single_pole_lit(input_path)
-    cfg = ConfigManager(
-        {
-            "inversion": {
-                "input_paths": [str(input_path)],
-                "output_path": str(input_path),
-                "pole_energies": [0.78],
-            }
+    cfg = {
+        "inversion": {
+            "input_paths": [str(input_path)],
+            "output_path": str(input_path),
+            "pole_energies": [0.78],
         }
-    )
+    }
 
-    with pytest.raises(ValueError, match="must not overwrite"):
-        LITInversionPostprocessor(cfg)
+    with pytest.raises(ValidationError, match="must not overwrite"):
+        LITInversionPostprocessor.from_config(cfg)

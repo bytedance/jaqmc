@@ -24,7 +24,7 @@ from jaqmc.app.molecule.data import MoleculeData
 from jaqmc.estimator.ecp.estimator import ECPEnergy
 from jaqmc.estimator.ecp.nonlocal_integral import make_nonlocal_integral
 from jaqmc.estimator.ecp.quadrature import Icosahedron, Octahedron
-from jaqmc.utils.config import ConfigManager
+from jaqmc.utils.config import parse_config
 
 
 def _constant_wf(flat_electrons):
@@ -166,21 +166,19 @@ def test_ecp_wavefunction_precision_percentile_ranges():
             jnp.any(data.electrons != electrons), scale, 0.0
         )
 
-    cfg = ConfigManager(
+    ecp = parse_config(
+        ECPEnergy,
         {},
         [
-            "ecp.max_core=1",
-            "ecp.wavefunction_precision.default=[0.0, 0.25]",
-            "ecp.wavefunction_precision.standard=[0.25, 0.5]",
-            "ecp.wavefunction_precision.fp16_mixed=[0.5, 0.75]",
+            "max_core=1",
+            "wavefunction_precision.default=[0.0, 0.25]",
+            "wavefunction_precision.standard=[0.25, 0.5]",
+            "wavefunction_precision.fp16_mixed=[0.5, 0.75]",
         ],
     )
-    ecp = cfg.get(
-        "ecp",
-        ECPEnergy(
-            ecp_coefficients=mock_ecp, atom_symbols=["X"], phase_logpsi=phase_logpsi
-        ),
-    )
+    ecp.ecp_coefficients = mock_ecp
+    ecp.atom_symbols = ["X"]
+    ecp.phase_logpsi = phase_logpsi
     ecp.init(data, jax.random.key(0))
     out, _ = ecp.evaluate_single_walker({}, data, {}, None, jax.random.key(1))
     expected = (

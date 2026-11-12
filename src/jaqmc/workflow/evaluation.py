@@ -1,22 +1,27 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-"""Evaluation workflow for MCMC sampling and observable estimation."""
+"""Evaluation workflow runtime."""
 
 import logging
 import time
 from collections.abc import Callable
-from dataclasses import replace
-from typing import ClassVar
+from dataclasses import field, replace
+from typing import Annotated
 
 import jax
 from jax.experimental import multihost_utils
+from pydantic import Field
 from upath import UPath
 
-from jaqmc.utils.config import configurable_dataclass
+from jaqmc.array_types import PRNGKey
+from jaqmc.data import BatchedData, Data
+from jaqmc.utils.config import ModuleConfig, configurable_dataclass
+from jaqmc.utils.wiring import runtime_dep
+from jaqmc.writer import Writer
 
 from .base import Workflow, WorkflowConfig, init_batched_data
-from .stage.evaluation import EvaluationWorkStage
+from .stage.evaluation import EvaluationWorkStage, EvaluationWorkStageConfig
 
 logger = logging.LoggerAdapter(
     logging.getLogger(__name__), extra={"category": "workflow"}
@@ -25,81 +30,56 @@ logger = logging.LoggerAdapter(
 
 @configurable_dataclass
 class EvaluationWorkflowConfig(WorkflowConfig):
-    """Workflow config for evaluation.
-
-    Extends :class:`~jaqmc.workflow.base.WorkflowConfig`.
+    """Workflow settings specific to evaluation.
 
     Args:
-        source_path: Training run directory or checkpoint file to load
-            parameters, walkers, and sampler state from. Required when the
-            initialized parameter tree has leaves; otherwise evaluation uses
-            freshly initialized state.
+        source_path: Training run directory or checkpoint file used to restore
+            model parameters and sampler state before evaluation.
     """
 
     source_path: str | None = None
 
 
+@configurable_dataclass
 class EvaluationWorkflow(Workflow):
-    """Evaluation workflow for sampling and observable estimation.
+    """Evaluation workflow with a runtime evaluation stage."""
 
-    Creates fresh evaluation state, then optionally loads ``params``,
-    ``batched_data``, and ``sampler_state`` from a training checkpoint when
-    ``workflow.source_path`` is set. Wavefunctions with no trainable
-    parameters may omit ``source_path`` and start from freshly initialized
-    walkers. The evaluation stage handles its own checkpointing for
-    resumability.
+    workflow_name = "evaluation"
+    config: EvaluationWorkflowConfig = Field(
+        default_factory=EvaluationWorkflowConfig, alias="workflow"
+    )
+    run_config: EvaluationWorkStageConfig = Field(
+        default_factory=EvaluationWorkStageConfig, alias="run"
+    )
+    writers: dict[
+        str, Annotated[Writer | None, ModuleConfig(package="jaqmc.writer")]
+    ] = field(default_factory=dict)
+    data_init: Callable[[int, PRNGKey], Data | BatchedData] = runtime_dep()
+    evaluation_stage: EvaluationWorkStage = runtime_dep()
 
-    Attributes:
-        evaluation_stage: The evaluation stage.
-        data_init: Function to initialize electron configurations.
-    """
+    @property
+    def source_path(self) -> UPath | None:
+        """Return the absolute training checkpoint location, if configured."""
+        if not self.config.source_path:
+            return None
+        source_path = UPath(self.config.source_path)
+        if not source_path.is_absolute():
+            source_path = (UPath.cwd() / source_path).resolve()
+        return source_path
 
-    config_class: ClassVar[type[EvaluationWorkflowConfig]] = EvaluationWorkflowConfig
-    config_namespace: ClassVar[str] = "evaluation"
-    config: EvaluationWorkflowConfig
-    evaluation_stage: EvaluationWorkStage
-    data_init: Callable
-
-    def __init__(self, cfg):
-        super().__init__(cfg)
-        source_path_str = self.config.source_path
-        if source_path_str:
-            self.source_path = UPath(source_path_str)
-            if not self.source_path.is_absolute():
-                self.source_path = (UPath.cwd() / self.source_path).resolve()
-            self.source_dir = (
-                self.source_path.parent
-                if self.source_path.is_file()
-                else self.source_path
-            )
-        else:
-            self.source_dir = self.source_path = None
-
-    def prepare(self, dry_run: bool = False) -> None:
-        super().prepare(dry_run)
-        if not hasattr(self, "data_init") or not callable(self.data_init):
-            raise ValueError(f"{type(self).__name__}.data_init is not configured")
-        if not hasattr(self, "evaluation_stage"):
-            raise ValueError(
-                f"{type(self).__name__}.evaluation_stage is not configured"
-            )
-        if not isinstance(self.evaluation_stage, EvaluationWorkStage):
-            raise ValueError(
-                f"{type(self).__name__}.evaluation_stage must be an "
-                f"EvaluationWorkStage. Got {type(self.evaluation_stage)}."
-            )
+    @property
+    def source_dir(self) -> UPath | None:
+        """Return the directory containing training artifacts, if configured."""
+        source_path = self.source_path
+        if source_path is None:
+            return None
+        return source_path.parent if source_path.is_file() else source_path
 
     def run(self) -> None:
-        """Execute the evaluation workflow.
-
-        1. Create fresh eval state (data + estimator_state as template)
-        2. Load params, data, sampler_state from training checkpoint when
-           ``workflow.source_path`` is set
-        3. Run evaluation (the stage handles its own checkpoint for resumability)
+        """Create evaluation state, restore optional training state, and run.
 
         Raises:
-            ValueError: If ``workflow.source_path`` is omitted for a
-                wavefunction with trainable parameters.
+            ValueError: If trainable parameters have no source checkpoint.
         """
         # We must use the same seed across all processes to ensure that replicated
         # parameters are initialized identically. Generation of different keys on
@@ -110,31 +90,26 @@ class EvaluationWorkflow(Workflow):
             )
         )
         rngs = jax.random.key(seed)
-        context = self.run_context
+        context = self._make_run_context()
 
         rngs, data_rngs = jax.random.split(rngs)
         batched_data = init_batched_data(
             self.data_init, self.config.batch_size, data_rngs
         )
-
-        rngs, sub_rngs = jax.random.split(rngs)
-        state = self.evaluation_stage.create_state(sub_rngs, batched_data=batched_data)
-
-        if self.source_path is not None:
-            # Load params, data, sampler_state from training checkpoint.
-            # The dict wrapper matches VMCState checkpoint key paths because
-            # DictKey("params") and GetAttrKey("params") both serialize to
-            # "params" in the checkpoint's key path format.
-            wrapper = {
-                "params": state.params,
-                "batched_data": state.batched_data,
-                "sampler_state": state.sampler_state,
-            }
-            # If source_path is a file, restore directly; otherwise glob for
-            # train_ckpt_*.npz in the directory.
-            prefix = "" if self.source_path.is_file() else "train"
+        rngs, state_rngs = jax.random.split(rngs)
+        state = self.evaluation_stage.create_state(
+            state_rngs, batched_data=batched_data
+        )
+        if (source_path := self.source_path) is not None:
             restored = self.evaluation_stage.restore_checkpoint(
-                self.source_path, wrapper, prefix=prefix, strict=True
+                source_path,
+                {
+                    "params": state.params,
+                    "batched_data": state.batched_data,
+                    "sampler_state": state.sampler_state,
+                },
+                prefix="" if source_path.is_file() else "train",
+                strict=True,
             )
             state = replace(
                 state,
@@ -145,14 +120,9 @@ class EvaluationWorkflow(Workflow):
         elif jax.tree.leaves(state.params):
             raise ValueError(
                 "This wavefunction has trainable parameters, so "
-                "workflow.source_path is required. Set it to a training run "
-                "directory or train_ckpt_*.npz file."
+                "workflow.source_path is required."
             )
         else:
-            logger.info(
-                "No training checkpoint loaded; starting evaluation with "
-                "fresh walkers and sampler state."
-            )
-
-        rngs, sub_rngs = jax.random.split(rngs)
-        self.evaluation_stage.run(state, context, sub_rngs)
+            logger.info("No training checkpoint loaded; using fresh evaluation state.")
+        rngs, run_rngs = jax.random.split(rngs)
+        self.evaluation_stage.run(state, context, run_rngs)

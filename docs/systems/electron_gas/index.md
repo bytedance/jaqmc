@@ -10,8 +10,8 @@ finite-cell jellium Hamiltonian and Wigner-Seitz density convention of
 
 An HEG system is specified by the Wigner-Seitz radius `system.rs`, the total
 electron count `system.nelectrons`, and the spin projection `system.s_z`. These
-three fields are required; JaQMC does not assume a default physical system. It
-derives the spin populations from
+default to `1.0`, `2`, and `0`, respectively, giving a two-electron unpolarized
+system at $r_s=1$. JaQMC derives the spin populations from
 
 $$
 n_\uparrow + n_\downarrow = N,
@@ -111,16 +111,15 @@ the electron-gas workflow disables envelope decay and requires
 `wf.full_det=true`.
 
 ```{eval-rst}
-.. config-context::
-   :preset: jaqmc.app.electron_gas.workflow.ElectronGasTrainWorkflow.default_preset
-```
-
-```{eval-rst}
 .. config-defaults:: jaqmc.app.electron_gas.config.ElectronGasConfig
    :prefix: system
 
 .. config-defaults:: jaqmc.app.electron_gas.wavefunction.ElectronGasWavefunction
    :prefix: wf
+
+.. config-defaults::
+   :prefix: estimators
+   :defaults-from: jaqmc.app.electron_gas.workflow.ElectronGasEvalWorkflow
 ```
 
 Shared workflow, sampler, optimizer, writer, and runtime options are documented

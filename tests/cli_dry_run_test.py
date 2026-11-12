@@ -8,6 +8,7 @@ import pytest
 from click.testing import CliRunner
 
 from jaqmc.app.cli import cli
+from jaqmc.app.hydrogen_atom import HydrogenAtomTrainWorkflow
 
 
 @dataclass(frozen=True)
@@ -436,8 +437,8 @@ wf:
 run:
   iterations: 1
 estimators:
-  enabled:
-    density: true
+  density:
+    enabled: true
 """,
         },
         yaml_files=("solid_eval.yml",),
@@ -450,9 +451,9 @@ estimators:
             "workflow.batch_size=4",
             "workflow.source_path=source",
             "run.iterations=1",
-            "estimators.enabled.density=true",
-            "estimators.enabled.pair_correlation=true",
-            "estimators.enabled.one_rdm=true",
+            "estimators.density.enabled=true",
+            "estimators.pair_correlation.enabled=true",
+            "estimators.one_rdm.enabled=true",
         ),
     ),
     CliDryRunCase(
@@ -492,6 +493,37 @@ estimators:
 ]
 
 
+def test_cli_parses_once_before_runtime_initialization(mocker):
+    workflow = mocker.Mock()
+    calls: list[str] = []
+
+    def parse(*_args: object) -> object:
+        calls.append("parse")
+        return workflow
+
+    def initialize(*_args: object) -> None:
+        calls.append("initialize")
+
+    def run(*_args: object) -> None:
+        calls.append("run")
+
+    from_config = mocker.patch.object(
+        HydrogenAtomTrainWorkflow,
+        "from_config",
+        side_effect=parse,
+    )
+    workflow.initialize_runtime.side_effect = initialize
+    workflow.side_effect = run
+
+    result = CliRunner().invoke(cli, ["hydrogen-atom", "train", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    from_config.assert_called_once_with([], ())
+    workflow.initialize_runtime.assert_called_once_with(True)
+    workflow.assert_called_once_with(True)
+    assert calls == ["parse", "initialize", "run"]
+
+
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case.id)
 def test_cli_command_dry_run(
     case: CliDryRunCase, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -510,9 +542,7 @@ def test_cli_command_dry_run(
     assert not written, f"dry-run wrote files: {written}"
 
 
-def test_cli_verbose_config_dotlist(caplog: pytest.LogCaptureFixture) -> None:
-    caplog.set_level("INFO", logger="jaqmc.utils.config")
-
+def test_cli_rejects_removed_verbose_config_dotlist() -> None:
     result = CliRunner().invoke(
         cli,
         [
@@ -528,9 +558,8 @@ def test_cli_verbose_config_dotlist(caplog: pytest.LogCaptureFixture) -> None:
         ],
     )
 
-    assert result.exit_code == 0, result.output
-    assert "verbose: true" in caplog.text
-    assert "Base configuration for workflows." in caplog.text
+    assert result.exit_code == 1
+    assert "config" in result.output and "Unexpected keyword argument" in result.output
 
 
 def test_cli_invalid_dotlist_shows_click_error() -> None:
@@ -549,7 +578,7 @@ def test_cli_invalid_dotlist_shows_click_error() -> None:
     assert "Invalid CLI override 'workflow.batch_size'" in result.output
 
 
-def test_cli_unused_key_lists_exact_path() -> None:
+def test_cli_unknown_key_fails_during_schema_parsing() -> None:
     result = CliRunner().invoke(
         cli,
         [
@@ -562,8 +591,10 @@ def test_cli_unused_key_lists_exact_path() -> None:
     )
 
     assert result.exit_code == 1
-    assert "Unused config keys detected" in result.output
-    assert "definitely_not_exist.batch_size" in result.output
+    assert (
+        "definitely_not_exist" in result.output
+        and "Unexpected keyword argument" in result.output
+    )
 
 
 def test_cli_yaml_root_type_error(tmp_path: Path) -> None:
@@ -579,7 +610,7 @@ def test_cli_yaml_root_type_error(tmp_path: Path) -> None:
     assert f"Invalid YAML config in '{config_path}'" in result.output
 
 
-def test_cli_unknown_field_uses_wrapped_pyserde_message() -> None:
+def test_cli_unknown_field_reports_validation_error() -> None:
     result = CliRunner().invoke(
         cli,
         [
@@ -594,4 +625,7 @@ def test_cli_unknown_field_uses_wrapped_pyserde_message() -> None:
     )
 
     assert result.exit_code == 1
-    assert "Invalid config at 'workflow': unknown fields:" in result.output
+    assert (
+        "workflow.source_pat" in result.output
+        and "Unexpected keyword argument" in result.output
+    )

@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from jax import numpy as jnp
 
-from jaqmc.app.hydrogen_atom import hydrogen_atom_train_workflow
+from jaqmc.app.hydrogen_atom import HydrogenAtomTrainWorkflow
 from jaqmc.app.molecule.data import MoleculeData
 from jaqmc.app.molecule.wavefunction.ferminet import FermiNetWavefunction
 from jaqmc.app.molecule.wavefunction.lapnet import LapNetWavefunction
@@ -18,7 +18,6 @@ from jaqmc.app.molecule.wavefunction.psiformer import PsiformerWavefunction
 from jaqmc.data import BatchedData, Data
 from jaqmc.estimator.kinetic import EuclideanKinetic, LaplacianMode
 from jaqmc.utils import parallel_jax
-from jaqmc.utils.config import ConfigManager
 
 
 @dataclass
@@ -529,16 +528,16 @@ def test_forward_laplacian_vs_scan_molecule_workflow(tmp_path):
     # Run with scan
     config_scan: dict[str, Any] = copy.deepcopy(base_config)
     config_scan["workflow"]["save_path"] = str(tmp_path / "scan")
-    config_scan["energy"] = {"kinetic": {"mode": "scan"}}
-    cfg_scan = ConfigManager(config_scan)
-    hydrogen_atom_train_workflow(cfg_scan)()
+    config_scan["estimators"] = {"energy": {"kinetic": {"mode": "scan"}}}
+    HydrogenAtomTrainWorkflow.from_config(config_scan)()
 
     # Run with forward_laplacian
     config_fwd_lap: dict[str, Any] = copy.deepcopy(base_config)
     config_fwd_lap["workflow"]["save_path"] = str(tmp_path / "forward_laplacian")
-    config_fwd_lap["energy"] = {"kinetic": {"mode": "forward_laplacian"}}
-    cfg_fwd_lap = ConfigManager(config_fwd_lap)
-    hydrogen_atom_train_workflow(cfg_fwd_lap)()
+    config_fwd_lap["estimators"] = {
+        "energy": {"kinetic": {"mode": "forward_laplacian"}}
+    }
+    HydrogenAtomTrainWorkflow.from_config(config_fwd_lap)()
 
     # Compare results
     f_std = np.load(tmp_path / "scan" / "train_stats.npy")

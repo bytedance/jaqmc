@@ -4,8 +4,6 @@
 
 """Frequency continuation and recovery for the molecular LIT workflow."""
 
-from __future__ import annotations
-
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -51,13 +49,10 @@ logger = logging.LoggerAdapter(
 
 class ScanMixin:
     def _continuation_checkpoint_save_dir(self, axis: int) -> UPath | None:
-        save_path = getattr(self, "save_path", None)
-        if save_path is None:
+        if not self.config.save_path:
             return None
         return (
-            UPath(save_path)
-            / "continuation_checkpoints"
-            / (f"axis_{_AXIS_NAMES[axis]}")
+            self.save_path / "continuation_checkpoints" / (f"axis_{_AXIS_NAMES[axis]}")
         )
 
     def _continuation_checkpoint_restore_path(

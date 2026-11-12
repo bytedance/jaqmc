@@ -23,7 +23,7 @@ PH is currently available for the 3d transition metals **Cr, Mn, Fe, Co, Ni, Cu,
 
 ## Configuration
 
-PH is selected per element in the same `system.pp` mapping used for ECPs:
+`PHEnergy` is wired into the molecule and solid workflows, where PH is selected per element in the `system.pp` mapping alongside ECPs:
 
 ```yaml
 system:
@@ -38,13 +38,13 @@ all-electron atoms may coexist in the same molecule or solid.
 
 ## Kinetic backend
 
-On PH runs the kinetic energy is computed by the PH estimator rather than by a standalone {class}`~jaqmc.estimator.kinetic.EuclideanKinetic`. The evaluation strategy is selected via `estimators.energy.ph.kinetic_backend`:
+When PH is active, {class}`~jaqmc.estimator.ph.PHEnergy` computes the kinetic energy in place of a standalone {class}`~jaqmc.estimator.kinetic.EuclideanKinetic`. Its `kinetic_backend` field (exposed as `estimators.energy.ph.kinetic_backend` in the molecule and solid workflows) selects the evaluation strategy:
 
 - `forward_laplacian` (default) — Forward Laplacian evaluation through JaQMC's internal `jaqmc.laplacian.forward_laplacian` implementation, following [Fu et al. (2025)](https://arxiv.org/abs/2505.19909). This is the fast path and is recommended for production runs. When the wavefunction supports reduced-precision Jacobian contractions (such as `fp16_jac`), this path can be accelerated via `wf.precision` or `estimators.energy.ph.wavefunction_precision` (see <project:../mixed-precision.md>).
 - `standard` — Reverse-mode evaluation via `jax.grad` / `jax.hessian`, following [Bennett et al. (2022)](https://doi.org/10.1021/acs.jctc.1c00992). Slower than `forward_laplacian` but useful as a cross-check and in environments where the Forward Laplacian path is unavailable.
 
 :::{note}
-On PH runs the kinetic backend is controlled exclusively by `estimators.energy.ph.kinetic_backend`. Setting any `estimators.energy.kinetic.*` key on a PH system is an error and will fail the unused-config check at startup.
+On PH runs the kinetic backend is controlled exclusively by `estimators.energy.ph.kinetic_backend`. The molecule and solid workflows disable `estimators.energy.kinetic` when `system.pp` selects PH for any atom, so `estimators.energy.kinetic.*` settings have no effect.
 :::
 
 For the algorithm behind each backend, see [Backends](#ph-backends) below.

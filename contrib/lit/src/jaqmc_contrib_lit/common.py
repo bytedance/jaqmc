@@ -3,8 +3,6 @@
 
 """Small shared helpers and constants for LIT workflows."""
 
-from __future__ import annotations
-
 import logging
 
 import numpy as np

@@ -67,13 +67,6 @@ Wrappers for extracting real/imaginary parts and handling complex-valued JAX fun
 .. autofunction:: jaqmc.utils.checkpoint.tree_from_npz
 ```
 
-## Configuration helpers
-
-```{eval-rst}
-.. autoclass:: jaqmc.utils.config.ConfigManagerLike
-   :members:
-```
-
 ## Runtime setup
 
 ```{eval-rst}
@@ -82,8 +75,6 @@ Wrappers for extracting real/imaginary parts and handling complex-valued JAX fun
 
 .. autoclass:: jaqmc.utils.runtime.DistributedConfig
    :members:
-
-.. autofunction:: jaqmc.utils.runtime.configure_runtime
 ```
 
 ## Multi-device parallelism

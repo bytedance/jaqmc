@@ -13,14 +13,10 @@ absl-py==2.4.0
     #   tfp-nightly
 aiofiles==25.1.0
     # via orbax-checkpoint
+annotated-types==0.8.0
+    # via pydantic
 attrs==26.1.0
     # via dm-tree
-beartype==0.22.9
-    # via
-    #   plum-dispatch
-    #   pyserde
-casefy==1.1.0
-    # via pyserde
 chex==0.1.91
     # via distrax
 click==8.3.2
@@ -88,16 +84,12 @@ jaxlib==0.9.1
     #   orbax-export
 jaxtyping==0.3.9
     # via orbax-export
-jinja2==3.1.6
-    # via pyserde
 kfac-jax==0.0.8
     # via jaqmc
 librt==0.9.0 ; platform_python_implementation != 'PyPy'
     # via mypy
 markdown-it-py==4.0.0
     # via rich
-markupsafe==3.0.3
-    # via jinja2
 marshmallow==3.26.2
     # via dataclasses-json
 mdurl==0.1.2
@@ -166,22 +158,22 @@ pluggy==1.6.0
     # via
     #   pytest
     #   pytest-cov
-plum-dispatch==2.8.0
-    # via pyserde
 protobuf==7.34.1
     # via
     #   orbax-checkpoint
     #   orbax-export
 psutil==7.2.2
     # via orbax-checkpoint
+pydantic==2.14.3
+    # via jaqmc
+pydantic-core==2.50.4
+    # via pydantic
 pygments==2.20.0
     # via
     #   jaqmc
     #   pytest
     #   rich
 pyscf==2.12.1
-    # via jaqmc
-pyserde==0.31.7
     # via jaqmc
 pytest==9.0.3
     # via
@@ -198,9 +190,7 @@ pyyaml==6.0.3
     #   flax
     #   orbax-checkpoint
 rich==14.3.3
-    # via
-    #   flax
-    #   plum-dispatch
+    # via flax
 ruff==0.15.10
 scipy==1.17.1
     # via
@@ -226,7 +216,7 @@ toolz==1.1.0
 treescope==0.1.10
     # via flax
 types-pyyaml==6.0.12.20260408
-typing-extensions==4.15.0
+typing-extensions==4.16.0
     # via
     #   chex
     #   etils
@@ -234,13 +224,14 @@ typing-extensions==4.15.0
     #   kfac-jax
     #   mypy
     #   orbax-checkpoint
-    #   plum-dispatch
-    #   pyserde
+    #   pydantic
+    #   pydantic-core
     #   typing-inspect
+    #   typing-inspection
 typing-inspect==0.9.0
-    # via
-    #   dataclasses-json
-    #   pyserde
+    # via dataclasses-json
+typing-inspection==0.4.5
+    # via pydantic
 tzdata==2026.1 ; sys_platform == 'emscripten' or sys_platform == 'win32'
     # via pandas
 universal-pathlib==0.3.10

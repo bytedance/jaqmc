@@ -36,9 +36,8 @@ On multiple hosts, the reference path must be readable by every process. The
 [shared-storage requirements](../../guide/multi-device.md#shared-storage)
 apply to this file.
 
-A training dry run without an explicit `reference` only resolves
-configuration and does not search or generate an artifact. An explicit
-`reference` path is still loaded and validated.
+A training dry run only resolves configuration. It does not load, search
+for, or generate a reference, even when `reference` is set.
 
 ## Custom reference preparation
 
@@ -46,10 +45,12 @@ A custom reference supports a non-default
 [basis](#basis-sets-and-pseudopotentials) or method, an ECP family without an
 automatic basis, and solver input that can be inspected before execution.
 `jaqmc molecule reference prepare` takes the same `system.*` definition as
-training, passed with `--yml` files or as CLI overrides; keys it does not
-consume, such as `workflow.*` or `pretrain.*`, are rejected. The command writes
-a standalone PySCF job (the solver input only, no QMC) into `--output`; the
-generated directory contains `input.py`.
+training, passed with `--yml` files or as CLI overrides. It reads only
+`system.*`, `solver.*`, and the root-level `logging.*` keys (see
+<project:../../guide/runtime-configuration.md>), rejecting other keys such as
+`workflow.*` or `pretrain.*`. The command writes a standalone PySCF job (the
+solver input only, no QMC) into `--output`, and the generated directory contains
+`input.py`.
 
 ### Automatic solver execution
 
@@ -95,7 +96,6 @@ consume these keys.
 .. config-defaults:: jaqmc.app.molecule.config.base.MoleculeSolverConfig
    :prefix: solver
    :scope: molecule-reference
-   :exclude-fields: extra
 ```
 
 ### Basis sets and pseudopotentials
@@ -146,9 +146,8 @@ jaqmc molecule reference prepare --output ./runs/f/dft --run \
 
 ### SCF convergence settings
 
-Additional `solver.*` keys, typically convergence settings such as `conv_tol`,
-`max_cycle`, and `diis_space`, are forwarded to the generated PySCF mean-field
-object:
+SCF convergence options such as `conv_tol`, `max_cycle`, `diis_space`,
+`level_shift`, `damp`, and `init_guess` are configured under `solver.*`:
 
 ```bash
 jaqmc molecule reference prepare --yml water.yml \
@@ -158,6 +157,3 @@ jaqmc molecule reference prepare --yml water.yml \
   solver.max_cycle=200 \
   solver.diis_space=12
 ```
-
-If a forwarded key is not an attribute of the selected PySCF mean-field object,
-the generated job raises before calling `mf.kernel()`.

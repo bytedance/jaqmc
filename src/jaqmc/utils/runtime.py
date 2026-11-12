@@ -11,7 +11,7 @@ from typing import Literal
 
 import jax
 
-from jaqmc.utils.config import ConfigManagerLike, configurable_dataclass
+from jaqmc.utils.config import configurable_dataclass
 
 logger = logging.LoggerAdapter(
     logging.getLogger(__name__), extra={"category": "runtime"}
@@ -166,17 +166,3 @@ class DistributedConfig:
             process_id=self.process_id,
             initialization_timeout=self.initialization_timeout,
         )
-
-
-def configure_runtime(cfg: ConfigManagerLike, *, dry_run: bool = False) -> None:
-    """Configure application startup state from config.
-
-    Applies startup settings in this order:
-    1. Logging
-    2. JAX global configuration
-    3. Distributed runtime initialization
-    """
-    cfg.get("logging", LoggingConfig).apply()
-    cfg.get("jax", JaxConfig).apply()
-    if not dry_run:
-        cfg.get("distributed", DistributedConfig).init_runtime()

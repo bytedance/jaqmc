@@ -1,11 +1,10 @@
 # Molecule Evaluation
 
 Configuration reference for `jaqmc molecule evaluate`.
-This page shows the effective defaults for the evaluation workflow preset. Use
-`--dry-run` to see the resolved config for your run, or add
-`workflow.config.verbose=true` to include field descriptions. Evaluation keys
+This page shows the evaluation workflow defaults. `--dry-run` prints the
+resolved config for a specific run. Evaluation keys
 for `run.*`, `sampler.*`, and `writers.*` live at the config root. Defaults are
-resolved in this order: schema defaults, workflow preset, YAML config, then CLI
+resolved in this order: schema defaults, YAML config, then CLI
 overrides. For training config, see <project:train.md>.
 
 Root-level runtime keys such as `logging.*`, `jax.*`, and `distributed.*` are
@@ -56,8 +55,11 @@ all-electron Gaussian proposal.
 ## Writers (`writers.*`)
 
 The evaluation NPY writer is always enabled because its per-step statistics
-are required for digest computation. It writes to `evaluation_stats.npy`; other
-root-level writer keys enable additional outputs.
+are required for digest computation, and it writes to `evaluation_stats.npy`.
+Other writers are disabled by default; add one by setting its `module` key, such
+as `writers.console.module=console` or `writers.csv.module=csv`. The CSV writer
+writes `evaluation_stats.csv` in `workflow.save_path` and takes no extra
+configuration keys.
 
 ### Console writer (`writers.console.*`)
 
@@ -66,89 +68,17 @@ root-level writer keys enable additional outputs.
    :prefix: writers.console
 ```
 
-### CSV writer (`writers.csv.*`)
-
-```{eval-rst}
-.. config-defaults:: jaqmc.writer.csv.CSVWriter
-   :prefix: writers.csv
-```
-
 (molecule-estimators)=
 ## Estimators (`estimators.*`)
 
-Energy estimator definitions match training, with additional evaluation-only
-estimators enabled through boolean flags.
-
-- `estimators.enabled.energy` defaults to `true`.
-- `estimators.enabled.spin` defaults to `false`.
-- `estimators.enabled.density` defaults to `false`.
-
-### Kinetic energy (`estimators.energy.kinetic.*`)
-
-Used when no atom in `system.pp` uses PH (`"ph"`). When any atom uses PH, the
-standalone Euclidean kinetic estimator is replaced by `PHEnergy` and kinetic
-evaluation is controlled by `estimators.energy.ph.kinetic_backend` (setting
-`estimators.energy.kinetic.*` on a PH run fails the unused-config check).
+Training and evaluation share this estimator schema. Runtime dependencies such
+as the wavefunction and pseudopotential tables are wired at startup and omitted
+from YAML. For physics and derivations, see
+<project:../../guide/estimators/index.md>. For the API, see
+[Estimators](../../api-reference/estimators.md).
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.estimator.kinetic.EuclideanKinetic
-   :prefix: estimators.energy.kinetic
-```
-
-### ECP energy (`estimators.energy.ecp.*`)
-
-Added automatically when `system.pp` selects an ECP for at least one atom.
-
-```{eval-rst}
-.. config-defaults:: jaqmc.estimator.ecp.estimator.ECPEnergy
-   :prefix: estimators.energy.ecp
-```
-
-### PH energy (`estimators.energy.ph.*`)
-
-Added automatically when `system.pp` selects PH (`"ph"`) for at least one
-atom. PH is the local pseudopotential family, parallel to the semi-local ECP
-family, in this workflow: a mixed system may use PH atoms, ECP atoms, and
-all-electron atoms together in the same run.
-
-```{eval-rst}
-.. config-defaults:: jaqmc.estimator.ph.PHEnergy
-   :prefix: estimators.energy.ph
-```
-
-### Density (`estimators.density.*`)
-
-Produces a joint histogram of electron positions projected onto selected Cartesian directions.
-
-When enabled without overrides, the workflow wires one 3-D histogram with x, y,
-and z as the active axes. Each axis uses 50 bins, and its range is
-auto-computed from atom coordinates with 5 bohr padding. To keep only specific
-axes, set the others to `null`; one remaining axis gives a 1-D histogram, and
-two remaining axes give a 2-D histogram.
-
-```{eval-rst}
-.. config-defaults:: jaqmc.estimator.density.cartesian.CartesianAxis
-   :prefix: estimators.density.axes.(x|y|z)
-```
-
-```yaml
-# Just enable with defaults (joint x/y/z histogram):
-estimators:
-  enabled:
-    density: true
-```
-
-```yaml
-# Keep only z with custom bins and range:
-estimators:
-  enabled:
-    density: true
-  density:
-    axes:
-      x: null
-      y: null
-      z:
-        direction: [0, 0, 1]
-        bins: 100
-        range: [-15.0, 15.0]
+.. config-defaults::
+   :prefix: estimators
+   :defaults-from: jaqmc.app.molecule.workflow.MoleculeEvalWorkflow
 ```

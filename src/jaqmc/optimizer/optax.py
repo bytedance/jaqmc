@@ -2,15 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import inspect
+from collections.abc import Callable
 from dataclasses import field, fields, make_dataclass
 from functools import cache
-from typing import Any
+from typing import Annotated, Any
 
 import jax
 import optax
 
 from jaqmc.optimizer.schedule import Standard
-from jaqmc.utils.config import configurable_dataclass, module_config
+from jaqmc.utils.config import ModuleConfig, configurable_dataclass
 
 
 def __getattr__(name: str) -> Any:
@@ -36,21 +37,22 @@ def _make_optax_dataclass(name: str, factory):
     Raises:
         ValueError: Fail to parse optax optimizer signature to make it configurable.
     """
-    fields_list: list[tuple[str, type, Any] | tuple[str, type]] = []
+    fields_list: list[tuple[str, Any, Any] | tuple[str, Any]] = []
     for param in inspect.signature(factory).parameters.values():
         if param.kind in (param.VAR_KEYWORD, param.VAR_POSITIONAL):
             continue
         annotation = param.annotation
         if annotation == optax.ScalarOrSchedule:
-            if isinstance(param.default, (int, float)):
-                mc = module_config(
-                    param.default,
-                    direct_value_type=float,
-                    module_import_base="jaqmc.optimizer",
-                )
-            else:
-                mc = module_config(Standard, direct_value_type=float)
-            fields_list.append((param.name, Any, mc))
+            tp = Annotated[
+                float | Callable[..., Any],
+                ModuleConfig(package="jaqmc.optimizer"),
+            ]
+            default_field = (
+                field(default=param.default)
+                if isinstance(param.default, (int, float))
+                else field(default_factory=Standard)
+            )
+            fields_list.append((param.name, tp, default_field))
         elif annotation == jax.typing.ArrayLike:
             if param.default is not inspect.Parameter.empty:
                 fields_list.append((param.name, float, field(default=param.default)))

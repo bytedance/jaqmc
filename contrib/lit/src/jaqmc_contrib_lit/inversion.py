@@ -18,8 +18,6 @@ minimizes the ordinary, unweighted sum of squared residuals.  It does not
 reconstruct a continuum and does not use covariance weighting.
 """
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from operator import itemgetter

@@ -35,11 +35,6 @@ class AtomInitialization:
                 "local_s_z must be a half integer when provided. "
                 f"Got {self.local_s_z!r}."
             )
-        if not isinstance(self.local_charge, int):
-            raise ValueError(
-                "local_charge must be an integer since it is "
-                "used for initialization of electrons."
-            )
 
     @property
     def spin_imbalance(self) -> int | None:

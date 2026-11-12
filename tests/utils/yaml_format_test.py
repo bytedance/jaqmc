@@ -1,12 +1,25 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+import pytest
 import yaml
 
-from jaqmc.utils.yaml_format import (
-    annotate_yaml_with_sources,
-    dump_yaml,
+from jaqmc.utils.yaml_format import dump_yaml, load_yaml
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("1e-6", 1e-6), ("1.0e6", 1e6), ("-2E+3", -2e3), (".5e1", 5.0), ("1.5", 1.5)],
 )
+def test_load_yaml_reads_exponent_floats(text, expected):
+    assert load_yaml(f"x: {text}") == {"x": pytest.approx(expected)}
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"), [("1_000", 1000), ("e5", "e5"), ("1.2.3", "1.2.3")]
+)
+def test_load_yaml_keeps_other_scalars(text, expected):
+    assert load_yaml(f"x: {text}") == {"x": expected}
 
 
 class TestDumpYaml:
@@ -78,48 +91,3 @@ class TestDumpYaml:
         data = {"spins": (3, 2)}
         yaml_str = dump_yaml(data)
         assert "spins: [3, 2]" in yaml_str
-
-
-class TestAnnotateYamlWithSources:
-    def test_no_source_map_returns_unchanged(self):
-        yaml_str = "key: value\n"
-        result = annotate_yaml_with_sources(yaml_str, {})
-        assert result == yaml_str
-
-    def test_adds_source_comment(self):
-        yaml_str = "section:\n  key: value\n"
-        source_map = {"section": ("/path/to/file.py", 42, None)}
-        result = annotate_yaml_with_sources(yaml_str, source_map)
-        assert "# Defined in /path/to/file.py:42" in result
-
-    def test_nested_path_annotation(self):
-        yaml_str = "a:\n  b:\n    c: 1\n"
-        source_map = {"a.b": ("/file.py", 10, None)}
-        result = annotate_yaml_with_sources(yaml_str, source_map)
-        lines = result.splitlines()
-        # Find the comment and verify it's before 'b:'
-        for i, line in enumerate(lines):
-            if "b:" in line and i > 0:
-                assert "# Defined in /file.py:10" in lines[i - 1]
-                break
-
-    def test_verbose_includes_docstring(self):
-        yaml_str = "section:\n  key: value\n"
-        source_map = {"section": ("/file.py", 42, "My docstring.")}
-        result = annotate_yaml_with_sources(yaml_str, source_map, verbose=True)
-        assert "# Defined in /file.py:42" in result
-        assert "# My docstring." in result
-
-    def test_verbose_false_excludes_docstring(self):
-        yaml_str = "section:\n  key: value\n"
-        source_map = {"section": ("/file.py", 42, "My docstring.")}
-        result = annotate_yaml_with_sources(yaml_str, source_map, verbose=False)
-        assert "# Defined in /file.py:42" in result
-        assert "# My docstring." not in result
-
-    def test_multiline_docstring(self):
-        yaml_str = "section:\n  key: value\n"
-        source_map = {"section": ("/file.py", 42, "Line 1.\nLine 2.")}
-        result = annotate_yaml_with_sources(yaml_str, source_map, verbose=True)
-        assert "# Line 1." in result
-        assert "# Line 2." in result

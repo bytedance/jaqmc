@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import field
-from typing import Any, Literal
+from typing import Literal
 
-import serde
+from pydantic import Field
 
 from jaqmc.utils.atomic import Atom, AtomicSystemConfig, AtomInitialization
 from jaqmc.utils.config import configurable_dataclass
@@ -48,15 +48,15 @@ class MoleculeConfig(AtomicSystemConfig):
 
     Args:
         unit: Length unit used by the geometry inputs.
-        atom_configs: Atoms in the molecule, given as a list of
+        atoms: Atoms in the molecule, given as a list of
             :class:`AtomConfig` entries.
         electron_init_width: Width of the Gaussian distribution for
             initializing electron positions.
     """
 
     unit: LengthUnit = LengthUnit.bohr
-    atom_configs: list[AtomConfig] = serde.field(
-        rename="atoms",
+    atom_configs: list[AtomConfig] = Field(
+        alias="atoms",
         default_factory=lambda: [AtomConfig(symbol="He", coords=[0, 0, 0])],
     )
     electron_init_width: float = 1.0
@@ -104,8 +104,15 @@ class MoleculeSolverConfig:
         checkpoint: Checkpoint filename written inside the generated job
             directory.
         verbose: PySCF verbosity level.
-        extra: Extra solver keys flattened onto ``solver.*`` and forwarded to
-            the selected PySCF mean-field object.
+        conv_tol: SCF energy convergence threshold in Hartree.
+        conv_tol_grad: SCF orbital-gradient convergence threshold. ``None`` uses
+            PySCF's default (``sqrt(conv_tol)``).
+        max_cycle: Maximum number of SCF iterations.
+        diis_space: Number of Fock matrices retained in the DIIS subspace.
+        level_shift: Level shift (in Hartree) applied to virtual orbitals.
+        damp: Fock-matrix damping factor between 0 and 1.
+        init_guess: Initial SCF density-matrix guess method (for example
+            ``"minao"``, ``"atom"``, or ``"1e"``).
     """
 
     basis: str | dict[str, str] | None = None
@@ -114,4 +121,10 @@ class MoleculeSolverConfig:
     xc: str = "pbe"
     checkpoint: str = "pyscf.chk"
     verbose: int = 4
-    extra: dict[str, Any] = serde.field(flatten=True, default_factory=dict)
+    conv_tol: float = 1e-9
+    conv_tol_grad: float | None = None
+    max_cycle: int = 50
+    diis_space: int = 8
+    level_shift: float = 0.0
+    damp: float = 0.0
+    init_guess: str = "minao"

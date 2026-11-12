@@ -9,7 +9,7 @@ import pyscf.pbc.gto
 import pyscf.pbc.scf
 
 from jaqmc.app.solid.config import SolidAtomConfig, SolidConfig
-from jaqmc.app.solid.config.base import LatticeParams
+from jaqmc.app.solid.config.base import LatticeParameters
 
 
 def _solid_system(
@@ -22,8 +22,8 @@ def _solid_system(
     twist=None,
 ):
     kwargs: dict[str, Any] = {
-        "lattice": LatticeParams(a=4, b=4, c=4),
-        "atom_configs": [SolidAtomConfig(symbol=symbol, frac_coords=[0, 0, 0])],
+        "lattice": LatticeParameters(a=4, b=4, c=4),
+        "atoms": [SolidAtomConfig(symbol=symbol, frac_coords=[0, 0, 0])],
         "pp": pp,
         "s_z": s_z,
         "total_charge": total_charge,

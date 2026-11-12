@@ -16,24 +16,17 @@ The FCC lattice vectors are::
 
 import numpy as np
 
+from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.units import LengthUnit
 
-from .base import LatticeParams, SolidAtomConfig, SolidConfig
+from .base import LatticeParameters, SolidAtomConfig, SolidConfig
 
-__all__ = ["rock_salt_config"]
+__all__ = ["RockSaltBuilder"]
 
 
-def rock_salt_config(
-    symbol_a: str = "Li",
-    symbol_b: str = "H",
-    lattice_constant: float = 4.0,
-    unit: LengthUnit = LengthUnit.angstrom,
-    supercell: list[int] | None = None,
-    s_z: float = 0,
-    pp: str | dict[str, str] | None = None,
-    electron_init_width: float = 1.0,
-):
-    """Build a rock salt crystal configuration.
+@configurable_dataclass
+class RockSaltBuilder:
+    """Builder for a rock-salt crystal.
 
     Args:
         symbol_a: Symbol of the atom at the origin.
@@ -48,30 +41,38 @@ def rock_salt_config(
             (e.g., ``{"Li": "ccecp"}``).
         electron_init_width: Width for electron position initialization.
 
-    Returns:
-        A SolidConfig instance for the rock salt structure.
     """
-    if supercell is None:
-        supercell = [1, 1, 1]
 
-    atoms = []
-    for symbol, frac_coords in [
-        (symbol_a, [0.0, 0.0, 0.0]),
-        (symbol_b, [0.5, 0.5, 0.5]),
-    ]:
-        atoms.append(SolidAtomConfig(symbol=symbol, frac_coords=frac_coords))
+    symbol_a: str = "Li"
+    symbol_b: str = "H"
+    lattice_constant: float = 4.0
+    unit: LengthUnit = LengthUnit.angstrom
+    supercell: list[int] | None = None
+    s_z: float = 0
+    pp: str | dict[str, str] | None = None
+    electron_init_width: float = 1.0
 
-    a = lattice_constant / np.sqrt(2)
-    return SolidConfig(
-        atom_configs=atoms,
-        unit=unit,
-        lattice=LatticeParams(a=a, b=a, c=a, alpha=60, beta=60, gamma=60),
-        supercell_matrix=[
-            [supercell[0], 0, 0],
-            [0, supercell[1], 0],
-            [0, 0, supercell[2]],
-        ],
-        s_z=s_z,
-        pp=pp,
-        electron_init_width=electron_init_width,
-    )
+    def __call__(self) -> SolidConfig:
+        supercell = self.supercell if self.supercell is not None else [1, 1, 1]
+
+        atoms = []
+        for symbol, frac_coords in [
+            (self.symbol_a, [0.0, 0.0, 0.0]),
+            (self.symbol_b, [0.5, 0.5, 0.5]),
+        ]:
+            atoms.append(SolidAtomConfig(symbol=symbol, frac_coords=frac_coords))
+
+        a = self.lattice_constant / np.sqrt(2)
+        return SolidConfig(
+            atoms=atoms,
+            unit=self.unit,
+            lattice=LatticeParameters(a=a, b=a, c=a, alpha=60, beta=60, gamma=60),
+            supercell_matrix=[
+                [supercell[0], 0, 0],
+                [0, supercell[1], 0],
+                [0, 0, supercell[2]],
+            ],
+            s_z=self.s_z,
+            pp=self.pp,
+            electron_init_width=self.electron_init_width,
+        )

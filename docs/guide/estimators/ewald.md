@@ -68,6 +68,8 @@ $$
 
 ## See also
 
-- The Ewald parameters are not user-configurable — they are set internally by the
-  solid workflow's potential-energy estimator (`ewald_gmax=200`, `nlatvec=1`).
+- `EwaldSum` and `EwaldSum2D` accept `ewald_gmax: int = 200` and
+  `nlatvec: int = 1` in Python. The periodic workflows (`solid`,
+  `electron_gas`, and `moire`) construct these helpers with their default
+  cutoffs rather than exposing them as YAML configuration fields.
 - API: {class}`~jaqmc.estimator.ewald.EwaldSum`

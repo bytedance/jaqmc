@@ -2,10 +2,9 @@
 
 JaQMC provides angular-momentum estimators for spherical geometry.
 [`SphericalAngularMomentum`](../../api-reference/estimators.md) reports local
-$L_z$, $L_z^2$, and $L^2$ during training and evaluation. Those averages do
-not give the weight in each total-$L$ sector;
+$L_z$, $L_z^2$, and $L^2$.
 [`SphericalAngularMomentumProjection`](../../api-reference/estimators.md)
-reconstructs those weights during Hall evaluation.
+reconstructs the sector weights and energies from rotational overlaps.
 
 ## Local $L_z$ and $L^2$
 
@@ -89,21 +88,18 @@ $$
 
 The implementation estimates both integrals as a joint Monte Carlo average
 over electron configurations and Haar rotations. Each walker evaluation draws
-`n_rotations` new rotations from its estimator RNG; rotations are not reused
-across walkers or evaluation steps. Additional walkers and additional
-evaluation steps both increase the number of rotation samples.
+`n_rotations` new rotations from its estimator RNG. Rotations are not reused
+across walkers or steps, so additional walkers and additional steps both
+increase the number of rotation samples.
 
 A definite sector has one $p_L$ consistent with 1 and the others consistent
 with 0. If the requested $L$ range covers the state's support, the weights
-sum to one within sampling error; a shortfall means missing sectors. $E_L$ is
-a ratio, so its uncertainty grows when $p_L$ is small.
-
-Enable the estimator during Hall evaluation; see
-{ref}`hall-angular-projection`.
+sum to one within sampling error. $E_L$ is a ratio, so its uncertainty grows when $p_L$ is small.
 
 ## See also
 
-- Configuration: Hall [training](#hall-train-estimators)
-  and [evaluation](#hall-estimators)
+- Configuration: Hall [training](#hall-train-estimators),
+  [evaluation](#hall-estimators), and
+  [sector projection](#hall-angular-projection)
 - API: {class}`~jaqmc.estimator.angular_momentum.SphericalAngularMomentum`,
   {class}`~jaqmc.estimator.angular_momentum.SphericalAngularMomentumProjection`

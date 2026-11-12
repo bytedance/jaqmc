@@ -1,884 +1,685 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-from dataclasses import dataclass, field
-from enum import StrEnum
-from typing import Any
+import sys
+from dataclasses import dataclass, field, replace
+from typing import Annotated, Any, Protocol, runtime_checkable
 
 import pytest
 import yaml
+from pydantic import Field, ValidationError
 
 from jaqmc.utils.config import (
-    ConfigError,
-    ConfigManager,
+    ModuleConfig,
+    config_to_dict,
+    config_to_yaml,
     configurable_dataclass,
-    module_config,
+    is_configurable_dataclass,
+    parse_config,
 )
-from jaqmc.utils.module_resolver import ModuleResolutionError
-from jaqmc.workflow.evaluation import EvaluationWorkflowConfig
-
-
-@dataclass
-class SimpleConfig:
-    x: int = 1
-    y: str = "default"
-
-
-@dataclass
-class OtherConfig:
-    z: int = 7
+from jaqmc.utils.wiring import runtime_dep
 
 
 @configurable_dataclass
-class Axis:
-    direction: tuple[float, ...] = (0.0, 0.0, 1.0)
-    bins: int = 50
-    range: tuple[float, float] = (0.0, 1.0)
+class Nested:
+    count: int = 1
+    enabled: bool = False
 
 
 @configurable_dataclass
-class DictOfOptionalDataclass:
-    axes: dict[str, Axis | None] = field(default_factory=dict)
-
-
-def simple_func(a: int = 10, b: int = 20):
-    return a, b
-
-
-def another_simple_func(a: int = 10, b: int = 20):
-    return b, a
-
-
-def test_get_primitive():
-    cfg = ConfigManager({"a": 1, "b": "2"}, dotlist=["c=3.0"])
-
-    # First access
-    assert cfg.get("a", default=0) == 1
-    assert cfg.get("b", default="") == "2"
-    assert cfg.get("c", default=0.0) == pytest.approx(3.0)
-    assert cfg.get("d", default=100) == 100
-
-    # Idempotency checks
-    assert cfg.get("a", default=0) == 1
-    assert cfg.get("b", default="") == "2"
-    assert cfg.get("c", default=0.0) == pytest.approx(3.0)
-
-    cfg.finalize()
-
-
-def test_get_primitive_multi_config():
-    cfg = ConfigManager(({"a": 3, "b": "2"}, {"a": 1}), dotlist=["c=3.0"])
-
-    assert cfg.get("a", default=0) == 1
-    assert cfg.get("b", default="") == "2"
-    assert cfg.get("c", default=0.0) == pytest.approx(3.0)
-
-    cfg.finalize()
-
-
-def test_get_primitive_preset():
-    cfg = ConfigManager({"a": 3})
-    cfg.use_preset({"a": 5, "b": 100})
-
-    assert cfg.get("a", default=0) == 3
-    assert cfg.get("b", default=0) == 100
-
-    cfg.finalize()
-
-
-def test_get_dataclass():
-    data = {"section": {"x": 10}}
-    cfg = ConfigManager(data)
-
-    # First access
-    result1 = cfg.get("section", default=SimpleConfig(x=5))
-    assert result1.x == 10
-    assert result1.y == "default"
-
-    # Idempotency check
-    result2 = cfg.get("section", default=SimpleConfig(x=5))
-    assert result2 == result1
-
-    cfg.finalize()
-
-
-def test_get_callable():
-    data = {"func": {"a": 5}}
-    cfg = ConfigManager(data)
-
-    # First access
-    partial_func = cfg.get("func", default=simple_func)
-    assert partial_func() == (5, 20)
-
-    # Idempotency check
-    partial_func2 = cfg.get("func", default=simple_func)
-    assert partial_func2() == (5, 20)
-
-    cfg.finalize()
-
-
-def test_get_module(mocker):
-    mocker.patch("jaqmc.utils.config.resolve_object", return_value=simple_func)
-
-    data = {"my_module": {"module": "some.path", "a": 30}}
-    cfg = ConfigManager(data)
-
-    func = cfg.get_module("my_module", default_module="unused")
-    assert func() == (30, 20)
-    assert func(a=10) == (10, 20)
-
-    # Idempotency check
-    func_idempotent = cfg.get_module("my_module", default_module="unused")
-    assert func_idempotent() == (30, 20)
-    assert func_idempotent(a=10) == (10, 20)
-
-    cfg.finalize()
-
-
-def test_get_module_non_str_default(mocker):
-    data = {"my_module": {"a": 30}}
-    cfg = ConfigManager(data)
-
-    func = cfg.get_module("my_module", default_module=simple_func)
-    assert func() == (30, 20)
-    assert func(a=10) == (10, 20)
-
-    cfg.finalize()
-
-
-def test_get_module_non_str_default_get(mocker):
-    mocker.patch("jaqmc.utils.config.resolve_object", return_value=simple_func)
-    data = {"my_module": {"module": "some.path", "a": 30}}
-    cfg = ConfigManager(data)
-
-    func = cfg.get_module("my_module", default_module=another_simple_func)
-    assert func() == (30, 20)
-    assert func(a=10) == (10, 20)
-
-    cfg.finalize()
-
-
-def test_get_module_dataclass(mocker):
-    mocker.patch("jaqmc.utils.config.resolve_object", return_value=SimpleConfig)
-
-    data = {"my_module": {"module": "some.path", "x": 30}}
-    cfg = ConfigManager(data)
-
-    result1 = cfg.get_module("my_module", default_module="unused")
-    assert isinstance(result1, SimpleConfig)
-    assert result1.x == 30
-
-    # Idempotency check
-    result2 = cfg.get_module("my_module", default_module="unused")
-    assert isinstance(result2, SimpleConfig)
-    assert result2.x == 30
-
-    cfg.finalize()
-
-
-def test_get_collection(mocker):
-    mocker.patch("jaqmc.utils.config.resolve_object", return_value=simple_func)
-
-    data = {"collection": {"item1": {"a": 3}, "item2": None}}
-    cfg = ConfigManager(data)
-
-    results = cfg.get_collection(
-        "collection",
-        defaults={
-            "item1": {"module": "path1", "a": 1},
-            "item2": {"module": "path2", "a": 2},
-        },
-    )
-
-    assert "item1" in results
-    assert results["item1"] == (3, 20)
-    assert "item2" not in results
-
-    # Idempotency check
-    results = cfg.get_collection(
-        "collection",
-        defaults={
-            "item1": {"module": "path1", "a": 1},
-            "item2": {"module": "path2", "a": 2},
-        },
-    )
-    assert results["item1"] == (3, 20)
-    assert "item2" not in results
-
-    cfg.finalize()
-
-
-def test_get_collection_override_none(mocker):
-    mocker.patch("jaqmc.utils.config.resolve_object", return_value=simple_func)
-
-    data: list[dict[str, Any]] = [
-        {"collection": {"item1": {"a": 3}, "item2": None}},
-        {"collection": {"item2": {"a": 4}}},
-    ]
-    cfg = ConfigManager(data)
-
-    results = cfg.get_collection(
-        "collection",
-        defaults={
-            "item1": {"module": "path1", "a": 1},
-            "item2": {"module": "path2", "a": 2},
-        },
-    )
-
-    assert "item1" in results
-    assert results["item1"] == (3, 20)
-    assert "item2" in results
-    assert results["item2"] == (4, 20)
-
-    cfg.finalize()
-
-
-def test_get_collection_dotlist_override(mocker):
-    mocker.patch("jaqmc.utils.config.resolve_object", return_value=simple_func)
-    cfg = ConfigManager({}, dotlist=["collection.item1.a=42", "collection.item1.b=99"])
-    results = cfg.get_collection(
-        "collection",
-        defaults={
-            "item1": {"module": "path1"},
-        },
-    )
-    assert results["item1"] == (42, 99)  # Both a and b overridden via dotlist
-    cfg.finalize()
-
-
-def test_get_collection_dataclass_defaults(mocker):
-    mocker.patch("jaqmc.utils.config.resolve_object", return_value=SimpleConfig)
-
-    cfg = ConfigManager({"collection": {"item1": {"y": "user"}}})
-    results = cfg.get_collection(
-        "collection",
-        defaults={
-            "item1": {"module": "path1", "x": 42},
-        },
-    )
-
-    assert isinstance(results["item1"], SimpleConfig)
-    assert results["item1"].x == 42
-    assert results["item1"].y == "user"
-    assert cfg.resolved_config["collection"]["item1"] == {
-        "module": "path1",
-        "x": 42,
-        "y": "user",
-    }
-
-    cfg.finalize()
-
-
-def test_get_collection_dataclass_module_override_ignores_old_defaults(mocker):
-    mocker.patch(
-        "jaqmc.utils.config.resolve_object",
-        side_effect=lambda path, package: {"path1": SimpleConfig, "path2": OtherConfig}[
-            path
-        ],
-    )
-
-    cfg = ConfigManager({"collection": {"item1": {"module": "path2"}}})
-    results = cfg.get_collection(
-        "collection",
-        defaults={
-            "item1": {"module": "path1", "x": 42},
-        },
-    )
-
-    assert isinstance(results["item1"], OtherConfig)
-    assert results["item1"].z == 7
-    assert cfg.resolved_config["collection"]["item1"] == {
-        "module": "path2",
-        "z": 7,
-    }
-
-    cfg.finalize()
-
-
-def test_finalize_unused():
-    cfg = ConfigManager({"used": 1, "unused": 2})
-    cfg.get("used", 0)
-
-    # Should exit if unused keys exist and raise_on_unused is True (default)
-    with pytest.raises(ConfigError, match=r"YAML.*unused"):
-        cfg.finalize()
-
-    # Should not raise if we ignore it
-    cfg.finalize(raise_on_unused=False)
-
-
-def test_dotlist_missing_equals_raises_config_error():
-    with pytest.raises(
-        ConfigError,
-        match=(
-            r"Invalid CLI override 'workflow.batch_size': "
-            r"expected the form key=value"
-        ),
-    ):
-        ConfigManager({}, dotlist=["workflow.batch_size"])
-
-
-def test_get_dataclass_allows_missing_optional_source_path():
-    cfg = ConfigManager({})
-
-    workflow = cfg.get("workflow", EvaluationWorkflowConfig)
-
-    assert workflow.source_path is None
-
-
-def test_get_dataclass_unknown_field_uses_pyserde_message():
-    cfg = ConfigManager({"workflow": {"source_pat": "runs/train"}})
-
-    with pytest.raises(
-        ConfigError,
-        match=(
-            r"Invalid config at 'workflow': unknown fields: \{'source_pat'\}, "
-            r"expected one of"
-        ),
-    ):
-        cfg.get("workflow", EvaluationWorkflowConfig)
-
-
-def test_get_dataclass_rejects_non_mapping():
-    cfg = ConfigManager({"workflow": 123})
-
-    with pytest.raises(
-        ConfigError,
-        match=r"Invalid config at 'workflow': expected a mapping, got int",
-    ):
-        cfg.get("workflow", EvaluationWorkflowConfig)
-
-
-def test_get_module_adds_config_path_to_resolution_error(mocker):
-    cfg = ConfigManager({"wf": {"module": "module:object"}})
-    mocker.patch(
-        "jaqmc.utils.config.resolve_object",
-        side_effect=ModuleResolutionError("resolver diagnostic"),
-    )
-
-    with pytest.raises(
-        ConfigError,
-        match=r"Invalid config at 'wf.module': resolver diagnostic",
-    ):
-        cfg.get_module("wf", "jaqmc.app.hall.wavefunction.mhpo")
-
-
-def test_to_yaml_with_comments():
-    @dataclass
-    class MyConfig:
-        """My Docstring."""
-
-        x: int = 1
-
-    cfg = ConfigManager({})
-    cfg.get("section", MyConfig)
-    cfg.get("val", 10)
-
-    yaml_str = cfg.to_yaml()
-    lines = yaml_str.splitlines()
-
-    # Dataclass keys get a "# Defined in" source comment
-    section_idx = next(i for i, line in enumerate(lines) if "section:" in line)
-    assert "# Defined in" in lines[section_idx - 1]
-    assert "config_test.py" in lines[section_idx - 1]
-
-    # Primitive keys do NOT get a source comment
-    val_idx = next(i for i, line in enumerate(lines) if "val:" in line)
-    assert "# Defined in" not in lines[val_idx - 1]
-
-    # Verbose output includes docstrings
-    yaml_verbose = cfg.to_yaml(verbose=True)
-    assert "# My Docstring" in yaml_verbose
-
-
-def test_to_yaml_nested_dataclass():
-    @dataclass
-    class Inner:
-        x: int = 1
-
-    cfg = ConfigManager({})
-    cfg.get("a.b", Inner)
-
-    yaml_str = cfg.to_yaml()
-    lines = yaml_str.splitlines()
-
-    # The nested dataclass key should have a source comment
-    b_idx = next(i for i, line in enumerate(lines) if "b:" in line)
-    assert "# Defined in" in lines[b_idx - 1]
-    assert "config_test.py" in lines[b_idx - 1]
-
-
-def test_to_yaml_nested_primitive():
-    cfg = ConfigManager({})
-    cfg.get("a.b", 100)
-
-    yaml_str = cfg.to_yaml()
-    assert "a:" in yaml_str
-    assert "b: 100" in yaml_str
-    # Primitives do not get source comments
-    assert "# Defined in" not in yaml_str
-
-
-def test_ignore_module_key_source(mocker):
-    mocker.patch("jaqmc.utils.config.resolve_object", return_value=simple_func)
-
-    cfg = ConfigManager({})
-    # This triggers get_primitive("my_component.module")
-    cfg.get_module("my_component", default_module="some.path")
-
-    yaml_str = cfg.to_yaml()
-
-    # We expect my_component to be present
-    assert "my_component:" in yaml_str
-    assert "module: some.path" in yaml_str
-
-    lines = yaml_str.splitlines()
-    for i, line in enumerate(lines):
-        if "module: some.path" in line and i > 0:
-            # Ensure the previous line is NOT a definition comment
-            prev_line = lines[i - 1].strip()
-            assert not prev_line.startswith("# Defined in"), (
-                f"Found unexpected source comment for module key: {prev_line}"
-            )
-
-
-@dataclass
-class InnerClass:
-    x: int = 100
-
-
-@dataclass
-class InnerClass2:
-    y: int = 100
-
-
-@dataclass
-class MidClass:
-    inner: Any = module_config(InnerClass)
-    one: Any = module_config(InnerClass, x=1)
-    another: Any = module_config(InnerClass, x=2)
-
-
-@dataclass
-class OuterClass:
-    mid: Any = module_config(MidClass)
+class Schema:
+    nested: Nested = field(default_factory=Nested)
+    values: tuple[int, ...] = ()
 
 
 @configurable_dataclass
-class DirectValueLeaf:
+class Leaf:
     rate: float = 0.5
 
 
 @configurable_dataclass
-class DirectValueUnionConfig:
-    value: Any = module_config(DirectValueLeaf, direct_value_type=int | float)
+class Steps:
+    steps: int = 1
 
 
 @configurable_dataclass
-class DirectValueScalarDefaultConfig:
-    plain_default_value: Any = module_config(1.0, direct_value_type=float)
-
-
-def _module_ref(obj: type | Any) -> str:
-    return f"{__name__}:{obj.__name__}"
-
-
-@pytest.fixture
-def recursive_module_mock(mocker):
-    def mock_resolve(name, package=None):
-        if name == _module_ref(InnerClass):
-            return InnerClass
-        if name == _module_ref(InnerClass2):
-            return InnerClass2
-        if name == _module_ref(MidClass):
-            return MidClass
-        if name == _module_ref(OuterClass):
-            return OuterClass
-        raise ImportError(f"Cannot resolve {name}")
-
-    mocker.patch("jaqmc.utils.config.resolve_object", side_effect=mock_resolve)
-
-
-def test_recursive_module_instantiation(recursive_module_mock):
-    cfg = ConfigManager(
-        {
-            "outer": {
-                "module": _module_ref(OuterClass),
-                "mid": {
-                    "module": _module_ref(MidClass),
-                    "inner": {
-                        "module": _module_ref(InnerClass),
-                        "x": 999,
-                    },
-                },
-            }
-        }
-    )
-
-    outer_instance = cfg.get_module("outer", default_module=_module_ref(OuterClass))
-
-    assert isinstance(outer_instance, OuterClass)
-    assert isinstance(outer_instance.mid, MidClass)
-    assert isinstance(outer_instance.mid.inner, InnerClass)
-    assert outer_instance.mid.inner.x == 999
-    assert outer_instance.mid.one.x == 1
-    assert outer_instance.mid.another.x == 2
-
-    cfg.finalize()
-
-
-def test_nesed_module_missing_field(recursive_module_mock):
-    cfg = ConfigManager(
-        {
-            "mid": {
-                "module": _module_ref(MidClass),
-                "inner": {
-                    "module": _module_ref(InnerClass),
-                    "x": 999,
-                },
-                "one": {
-                    "module": _module_ref(InnerClass2),
-                    "y": 999,
-                },
-            }
-        }
-    )
-
-    mid_instance = cfg.get_module("mid", default_module=_module_ref(MidClass))
-
-    assert isinstance(mid_instance, MidClass)
-    assert isinstance(mid_instance.inner, InnerClass)
-    assert isinstance(mid_instance.one, InnerClass2)
-    assert mid_instance.inner.x == 999
-    assert mid_instance.one.y == 999
-
-    cfg.finalize()
-
-
-@pytest.mark.parametrize(
-    ("raw_value", "expected_type"),
-    [(4, int), (3.75, float)],
-)
-def test_module_config_direct_value_union_accepts_scalars(raw_value, expected_type):
-    cfg = ConfigManager({"section": {"value": raw_value}})
-
-    result = cfg.get("section", default=DirectValueUnionConfig())
-
-    assert type(result.value) is expected_type
-    assert result.value == raw_value
-    assert cfg.resolved_config["section"] == {"value": raw_value}
-
-    cfg2 = _yaml_roundtrip(cfg)
-    result2 = cfg2.get("section", default=DirectValueUnionConfig())
-    assert type(result2.value) is expected_type
-    assert result2.value == raw_value
-    cfg2.finalize()
-
-
-def test_module_config_direct_value_union_keeps_dict_input_as_module_config():
-    cfg = ConfigManager({"section": {"value": {"rate": 1.25}}})
-
-    result = cfg.get("section", default=DirectValueUnionConfig())
-
-    assert isinstance(result.value, DirectValueLeaf)
-    assert result.value.rate == pytest.approx(1.25)
-    assert cfg.resolved_config["section"] == {
-        "value": {
-            "module": _module_ref(DirectValueLeaf),
-            "rate": 1.25,
-        }
-    }
-
-    cfg2 = _yaml_roundtrip(cfg)
-    result2 = cfg2.get("section", default=DirectValueUnionConfig())
-    assert isinstance(result2.value, DirectValueLeaf)
-    assert result2.value.rate == pytest.approx(1.25)
-    cfg2.finalize()
-
-
-def test_module_config_direct_value_union_rejects_string_input():
-    cfg = ConfigManager({"section": {"value": "4.5"}})
-
-    with pytest.raises(ConfigError, match=r"Union\[int, float\]"):
-        cfg.get("section", default=DirectValueUnionConfig())
-
-
-def test_get_module_rejects_unknown_fields_for_wavefunction_configs():
-    from jaqmc.app.hydrogen_atom import HydrogenAtom
-
-    cfg = ConfigManager({"wf": {"unknown": 1}})
-
-    with pytest.raises(
-        ConfigError,
-        match=r"Invalid config at 'wf': unknown fields: \{'unknown'\}",
-    ):
-        cfg.get_module("wf", default_module=HydrogenAtom)
-
-
-def test_module_config_plain_default_value_supports_noncallable_default():
-    cfg = ConfigManager({})
-
-    result = cfg.get("section", default=DirectValueScalarDefaultConfig())
-
-    assert type(result.plain_default_value) is float
-    assert result.plain_default_value == pytest.approx(1.0)
-    assert cfg.resolved_config["section"] == {"plain_default_value": 1.0}
-
-
-def test_module_config_uses_explicit_module_import_base(mocker):
-    relative_module = "relative_leaf:DirectValueLeaf"
-    resolve_object = mocker.patch(
-        "jaqmc.utils.config.resolve_object",
-        return_value=DirectValueLeaf,
-    )
-
-    @configurable_dataclass
-    class RelativeModuleConfig:
-        value: Any = module_config(
-            DirectValueLeaf,
-            module_import_base="custom.base",
-        )
-
-    cfg = ConfigManager(
-        {
-            "section": {
-                "value": {
-                    "module": relative_module,
-                    "rate": 1.25,
-                }
-            }
-        }
-    )
-
-    result = cfg.get("section", default=RelativeModuleConfig())
-
-    assert isinstance(result.value, DirectValueLeaf)
-    assert result.value.rate == pytest.approx(1.25)
-    resolve_object.assert_any_call(relative_module, package="custom.base")
-
-
-# --- YAML round-trip tests (resume-from-yaml scenario) ---
+class Tuned:
+    rate: float = 0.5
+    extra: int = 1
 
 
 @dataclass
-class TupleConfig:
-    spins: tuple[int, int] = (1, 0)
-    basis: str = "sto-3g"
+class UndecoratedSubclass(Leaf):
+    extra: int = 1
 
 
-class _TestUnit(StrEnum):
-    bohr = "bohr"
-    angstrom = "angstrom"
+@configurable_dataclass
+class SwitchedTarget:
+    nested: Nested = field(default_factory=lambda: Nested(count=7))
+    sub: Annotated[Any, ModuleConfig()] = field(
+        default_factory=lambda: Tuned(rate=2.0, extra=9)
+    )
 
 
-def _func_with_enum(unit: str = _TestUnit.bohr, scale: float = 1.0):
-    return unit, scale
+@runtime_checkable
+class HasRun(Protocol):
+    def run(self) -> None: ...
 
 
-def _yaml_roundtrip(
-    cfg: ConfigManager, dotlist: list[str] | None = None
-) -> ConfigManager:
-    """Dump resolved config to YAML, parse back, return new ConfigManager.
+@configurable_dataclass
+class Runnable:
+    def run(self) -> None:
+        pass
 
-    Returns:
-        A new ConfigManager initialized from the YAML output.
+
+def test_parse_config_merges_layers_and_dotlist_without_mutating_inputs():
+    first = {"nested": {"count": 2}, "values": ["1", 2]}
+    second = {"nested": {"enabled": True}}
+
+    value = parse_config(Schema, [first, second], ["nested.count=4"])
+
+    assert value == Schema(nested=Nested(count=4, enabled=True), values=(1, 2))
+    assert first == {"nested": {"count": 2}, "values": ["1", 2]}
+    assert second == {"nested": {"enabled": True}}
+
+
+def test_parse_config_merges_over_customized_factory_defaults():
+    @configurable_dataclass
+    class CustomizedSchema:
+        nested: Nested = field(default_factory=lambda: Nested(count=7))
+
+    value = parse_config(CustomizedSchema, {"nested": {"enabled": True}})
+
+    assert value.nested == Nested(count=7, enabled=True)
+
+
+def test_parse_config_skips_post_init_while_materializing_defaults():
+    validated_counts = []
+
+    @configurable_dataclass
+    class ValidatedSchema:
+        count: int = 0
+        doubled: int = 0
+
+        def __post_init__(self) -> None:
+            validated_counts.append(self.count)
+            if self.count <= 0:
+                raise ValueError("count must be positive")
+            self.doubled = 2 * self.count
+
+    value = parse_config(ValidatedSchema, {"count": 3})
+
+    assert value.count == 3
+    assert value.doubled == 6
+    assert validated_counts == [3]
+    with pytest.raises(ValidationError, match="count must be positive"):
+        parse_config(ValidatedSchema, {})
+
+
+def test_configurable_dataclass_guards_inherited_post_init():
+    @dataclass
+    class ValidatedBase:
+        count: int = 0
+
+        def __post_init__(self) -> None:
+            if self.count <= 0:
+                raise ValueError("count must be positive")
+
+    @configurable_dataclass
+    class InheritedSchema(ValidatedBase):
+        pass
+
+    assert parse_config(InheritedSchema, {"count": 3}).count == 3
+    with pytest.raises(ValidationError, match="count must be positive"):
+        parse_config(InheritedSchema, {})
+
+
+def test_parse_config_uses_pydantic_lax_coercion():
+    assert parse_config(Schema, {"nested": {"count": "2"}}).nested.count == 2
+    assert parse_config(Schema, {"nested": {"count": 2.0}}).nested.count == 2
+
+    with pytest.raises(ValidationError, match="Unexpected keyword argument"):
+        parse_config(Schema, {"unknown": 1})
+    with pytest.raises(ValidationError, match="fractional part"):
+        parse_config(Schema, {"nested": {"count": 2.1}})
+    with pytest.raises(ValidationError, match="valid boolean"):
+        parse_config(Schema, {"nested": {"enabled": "not_a_bool"}})
+    with pytest.raises(ValidationError, match="valid boolean"):
+        parse_config(Schema, {"nested": {"enabled": 2}})
+
+
+def test_parse_config_rejects_non_str_for_str_fields():
+    @configurable_dataclass
+    class Named:
+        name: str = "hi"
+
+    with pytest.raises(ValidationError, match="valid string"):
+        parse_config(Named, {"name": 123})
+    with pytest.raises(ValidationError, match="valid string"):
+        parse_config(Named, {"name": True})
+
+
+def test_parse_config_reports_non_constructible_defaults():
+    @configurable_dataclass
+    class RequiredSchema:
+        value: int
+
+    with pytest.raises(ValidationError, match="Field required"):
+        parse_config(RequiredSchema, {"value": 1})
+
+
+def test_config_serialization_round_trips_field_alias():
+    @configurable_dataclass
+    class Renamed:
+        count: int = Field(alias="atom_count", default=1)
+        other: int = 0
+
+    assert Renamed(atom_count=3).count == 3
+    assert replace(Renamed(atom_count=3), other=2) == Renamed(atom_count=3, other=2)
+    value = parse_config(Renamed, {"atom_count": "2"})
+    with pytest.raises(ValidationError, match="Unexpected keyword argument"):
+        parse_config(Renamed, {"count": 2})
+
+    text = config_to_yaml(value)
+    assert yaml.safe_load(text) == {"atom_count": 2, "other": 0}
+    assert parse_config(Renamed, yaml.safe_load(text)) == value
+
+
+def test_module_config_supports_modules_scalars_and_relative_paths(mocker):
+    @configurable_dataclass
+    class ModuleSchema:
+        choice: Annotated[float | Leaf, ModuleConfig()] = field(default_factory=Leaf)
+
+    assert parse_config(ModuleSchema, {"choice": 1.5}).choice == pytest.approx(1.5)
+    assert parse_config(ModuleSchema, {"choice": {"rate": 1.25}}).choice == Leaf(
+        rate=1.25
+    )
+
+    resolve = mocker.patch("jaqmc.utils.config.resolve_object", return_value=Leaf)
+
+    @configurable_dataclass
+    class RelativeSchema:
+        choice: Annotated[Any, ModuleConfig(package="custom.base")] = field(
+            default_factory=Leaf
+        )
+
+    assert (
+        parse_config(RelativeSchema, {"choice": {"module": "relative:Leaf"}}).choice
+        == Leaf()
+    )
+    resolve.assert_any_call("relative:Leaf", package="custom.base")
+    assert {call.kwargs["package"] for call in resolve.call_args_list} == {
+        "custom.base"
+    }
+
+
+@pytest.mark.parametrize("raw", [1.5, [0.25, 0.75], {"rate": 1.25}])
+def test_module_config_round_trips_direct_values_and_modules(raw):
+    @configurable_dataclass
+    class DirectSchema:
+        choice: Annotated[float | tuple[float, float] | Leaf, ModuleConfig()] = field(
+            default_factory=Leaf
+        )
+
+    value = parse_config(DirectSchema, {"choice": raw})
+
+    assert parse_config(DirectSchema, yaml.safe_load(config_to_yaml(value))) == value
+
+
+def test_module_collection_uses_defaults():
+    @configurable_dataclass
+    class CollectionSchema:
+        modules: dict[str, Annotated[Any | None, ModuleConfig()]] = field(
+            default_factory=lambda: {"default": Tuned(rate=3, extra=7)}
+        )
+
+    value = parse_config(
+        CollectionSchema,
+        {"modules": {"default": {"rate": 4}, "disabled": None}},
+    )
+
+    assert value.modules == {"default": Tuned(rate=4, extra=7), "disabled": None}
+    assert (
+        parse_config(CollectionSchema, yaml.safe_load(config_to_yaml(value))) == value
+    )
+    switched = parse_config(
+        CollectionSchema,
+        [
+            {"modules": {"default": {"rate": 4}}},
+            {"modules": {"default": {"module": f"{__name__}:Steps"}}},
+        ],
+    )
+    assert switched.modules["default"] == Steps()
+    disabled = parse_config(
+        CollectionSchema,
+        {"modules": {"default": None}},
+    )
+    assert disabled.modules == {"default": None}
+
+
+def test_module_collection_resolves_relative_modules_and_validates_defaults():
+    package, _, module = __name__.rpartition(".")
+
+    @configurable_dataclass
+    class CollectionSchema:
+        modules: dict[str, Annotated[Any | None, ModuleConfig(package=package)]] = (
+            field(default_factory=lambda: {"leaf": Leaf()})
+        )
+
+    value = parse_config(
+        CollectionSchema, {"modules": {"extra": {"module": f"{module}:Steps"}}}
+    )
+
+    assert value.modules == {"leaf": Leaf(), "extra": Steps()}
+    with pytest.raises(
+        ValidationError,
+        match=r"modules\.new[\s\S]*Missing required config key 'module'",
+    ):
+        parse_config(CollectionSchema, {"modules": {"new": {"rate": 1.0}}})
+
+
+def test_same_module_merges_layers_and_dotlist_switch_resets_arguments():
+    @configurable_dataclass
+    class ModuleSchema:
+        choice: Annotated[Any, ModuleConfig()] = field(default_factory=Leaf)
+
+    same = parse_config(
+        ModuleSchema,
+        [
+            {"choice": {"rate": 1.25}},
+            {"choice": {"module": f"{__name__}:Leaf"}},
+        ],
+    )
+    switched = parse_config(
+        ModuleSchema,
+        {"choice": {"rate": 1.25}},
+        [f"choice.module={__name__}:Steps"],
+    )
+
+    assert same.choice == Leaf(rate=1.25)
+    assert switched.choice == Steps()
+
+
+def test_relative_spelling_of_same_module_keeps_arguments():
+    package, _, relative = __name__.rpartition(".")
+
+    @configurable_dataclass
+    class ModuleSchema:
+        choice: Annotated[Any, ModuleConfig(package=package)] = field(
+            default_factory=lambda: Leaf(rate=2.0)
+        )
+
+    same = parse_config(
+        ModuleSchema, {"choice": {"rate": 1.25}}, [f"choice.module={relative}:Leaf"]
+    )
+    preset = parse_config(ModuleSchema, {}, [f"choice.module={relative}:Leaf"])
+    switched = parse_config(
+        ModuleSchema, {"choice": {"rate": 1.25}}, [f"choice.module={relative}:Steps"]
+    )
+
+    assert same.choice == Leaf(rate=1.25)
+    assert preset.choice == Leaf(rate=2.0)
+    assert switched.choice == Steps()
+
+
+def test_repeated_relative_module_layers_keep_arguments():
+    """Layering the same relative module reference twice must not crash.
+
+    The first layer stores its relative spelling in the merged data; the
+    second layer still resolves it instead of importing the bare name.
     """
-    yaml_str = cfg.to_yaml()
-    parsed = yaml.safe_load(yaml_str)
-    return ConfigManager(parsed, dotlist=dotlist)
+    package, _, relative = __name__.rpartition(".")
+
+    @configurable_dataclass
+    class ModuleSchema:
+        choice: Annotated[Any, ModuleConfig(package=package)] = field(
+            default_factory=Leaf
+        )
+
+    reference = f"{relative}:Leaf"
+    merged = parse_config(
+        ModuleSchema,
+        [
+            {"choice": {"module": reference, "rate": 1.25}},
+            {"choice": {"module": reference}},
+        ],
+    )
+
+    assert merged.choice == Leaf(rate=1.25)
 
 
-class TestYamlRoundTrip:
-    """Resolved YAML can be parsed back to produce identical configs.
+def _write_plugin(path, rate: float, extra: int) -> str:
+    path.write_text(
+        "from jaqmc.utils.config import configurable_dataclass\n"
+        "\n"
+        "@configurable_dataclass\n"
+        "class Plugin:\n"
+        f"    rate: float = {rate}\n"
+        f"    extra: int = {extra}\n",
+        encoding="utf-8",
+    )
+    return f"{path}:Plugin"
 
-    This simulates the resume scenario: first run dumps a resolved YAML snapshot,
-    second run loads it via ``--yml ...`` and optionally
-    overrides values with dotlist (e.g. ``train.run.iterations=200``).
-    """
 
-    def test_primitives(self):
-        cfg1 = ConfigManager({"a": 1, "b": "hello", "c": 1.23})
-        a1 = cfg1.get("a", default=0)
-        b1 = cfg1.get("b", default="")
-        c1 = cfg1.get("c", default=0.0)
+def test_file_modules_merge_across_layers_and_survive_serialization(tmp_path):
+    plugin = tmp_path / "plugin.py"
+    reference = _write_plugin(plugin, rate=0.5, extra=1)
 
-        cfg2 = _yaml_roundtrip(cfg1)
-        assert cfg2.get("a", default=0) == a1
-        assert cfg2.get("b", default="") == b1
-        assert cfg2.get("c", default=0.0) == c1
-        cfg2.finalize()
+    @configurable_dataclass
+    class ModuleSchema:
+        choice: Annotated[Any, ModuleConfig()] = field(default_factory=Leaf)
 
-    def test_dataclass(self):
-        cfg1 = ConfigManager({"section": {"x": 42}})
-        r1 = cfg1.get("section", default=SimpleConfig())
-        assert r1.x == 42
-        assert r1.y == "default"
+    try:
+        merged = parse_config(
+            ModuleSchema,
+            [
+                {"choice": {"module": reference, "rate": 1.25}},
+                {"choice": {"module": reference, "extra": 7}},
+            ],
+        )
+        assert (merged.choice.rate, merged.choice.extra) == (1.25, 7)
 
-        cfg2 = _yaml_roundtrip(cfg1)
-        r2 = cfg2.get("section", default=SimpleConfig())
-        assert r2.x == r1.x
-        assert r2.y == r1.y
-        cfg2.finalize()
+        # Dropping the loaded module leaves the serialized reference as the only
+        # way back to the plugin, as it would be in a later process.
+        serialized = yaml.safe_load(config_to_yaml(merged))
+        del sys.modules[str(plugin.resolve())]
+        restored = parse_config(ModuleSchema, serialized)
 
-    def test_dataclass_with_tuple(self):
-        """Tuples survive YAML round-trip (YAML lists coerced back to tuples)."""
-        cfg1 = ConfigManager({"sys": {"spins": [3, 2]}})
-        r1 = cfg1.get("sys", default=TupleConfig())
-        assert r1.spins == (3, 2)
+        assert (restored.choice.rate, restored.choice.extra) == (1.25, 7)
+    finally:
+        sys.modules.pop(str(plugin.resolve()), None)
 
-        cfg2 = _yaml_roundtrip(cfg1)
-        r2 = cfg2.get("sys", default=TupleConfig())
-        assert r2.spins == (3, 2)
-        assert r2.basis == "sto-3g"
-        cfg2.finalize()
 
-    def test_callable_module(self, mocker):
-        mocker.patch("jaqmc.utils.config.resolve_object", return_value=simple_func)
+def test_switching_between_file_modules_discards_arguments(tmp_path):
+    first = tmp_path / "first.py"
+    second = tmp_path / "second.py"
+    first_reference = _write_plugin(first, rate=0.5, extra=1)
+    second_reference = _write_plugin(second, rate=2.5, extra=3)
 
-        cfg1 = ConfigManager({"fn": {"module": "test:simple_func", "a": 42}})
-        f1 = cfg1.get_module("fn", default_module="test:simple_func")
-        assert f1() == (42, 20)
+    @configurable_dataclass
+    class ModuleSchema:
+        choice: Annotated[Any, ModuleConfig()] = field(default_factory=Leaf)
 
-        cfg2 = _yaml_roundtrip(cfg1)
-        f2 = cfg2.get_module("fn", default_module="test:simple_func")
-        assert f2() == (42, 20)
-        cfg2.finalize()
+    try:
+        switched = parse_config(
+            ModuleSchema,
+            [
+                {"choice": {"module": first_reference, "rate": 1.25}},
+                {"choice": {"module": second_reference}},
+            ],
+        )
 
-    def test_callable_with_enum_default(self, mocker):
-        """StrEnum defaults survive YAML round-trip (serialized as plain strings)."""
-        mocker.patch("jaqmc.utils.config.resolve_object", return_value=_func_with_enum)
+        assert (switched.choice.rate, switched.choice.extra) == (2.5, 3)
+    finally:
+        for path in (first, second):
+            sys.modules.pop(str(path.resolve()), None)
 
-        cfg1 = ConfigManager({})
-        f1 = cfg1.get_module("fn", default_module="test:func_with_enum")
-        assert f1() == ("bohr", 1.0)
 
-        cfg2 = _yaml_roundtrip(cfg1)
-        f2 = cfg2.get_module("fn", default_module="test:func_with_enum")
-        assert f2() == ("bohr", 1.0)
-        cfg2.finalize()
+def test_relative_module_resolves_from_field_after_file_module(tmp_path):
+    reference = _write_plugin(tmp_path / "plugin.py", rate=0.5, extra=1)
+    package, _, relative = __name__.rpartition(".")
 
-    def test_nested_module_config(self, recursive_module_mock):
-        cfg1 = ConfigManager(
-            {
-                "outer": {
-                    "module": _module_ref(OuterClass),
-                    "mid": {
-                        "inner": {"x": 999},
-                    },
-                }
+    @configurable_dataclass
+    class ModuleSchema:
+        choice: Annotated[Any, ModuleConfig(package=package)] = field(
+            default_factory=Leaf
+        )
+
+    try:
+        switched = parse_config(
+            ModuleSchema,
+            {"choice": {"module": reference, "rate": 1.25}},
+            [f"choice.module={relative}:Steps"],
+        )
+        assert switched.choice == Steps()
+    finally:
+        sys.modules.pop(str((tmp_path / "plugin.py").resolve()), None)
+
+
+def test_module_layers_reject_unresolvable_and_reset_on_switch():
+    @configurable_dataclass
+    class ModuleSchema:
+        choice: Annotated[Any, ModuleConfig()] = field(
+            default_factory=lambda: Leaf(rate=2.0)
+        )
+
+    with pytest.raises(ValidationError, match=r"at 'module': .*missing_module"):
+        parse_config(
+            ModuleSchema,
+            {"choice": {"module": "missing_module:Leaf"}},
+            [f"choice.module={__name__}:Leaf"],
+        )
+    switched_back = parse_config(
+        ModuleSchema,
+        [
+            {"choice": {"rate": 1.25}},
+            {"choice": {"module": f"{__name__}:Steps", "steps": 3}},
+        ],
+        [f"choice.module={__name__}:Leaf"],
+    )
+
+    assert switched_back.choice == Leaf(rate=2.0)
+
+
+def test_module_is_a_reserved_field_name():
+    with pytest.raises(TypeError, match="'module' is a reserved config key"):
+
+        @configurable_dataclass
+        class Reserved:
+            module: int = 0
+
+
+def test_dotlist_reads_exponent_floats():
+    assert parse_config(Leaf, {}, ["rate=1e-3"]).rate == pytest.approx(1e-3)
+    assert parse_config(Nested, {}, ["count=1e3"]).count == 1000
+
+
+def test_dataclass_unions_are_untagged_and_merge_per_variant():
+    @configurable_dataclass
+    class First:
+        old: int = 1
+
+    @configurable_dataclass
+    class Second:
+        new: int
+        final: int = 0
+
+    @configurable_dataclass
+    class UnionSchema:
+        choice: First | Second = field(default_factory=First)
+
+    same = parse_config(
+        UnionSchema,
+        [
+            {"choice": {"new": 2, "final": 3}},
+            {"choice": {"new": 4}},
+        ],
+    )
+    switched = parse_config(
+        UnionSchema,
+        [
+            {"choice": {"old": 5}},
+            {"choice": {"new": 2}},
+        ],
+    )
+
+    assert config_to_dict(UnionSchema()) == {"choice": {"old": 1}}
+    assert same.choice == Second(new=4, final=3)
+    assert switched.choice == Second(new=2)
+
+
+def test_optional_dataclass_merges_across_layers_without_variant_reset():
+    @configurable_dataclass
+    class RequiredPair:
+        first: int
+        second: int
+        choice: Leaf | Steps = field(default_factory=Leaf)
+
+    @configurable_dataclass
+    class OptionalSchema:
+        item: RequiredPair | None = None
+
+    merged = parse_config(
+        OptionalSchema,
+        [
+            {"item": {"first": 1, "choice": {"rate": 1.5}}},
+            {"item": {"second": 2, "choice": {"steps": 4}}},
+        ],
+    )
+
+    assert merged.item == RequiredPair(first=1, second=2, choice=Steps(steps=4))
+    assert parse_config(OptionalSchema, [merged.__dict__, {"item": None}]).item is None
+
+
+def test_module_config_configured_instance_merges_and_resets():
+    @configurable_dataclass
+    class InstanceSchema:
+        choice: Annotated[Any, ModuleConfig()] = field(
+            default_factory=lambda: Tuned(rate=2.0, extra=7)
+        )
+
+    first = InstanceSchema()
+    second = InstanceSchema()
+    first.choice.extra = 9
+
+    assert second.choice == Tuned(rate=2.0, extra=7)
+    assert parse_config(InstanceSchema, {"choice": {"rate": 3}}).choice == Tuned(
+        rate=3.0, extra=7
+    )
+    assert (
+        parse_config(InstanceSchema, {}, [f"choice.module={__name__}:Steps"]).choice
+        == Steps()
+    )
+
+
+def test_module_config_rejects_invalid_targets_and_dotlist():
+    @configurable_dataclass
+    class DirectSchema:
+        choice: Annotated[float, ModuleConfig()] = 0.1
+
+    with pytest.raises(ValidationError, match=r"Missing required config key 'module'"):
+        parse_config(DirectSchema, {"choice": {"rate": 1.0}})
+    with pytest.raises(ValueError, match="expected the form"):
+        parse_config(Schema, {}, ["nested.count"])
+    with pytest.raises(ValueError, match="is not a mapping"):
+        parse_config(Schema, {}, ["nested=1", "nested.count=2"])
+
+
+def test_module_config_rejects_non_string_module_values():
+    @configurable_dataclass
+    class ModuleSchema:
+        choice: Annotated[Any, ModuleConfig()] = field(default_factory=Leaf)
+        modules: dict[str, Annotated[Any | None, ModuleConfig()]] = field(
+            default_factory=dict
+        )
+
+    with pytest.raises(
+        ValidationError, match=r"choice[\s\S]*at 'module': expected a string, got int"
+    ):
+        parse_config(ModuleSchema, {"choice": {"module": 123}})
+    with pytest.raises(
+        ValidationError,
+        match=r"modules\.one[\s\S]*at 'module': expected a string, got bool",
+    ):
+        parse_config(ModuleSchema, {"modules": {"one": {"module": True}}})
+
+
+def test_module_contracts_reject_wrong_modules_without_runtime_building():
+    @configurable_dataclass
+    class ContractSchema:
+        choice: Annotated[HasRun, ModuleConfig()] = field(default_factory=Runnable)
+        modules: dict[str, Annotated[HasRun | None, ModuleConfig()]] = field(
+            default_factory=dict
+        )
+
+    parsed = parse_config(
+        ContractSchema, {"modules": {"one": {"module": f"{__name__}:Runnable"}}}
+    )
+    assert isinstance(parsed.choice, Runnable)
+    assert isinstance(parsed.modules["one"], Runnable)
+
+    with pytest.raises(ValidationError, match="instance of HasRun"):
+        parse_config(
+            ContractSchema,
+            {"choice": {"module": f"{__name__}:Leaf"}},
+        )
+    with pytest.raises(ValidationError, match="instance of HasRun"):
+        parse_config(
+            ContractSchema,
+            {"modules": {"one": {"module": f"{__name__}:Leaf"}}},
+        )
+    with pytest.raises(ValidationError, match="instance of HasRun"):
+        ContractSchema(choice=Leaf())  # type: ignore[arg-type]
+
+
+def test_switching_module_merges_over_new_target_nested_defaults():
+    @configurable_dataclass
+    class ParentSchema:
+        choice: Annotated[Any, ModuleConfig()] = field(default_factory=Leaf)
+
+    parsed = parse_config(
+        ParentSchema,
+        {
+            "choice": {
+                "module": f"{__name__}:SwitchedTarget",
+                "nested": {"enabled": True},
+                "sub": {"rate": 0.25},
             }
+        },
+    )
+
+    assert parsed.choice == SwitchedTarget(
+        nested=Nested(count=7, enabled=True),
+        sub=Tuned(rate=0.25, extra=9),
+    )
+
+
+def test_wavefunction_fields_validate_types():
+    from jaqmc.app.molecule.workflow import MoleculeTrainWorkflow
+
+    with pytest.raises(ValidationError, match="fractional part"):
+        MoleculeTrainWorkflow.from_config({"wf": {"ndets": 2.1}})
+    with pytest.raises(ValidationError, match="valid integer"):
+        MoleculeTrainWorkflow.from_config({"wf": {"ndets": "not_an_int"}})
+
+
+def test_hidden_fields_allow_arbitrary_annotations():
+    class CustomDep:
+        pass
+
+    @configurable_dataclass
+    class HiddenAnnotationSchema:
+        choice: Annotated[CustomDep | Leaf, ModuleConfig()] = field(
+            default_factory=Leaf
         )
-        r1 = cfg1.get_module("outer", default_module=_module_ref(OuterClass))
-        assert r1.mid.inner.x == 999
-
-        cfg2 = _yaml_roundtrip(cfg1)
-        r2 = cfg2.get_module("outer", default_module=_module_ref(OuterClass))
-        assert r2.mid.inner.x == 999
-        assert r2.mid.one.x == 1
-        assert r2.mid.another.x == 2
-        cfg2.finalize()
-
-    def test_collection(self, mocker):
-        mocker.patch("jaqmc.utils.config.resolve_object", return_value=simple_func)
-
-        defaults = {"item1": {"module": "path1", "a": 1}}
-        cfg1 = ConfigManager({"coll": {"item1": {"a": 3}}})
-        r1 = cfg1.get_collection("coll", defaults=defaults)
-        assert r1["item1"] == (3, 20)
-
-        cfg2 = _yaml_roundtrip(cfg1)
-        r2 = cfg2.get_collection("coll", defaults=defaults)
-        assert r2["item1"] == (3, 20)
-        cfg2.finalize()
-
-    def test_collection_dataclass_defaults(self, mocker):
-        mocker.patch("jaqmc.utils.config.resolve_object", return_value=SimpleConfig)
-
-        defaults = {"item1": {"module": "path1", "x": 42}}
-        cfg1 = ConfigManager({"coll": {"item1": {"y": "user"}}})
-        r1 = cfg1.get_collection("coll", defaults=defaults)
-        assert r1["item1"].x == 42
-        assert r1["item1"].y == "user"
-
-        cfg2 = _yaml_roundtrip(cfg1)
-        r2 = cfg2.get_collection("coll", defaults=defaults)
-        assert r2["item1"].x == 42
-        assert r2["item1"].y == "user"
-        cfg2.finalize()
-
-    def test_dotlist_override_on_resume(self):
-        """Dotlist overrides take effect when resuming from YAML."""
-        cfg1 = ConfigManager({"section": {"x": 42, "y": "hello"}})
-        cfg1.get("section", default=SimpleConfig())
-
-        cfg2 = _yaml_roundtrip(cfg1, dotlist=["section.x=100"])
-        r2 = cfg2.get("section", default=SimpleConfig())
-        assert r2.x == 100  # overridden by dotlist
-        assert r2.y == "hello"  # preserved from YAML
-        cfg2.finalize()
-
-    def test_nested_module_config_dotlist_override(self, recursive_module_mock):
-        """Dotlist can override nested module_config fields on resume."""
-        cfg1 = ConfigManager(
-            {
-                "outer": {
-                    "module": _module_ref(OuterClass),
-                    "mid": {"inner": {"x": 999}},
-                }
-            }
+        collection: dict[str, Annotated[CustomDep | Leaf | None, ModuleConfig()]] = (
+            field(default_factory=lambda: {"leaf": Leaf()})
         )
-        cfg1.get_module("outer", default_module=_module_ref(OuterClass))
+        dep: CustomDep | None = runtime_dep(default=None)
 
-        cfg2 = _yaml_roundtrip(cfg1, dotlist=["outer.mid.inner.x=777"])
-        r2 = cfg2.get_module("outer", default_module=_module_ref(OuterClass))
-        assert r2.mid.inner.x == 777  # overridden
-        assert r2.mid.one.x == 1  # preserved
-        cfg2.finalize()
+    dep = CustomDep()
+    assert HiddenAnnotationSchema(dep=dep).dep is dep
+    parsed = parse_config(HiddenAnnotationSchema, {"choice": {"rate": 2.0}})
+    assert parsed.choice == Leaf(rate=2.0)
+    assert parsed.collection == {"leaf": Leaf()}
+    assert parsed.dep is None
+    assert "dep" not in config_to_dict(parsed)
+    with pytest.raises(ValidationError, match="Unexpected keyword argument"):
+        parse_config(HiddenAnnotationSchema, {"dep": dep})
 
 
-class TestDictOfOptionalDataclass:
-    """cfg.get for dataclasses with dict[str, Dataclass | None] fields."""
+def test_undecorated_dataclass_subclass_is_rejected():
+    @configurable_dataclass
+    class ModuleSchema:
+        choice: Annotated[Any, ModuleConfig()] = field(default_factory=Leaf)
 
-    def test_roundtrip_no_user_config(self):
-        """Instance default survives cfg.get when no user config exists."""
-        cfg = ConfigManager({})
-        default = DictOfOptionalDataclass(
-            axes={"z": Axis(direction=(0, 0, 1), bins=100, range=(-8, 8))}
+    assert not is_configurable_dataclass(UndecoratedSubclass)
+    assert not is_configurable_dataclass(UndecoratedSubclass())
+    with pytest.raises(ValueError, match="not a configurable dataclass"):
+        parse_config(UndecoratedSubclass, {})
+    with pytest.raises(ValueError, match="not a configurable dataclass"):
+        config_to_dict(UndecoratedSubclass())
+    with pytest.raises(ValidationError, match="not a configurable dataclass"):
+        parse_config(
+            ModuleSchema, {"choice": {"module": f"{__name__}:UndecoratedSubclass"}}
         )
-        result = cfg.get("density", default)
-        assert result.axes["z"] is not None
-        assert result.axes["z"].bins == 100
-        assert result.axes["z"].range == (-8, 8)
-
-    def test_partial_override(self):
-        """User config partially overrides one field of a dict entry."""
-        cfg = ConfigManager({"density": {"axes": {"z": {"range": [-6, 6]}}}})
-        default = DictOfOptionalDataclass(
-            axes={"z": Axis(direction=(0, 0, 1), bins=100, range=(-8, 8))}
-        )
-        result = cfg.get("density", default)
-        assert result.axes["z"] is not None
-        assert result.axes["z"].range == (-6, 6)
-        assert result.axes["z"].bins == 100  # preserved from default
-        assert result.axes["z"].direction == (0, 0, 1)  # preserved
-
-    def test_none_disables_entry(self):
-        """Setting a dict entry to None should disable it."""
-        cfg = ConfigManager({"density": {"axes": {"z": None}}})
-        default = DictOfOptionalDataclass(
-            axes={"z": Axis(direction=(0, 0, 1), bins=100, range=(-8, 8))}
-        )
-        result = cfg.get("density", default)
-        assert result.axes["z"] is None
-
-    def test_add_new_entry(self):
-        """User config adds a new dict entry not in the default."""
-        x_axis = {"direction": [1, 0, 0], "bins": 50, "range": [-5, 5]}
-        cfg = ConfigManager({"density": {"axes": {"x": x_axis}}})
-        default = DictOfOptionalDataclass(
-            axes={"z": Axis(direction=(0, 0, 1), bins=100, range=(-8, 8))}
-        )
-        result = cfg.get("density", default)
-        assert result.axes["z"] is not None
-        assert result.axes["x"] is not None
-        assert result.axes["x"].direction == (1, 0, 0)

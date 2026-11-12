@@ -5,48 +5,18 @@ diagnostics. Most custom estimators are easiest to write as single-walker
 calculations: you describe what to compute for one sampled configuration, and
 JaQMC maps that calculation over the walker batch.
 
-The sections below build in order: a plain function, then a configurable
-`PerWalkerEstimator`, then runtime dependencies, then the full-batch `Estimator`
-when the whole walker batch is required. After that, a short reference section
-pulls the options together; the last section shows how to register the
-estimator in a real workflow and config.
-
-## Start with a Function
-
-The simplest estimator is a plain function. Here's one that computes the
-electronic dipole moment for one walker:
-
-```python
-from jax import numpy as jnp
-
-
-def dipole_moment(params, data, stats, state, rngs):
-    del params, stats, rngs
-    dipole = -jnp.sum(data.electrons, axis=0)
-    return {"dipole_x": dipole[0], "dipole_y": dipole[1], "dipole_z": dipole[2]}, state
-```
-
-Pass it directly in your estimators dict:
-
-```python
-estimators = {"dipole": dipole_moment, ...}
-```
-
-JaQMC wraps the function as a
-{class}`~jaqmc.estimator.base.FunctionEstimator`. The function receives one
-walker's `Data`, not a batch. The wrapper batches it over walkers during
-`evaluate_batch_walkers`. If you need the exact `Data` versus `BatchedData` convention,
-see <project:../runtime-data-conventions.md>.
-
-This form is a good fit for small, fixed observables. If the estimator needs
-user-tunable fields or setup work, use a class instead.
+The sections below build in order from a configurable `PerWalkerEstimator` to
+runtime dependencies and then the full-batch `Estimator` when the whole walker
+batch is required. After that, a short reference section pulls the options
+together, and the last section shows how to register the estimator in a real
+workflow and config.
 
 ## Make It Configurable
 
-When users should be able to adjust estimator settings from YAML, use
-{class}`~jaqmc.estimator.base.PerWalkerEstimator`. It is the base class for
-single-walker estimators: you implement `evaluate_single_walker`, and
-`PerWalkerEstimator` provides the batched `evaluate_batch_walkers` implementation.
+{class}`~jaqmc.estimator.base.PerWalkerEstimator` is the base class for
+single-walker estimators whose settings can be adjusted from YAML. Subclasses
+implement `evaluate_single_walker`, and `PerWalkerEstimator` provides the
+batched `evaluate_batch_walkers` implementation.
 
 ```python
 from dataclasses import field
@@ -81,13 +51,12 @@ class DipoleEstimator(PerWalkerEstimator):
 ```
 
 Now `reference_point` is a config field. It appears in `--dry-run` output and
-users can override it in YAML:
+users can override it in YAML when their workflow declares this estimator:
 
 ```yaml
-train:
-  estimators:
-    dipole:
-      reference_point: [1.0, 0.0, 0.0]
+estimators:
+  dipole:
+    reference_point: [1.0, 0.0, 0.0]
 ```
 
 Because this estimator inherits from `PerWalkerEstimator`, users also get
@@ -96,10 +65,9 @@ vmap. On memory-limited runs, users can set an integer to evaluate fewer
 walkers at a time:
 
 ```yaml
-train:
-  estimators:
-    expensive_observable:
-      vmap_chunk_size: 128
+estimators:
+  expensive_observable:
+    vmap_chunk_size: 128
 ```
 
 That knob is specific to the local-vmap path. Estimators that implement their
@@ -163,30 +131,48 @@ class DipoleEstimator(PerWalkerEstimator):
         }, state
 ```
 
-Construct it directly when you already have the dependencies:
+Construct the estimator directly when the nuclear charges and positions are
+already available. A molecule configuration exposes them through `atoms`:
 
 ```python
-est = DipoleEstimator(atom_charges=system.charges, atom_positions=system.positions)
+from jax import numpy as jnp
+
+atoms = system.atoms
+est = DipoleEstimator(
+    atom_charges=jnp.asarray([atom.charge for atom in atoms]),
+    atom_positions=jnp.asarray([atom.coords for atom in atoms]),
+)
 ```
 
-Or let config create the user-tunable part, then wire runtime dependencies:
+In a workflow, the estimator is created from configuration first, and the
+workflow wires its runtime dependencies in `build_runtime` before passing the
+estimators to the stage builder (for example, inside `_wire_estimators` in
+{ghsrc}`src/jaqmc/app/molecule/workflow.py`). Wire the estimator even when it is
+disabled, so that turning it on later cannot leave its dependencies unset:
 
 ```python
+from jax import numpy as jnp
+
 from jaqmc.utils.wiring import wire
 
 
-est = cfg.get("estimators.dipole", DipoleEstimator())
-wire(est, atom_charges=system.charges, atom_positions=system.positions)
+def _wire_estimators(settings, wf, system):
+    ...
+    atoms = system.atoms
+    wire(
+        settings.dipole,
+        atom_charges=jnp.asarray([atom.charge for atom in atoms]),
+        atom_positions=jnp.asarray([atom.coords for atom in atoms]),
+    )
 ```
 
 Only `reference_point` and inherited `PerWalkerEstimator` config fields appear in
 YAML. Runtime dependencies remain workflow-owned:
 
 ```yaml
-train:
-  estimators:
-    dipole:
-      reference_point: [1.0, 0.0, 0.0]
+estimators:
+  dipole:
+    reference_point: [1.0, 0.0, 0.0]
 ```
 
 If a runtime dependency raises an attribute error, check where the estimator is
@@ -261,7 +247,7 @@ option, make that option describe the estimator's own batching strategy.
 
 ## Choose the Right Interface
 
-The examples above are the three main patterns. The tables below are a quick
+The examples above are the two main patterns. The tables below are a quick
 way to pick an interface, see which lifecycle hooks you might override, and
 review two naming and ordering rules for the keys you publish and for how
 estimators see each other's outputs.
@@ -272,8 +258,7 @@ The choice comes down to what shape of data the estimator really needs:
 
 | Need | Use | Implement |
 |------|-----|-----------|
-| Fixed single-walker calculation | Plain function | Function body |
-| Configurable single-walker calculation | `PerWalkerEstimator` | `evaluate_single_walker` |
+| Single-walker calculation | `PerWalkerEstimator` | `evaluate_single_walker` |
 | Full-batch or state-accumulating calculation | `Estimator` | `evaluate_batch_walkers` |
 
 ### Lifecycle hooks
@@ -302,52 +287,71 @@ Two conventions matter for the keys you return and for cross-estimator use:
   which becomes the VMC optimization target. Use this prefix only for real
   energy terms; a non-energy key such as `energy:dipole` will change the
   optimization target.
-- **Pipeline order**: Estimators run in insertion order. Each estimator receives
-  `prev_walker_stats`, the per-walker values from preceding estimators. If your
-  estimator depends on another estimator's output, place it later in the
-  estimator dict.
+- **Pipeline order**: Estimators run in the order their fields are declared in
+  the workflow's estimator collection; nested collections are expanded in
+  place. Each estimator receives `prev_walker_stats`, the per-walker values
+  from preceding estimators. If your estimator depends on another estimator's
+  output, declare its field after that estimator's field.
 
 ## End-to-End: Wire Your Estimator into a Real Run
 
-With the class or function in place and the right interface selected, the
+With the estimator class in place and the right interface selected, the
 remaining work is app-specific: register the estimator with the workflow, turn
 it on in YAML, run training or evaluation, and confirm the new statistics in
 the output files.
 
 ### 1. Register it in the workflow
 
-In your app's workflow module, import your estimator and add it to the estimator
-collection behind an explicit config flag. The concrete code below uses
-`src/jaqmc/app/molecule/workflow.py` as an example:
+In your app's workflow module, import the estimator from the module where you
+defined it and add an optional field to the shared estimator collection.
+Adding the field to `MoleculeEstimators` in
+{ghsrc}`src/jaqmc/app/molecule/workflow.py` registers it for both training and
+evaluation:
 
 ```python
-from jaqmc.app.molecule.dipole_estimator import DipoleEstimator
+from my_package.estimators import DipoleEstimator
+
+
+@configurable_dataclass
+class MoleculeEstimators(EstimatorCollection):
+    ...
+    dipole: DipoleEstimator = field(default_factory=DipoleEstimator)
+
+
+@configurable_dataclass
+class MoleculeWorkflowBase:
+    ...
+    estimators: Annotated[
+        MoleculeEstimators,
+        WithToggles(spin=False, density=False, dipole=False),
+    ] = field(default_factory=MoleculeEstimators)
 ```
 
-```python
-if cfg.get("estimators.enabled.dipole", False):
-    estimators["dipole"] = cfg.get(
-        "estimators.dipole",
-        DipoleEstimator(),
-    )
-```
+Workflows declare which estimators in an
+{class}`~jaqmc.estimator.EstimatorCollection` are user-togglable via
+{func}`~jaqmc.estimator.WithToggles`, and
+{class}`~jaqmc.estimator.EstimatorPipeline` runs only the enabled estimators
+exposed by the collection. Setting `dipole=False` in `WithToggles` exposes an
+inline `estimators.dipole.enabled` key defaulting to `false`, while any
+defaults on `DipoleEstimator` stay in place.
 
-Registering in the shared estimator factory, such as molecule
-`make_estimators(...)`, makes it available to every stage that uses that
-factory. If your estimator does not appear in a run, check this registration
-step first; defining the class only makes it available to import.
+If the estimator has `runtime_dep` fields, wire them in the workflow's
+`build_runtime` method before building the stage, as shown in
+[Add Runtime Dependencies](#add-runtime-dependencies).
 
 ### 2. Enable it in YAML
 
-In your run config:
+Set `estimators.dipole.enabled: true` in YAML to run the estimator:
 
 ```yaml
 estimators:
-  enabled:
-    dipole: true
   dipole:
+    enabled: true
     reference_point: [0.0, 0.0, 0.0]
 ```
+
+Changing `reference_point` without `estimators.dipole.enabled: true` updates
+that setting but leaves the estimator off.
 
 ### 3. Run training and evaluation
 

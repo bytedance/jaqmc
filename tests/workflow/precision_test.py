@@ -29,7 +29,6 @@ from jaqmc.optimizer.sr import SROptimizer
 from jaqmc.sampler.base import SamplePlan
 from jaqmc.sampler.mcmc import MCMCSampler
 from jaqmc.utils.atomic.pretrain import make_pretrain_log_amplitude
-from jaqmc.utils.config import ConfigManager
 
 
 def _mode_scale(precision: str | None) -> float:
@@ -65,7 +64,7 @@ def _scaled_phase_logpsi(
 
 
 def test_workflow_configures_consumer_wavefunction_precisions(tmp_path: Path) -> None:
-    cfg = ConfigManager(
+    workflow = MoleculeTrainWorkflow.from_config(
         {
             "workflow": {"save_path": str(tmp_path)},
             "system": {"atoms": [{"symbol": "Li", "coords": [0, 0, 0]}], "s_z": 0.5},
@@ -75,14 +74,15 @@ def test_workflow_configures_consumer_wavefunction_precisions(tmp_path: Path) ->
         [
             "wf.precision=fp16_jac",
             "sampler.wavefunction_precision=fp16_mixed",
-            "estimators.enabled.spin=true",
+            "estimators.spin.enabled=true",
             "estimators.energy.kinetic.wavefunction_precision=fp16_mixed",
             "estimators.spin.wavefunction_precision=fp16_mixed",
             "train.grads.wavefunction_precision=fp16_mixed",
             "train.optim.wavefunction_precision=standard",
         ],
     )
-    stage = MoleculeTrainWorkflow(cfg).train_stage
+    workflow.build_runtime()
+    stage = workflow.train_stage
     assert isinstance(stage.wavefunction, LapNetWavefunction)
     assert stage.wavefunction.precision == "fp16_jac"
     assert (

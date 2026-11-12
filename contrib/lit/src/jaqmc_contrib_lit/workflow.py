@@ -3,22 +3,27 @@
 
 """Molecular dipole LIT workflow."""
 
-from __future__ import annotations
-
 import logging
 import time
+from collections.abc import Callable
+from dataclasses import field
 from functools import partial
-from typing import Any
+from typing import Annotated, Any
 
 import jax
 import numpy as np
 from jax import numpy as jnp
+from pydantic import Field
 
+from jaqmc.app.molecule.config import MoleculeConfig
 from jaqmc.app.molecule.data import data_init
-from jaqmc.app.molecule.workflow import configure_system
+from jaqmc.app.molecule.wavefunction.base import MoleculeWavefunction
+from jaqmc.app.molecule.wavefunction.ferminet import FermiNetWavefunction
+from jaqmc.sampler import SamplerLike
 from jaqmc.sampler.base import SamplePlan
 from jaqmc.sampler.mcmc import MCMCSampler
-from jaqmc.utils.config import ConfigManager
+from jaqmc.utils.config import ModuleConfig, configurable_dataclass
+from jaqmc.utils.wiring import wire
 from jaqmc.workflow.base import Workflow
 from jaqmc_contrib_lit.common import (
     _AXIS_NAMES,
@@ -54,21 +59,37 @@ logger = logging.LoggerAdapter(
 )
 
 
+@configurable_dataclass
 class LITWorkflow(SourceStageMixin, TrainingMixin, ScanMixin, Workflow):
     """Compute a molecular dipole response spectrum with LIT."""
 
-    def __init__(self, cfg: ConfigManager) -> None:
-        super().__init__(cfg)
-        self.lit_config = cfg.get("lit", LITConfig)
-        self.system_config, self.wf = configure_system(cfg)
-        self.sampler = cfg.get("sampler", MCMCSampler)
+    workflow_name = "lit"
+    system: Annotated[
+        MoleculeConfig | Callable[[], MoleculeConfig],
+        ModuleConfig(package="jaqmc.app.molecule.config"),
+    ] = field(default_factory=MoleculeConfig)
+    wf: Annotated[
+        MoleculeWavefunction,
+        ModuleConfig(package="jaqmc.app.molecule.wavefunction"),
+    ] = field(default_factory=FermiNetWavefunction)
+    sampler: Annotated[SamplerLike, ModuleConfig(package="jaqmc.sampler")] = field(
+        default_factory=MCMCSampler
+    )
+    lit_config: LITConfig = Field(default_factory=LITConfig, alias="lit")
+
+    def __post_init__(self) -> None:
         self._lit_chunk_sums_kernel_cache: dict[
             tuple[int, int, int],
             tuple[Any, Any, Any],
         ] = {}
         self._source_distillation_eval_kernel_cache: dict[tuple[Any, ...], Any] = {}
         self._source_sample_step_kernel_cache: dict[int, Any] = {}
+        self.system_config = self.system() if callable(self.system) else self.system
+        self.wf.nspins = self.system_config.electron_spins
         self._validate_config()
+
+    def build_runtime(self) -> None:
+        wire(self.sampler)
 
     def run(self) -> None:
         self._run_serial_scan()

@@ -44,7 +44,7 @@ class MyOptimizer:
         )
 ```
 
-`**kwargs` may include `batched_data` and `rngs` — use them if your optimizer needs the current walker positions or randomness during initialization (e.g., for initial curvature estimates).
+The training stage passes `batched_data` and `rngs` as keyword arguments. Optimizers that need the current walker positions or randomness during initialization (e.g., for initial curvature estimates) can declare them explicitly, while `**kwargs` absorbs them otherwise.
 
 **`update`** transforms gradients into parameter updates:
 
@@ -57,7 +57,7 @@ class MyOptimizer:
         return updates, new_state
 ```
 
-The returned `updates` are added to `params` by the training loop (i.e., `new_params = params + updates`), so negate the gradients if you're doing gradient descent. `**kwargs` again may include `batched_data` and `rngs` for per-step data access.
+The returned `updates` are added to `params` by the training loop (i.e., `new_params = params + updates`), so negate the gradients if you're doing gradient descent. `batched_data` and `rngs` are passed here too, for per-step data access.
 
 ## Getting Started
 

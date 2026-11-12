@@ -56,7 +56,15 @@ def _solver_data(
         "xc": solver.xc,
         "checkpoint": solver.checkpoint,
         "verbose": solver.verbose,
-        "extra": solver.extra,
+        "scf": {
+            "conv_tol": solver.conv_tol,
+            "conv_tol_grad": solver.conv_tol_grad,
+            "max_cycle": solver.max_cycle,
+            "diis_space": solver.diis_space,
+            "level_shift": solver.level_shift,
+            "damp": solver.damp,
+            "init_guess": solver.init_guess,
+        },
     }
 
 
@@ -91,10 +99,9 @@ else:
     mf = getattr(pyscf.dft, method)(mol)
     mf.xc = config["xc"]
 mf.chkfile = config["checkpoint"]
-for key, value in config["extra"].items():
-    if not hasattr(mf, key):
-        raise ValueError(f"Unknown PySCF mean-field setting: {{key}}")
-    setattr(mf, key, value)
+for key, value in config["scf"].items():
+    if value is not None:
+        setattr(mf, key, value)
 mf.kernel()
 if not mf.converged:
     raise RuntimeError("PySCF did not converge.")

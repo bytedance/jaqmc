@@ -3,6 +3,8 @@
 
 """Tests for ECP configuration utilities and solid config factories."""
 
+import pytest
+
 from jaqmc.utils.atomic import core_electrons_by_pp
 
 
@@ -23,9 +25,9 @@ class TestCoreElectronsByPP:
 class TestRockSaltConfig:
     def test_no_ecp(self):
         """All-electron rock salt: Li(3e) + H(1e) = 4 electrons."""
-        from jaqmc.app.solid.config.rock_salt import rock_salt_config
+        from jaqmc.app.solid.config.rock_salt import RockSaltBuilder
 
-        cfg = rock_salt_config(symbol_a="Li", symbol_b="H")
+        cfg = RockSaltBuilder(symbol_a="Li", symbol_b="H")()
         assert cfg.pp is None
         assert cfg.electron_spins == (2, 2)
         assert cfg.atoms[0].charge == 3
@@ -33,21 +35,24 @@ class TestRockSaltConfig:
 
     def test_with_ecp(self):
         """ECP rock salt: Li(1 valence) + H(1 valence) = 2 electrons."""
-        from jaqmc.app.solid.config.rock_salt import rock_salt_config
+        from jaqmc.app.solid.config.rock_salt import RockSaltBuilder
 
-        cfg = rock_salt_config(symbol_a="Li", symbol_b="H", pp={"Li": "ccecp"})
+        cfg = RockSaltBuilder(symbol_a="Li", symbol_b="H", pp={"Li": "ccecp"})()
         assert cfg.pp == {"Li": "ccecp"}
         assert cfg.atoms[0].charge == 1
         assert cfg.atoms[1].charge == 1
         assert cfg.electron_spins == (1, 1)
         assert sorted(cfg.ecp_coefficients) == ["Li"]
 
-    def test_ph_is_accepted_by_solid_workflows(self):
+    @pytest.mark.parametrize("workflow_name", ["train", "eval"])
+    def test_ph_is_accepted_by_solid_workflows(self, workflow_name):
         """Solid workflows accept PH pseudopotentials via the unified `pp` key."""
-        from jaqmc.app.solid.workflow import configure_system
-        from jaqmc.utils.config import ConfigManager
+        from jaqmc.app.solid.workflow import SolidEvalWorkflow, SolidTrainWorkflow
 
-        cfg = ConfigManager(
+        workflow_cls = (
+            SolidTrainWorkflow if workflow_name == "train" else SolidEvalWorkflow
+        )
+        workflow = workflow_cls.from_config(
             {
                 "system": {
                     "atoms": [
@@ -63,26 +68,26 @@ class TestRockSaltConfig:
                 }
             }
         )
-
-        system_config, wf, _ = configure_system(cfg)
-        assert system_config.ph_elements == {"Fe", "S"}
-        assert wf.nspins == (11, 11)
+        assert not callable(workflow.system)
+        assert workflow.system.ph_elements == {"Fe", "S"}
+        assert workflow.system.electron_spins == (11, 11)
+        assert list(workflow.estimators) == ["potential", "ph", "total"]
 
 
 class TestTwoAtomChain:
     def test_no_ecp(self):
         """All-electron Li chain: 2 * 3 = 6 electrons."""
-        from jaqmc.app.solid.config.two_atom_chain import two_atom_chain
+        from jaqmc.app.solid.config.two_atom_chain import TwoAtomChainBuilder
 
-        cfg = two_atom_chain(symbol="Li")
+        cfg = TwoAtomChainBuilder(symbol="Li")()
         assert cfg.pp is None
         assert cfg.electron_spins == (3, 3)
 
     def test_with_ecp(self):
         """ECP Li chain: 2 * 1 valence = 2 electrons."""
-        from jaqmc.app.solid.config.two_atom_chain import two_atom_chain
+        from jaqmc.app.solid.config.two_atom_chain import TwoAtomChainBuilder
 
-        cfg = two_atom_chain(symbol="Li", pp="ccecp")
+        cfg = TwoAtomChainBuilder(symbol="Li", pp="ccecp")()
         assert cfg.pp == "ccecp"
         assert cfg.atoms[0].charge == 1
         assert cfg.atoms[1].charge == 1

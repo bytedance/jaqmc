@@ -24,6 +24,7 @@ class MoleculeWavefunction(WavefunctionLike[MoleculeData, RealLogDetOutput], Pro
     Defines the minimal interface that workflow code depends on.
 
     Usage in workflow:
+        - ``nspins``: Set by the workflow from the system's electron spins
         - ``full_det`` and ``orbitals``: Used for pretraining (orbital matching loss)
         - ``logpsi``: Used for both pretraining (log amplitude) and VMC training
         - ``phase_logpsi``: Used for ECP calculations requiring wavefunction ratios
@@ -32,6 +33,7 @@ class MoleculeWavefunction(WavefunctionLike[MoleculeData, RealLogDetOutput], Pro
     # Whether this wavefunction uses full determinant (vs spin-split).
     # Used by pretraining to determine how to format target orbitals.
     full_det: bool
+    nspins: tuple[int, int]
 
     def logpsi(
         self, params: Params, data: MoleculeData, *, precision: str | None = None

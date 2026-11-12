@@ -69,8 +69,8 @@ class SphericalKinetic(PerWalkerEstimator):
 
     Args:
         monopole_strength: Monopole strength :math:`Q = \mathrm{flux}/2`. Zero
-            gives the field-free sphere.
-        radius: Sphere radius.
+            gives the field-free sphere (runtime dep).
+        radius: Sphere radius (runtime dep).
         mode: Laplacian computation strategy. ``forward_laplacian`` is the default
             for JAX 0.7.1 and later, ``scan`` for earlier versions. See
             :class:`LaplacianMode` for details.
@@ -80,8 +80,8 @@ class SphericalKinetic(PerWalkerEstimator):
         data_field: Electron-coordinate field name.
     """
 
-    monopole_strength: float = 0.0
-    radius: float = 1.0
+    monopole_strength: float = runtime_dep(default=0.0)
+    radius: float = runtime_dep(default=1.0)
     mode: LaplacianMode = default_laplacian_mode()
     wavefunction_precision: str | None = None
     f_log_psi_from_spinor: SpinorWavefunctionEvaluate = runtime_dep()

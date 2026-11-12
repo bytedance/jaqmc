@@ -6,18 +6,39 @@
 import math
 
 from jaqmc.utils.atomic import Atom, AtomInitialization
+from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.units import ONE_ANGSTROM_IN_BOHR
 
 from .base import AtomConfig, MoleculeConfig
 
-__all__ = ["alkane_config"]
+__all__ = ["AlkaneBuilder"]
 
 _CC_BOND_LENGTH_ANGSTROM = 1.55
 _CH_BOND_LENGTH_ANGSTROM = 1.09
 _TETRAHEDRAL_ANGLE_RAD = math.radians(109.4712)
 
 
-def alkane_config(
+@configurable_dataclass
+class AlkaneBuilder:
+    """Builder for a linear alkane chain."""
+
+    repeat_num: int = 1
+    pp: str | dict[str, str] | None = None
+    electron_init_width: float = 1.0
+
+    def __post_init__(self) -> None:
+        _validate_repeat_num(self.repeat_num)
+
+    def __call__(self) -> MoleculeConfig:
+        return _build_alkane(self.repeat_num, self.pp, self.electron_init_width)
+
+
+def _validate_repeat_num(repeat_num: int) -> None:
+    if repeat_num < 1:
+        raise ValueError(f"repeat_num must be at least 1. Got {repeat_num}.")
+
+
+def _build_alkane(
     repeat_num: int = 1,
     pp: str | dict[str, str] | None = None,
     electron_init_width: float = 1.0,
@@ -37,12 +58,8 @@ def alkane_config(
 
     Returns:
         MoleculeConfig for the requested alkane chain.
-
-    Raises:
-        ValueError: If ``repeat_num`` is smaller than 1.
     """
-    if repeat_num < 1:
-        raise ValueError(f"repeat_num must be at least 1. Got {repeat_num}.")
+    _validate_repeat_num(repeat_num)
 
     dx_c = _CC_BOND_LENGTH_ANGSTROM * math.sin(_TETRAHEDRAL_ANGLE_RAD / 2.0)
     dy_c = _CC_BOND_LENGTH_ANGSTROM * math.cos(_TETRAHEDRAL_ANGLE_RAD / 2.0)
@@ -96,7 +113,7 @@ def alkane_config(
     spin_imbalance = sum(alpha - beta for alpha, beta in fixed_spins_per_atom)
 
     return MoleculeConfig(
-        atom_configs=atoms,
+        atoms=atoms,
         s_z=spin_imbalance / 2,
         electron_init_width=electron_init_width,
         pp=pp,

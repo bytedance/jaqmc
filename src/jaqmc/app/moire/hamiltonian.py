@@ -271,7 +271,7 @@ class CoulombInteractionEnergy(PerWalkerEstimator):
 
     supercell_lattice: jnp.ndarray = runtime_dep()
     coulomb_prefactor_mev: float = runtime_dep(default=1.0)
-    output_key: str = "energy:coulomb"
+    output_key: str = runtime_dep(default="energy:coulomb")
 
     def init(self, data: MoireData, rngs: PRNGKey) -> None:
         del data, rngs
@@ -325,7 +325,7 @@ class MoireSOC(PerWalkerEstimator):
     primitive_lattice: jnp.ndarray = runtime_dep()
     nspins: tuple[int, int] = runtime_dep()
     prefactor: float = runtime_dep(default=1.0)
-    output_key: str = "energy:soc"
+    output_key: str = runtime_dep(default="energy:soc")
 
     def evaluate_single_walker(
         self,
@@ -424,7 +424,7 @@ class MoirePotential(PerWalkerEstimator):
     ] = runtime_dep()
     primitive_lattice: jnp.ndarray = runtime_dep()
     nspins: tuple[int, int] = runtime_dep()
-    output_key: str = "energy:moire_potential"
+    output_key: str = runtime_dep(default="energy:moire_potential")
     v1_mev: float = runtime_dep(default=0.0)
     phi1_rad: float = runtime_dep(default=0.0)
     omega1_mev: float = runtime_dep(default=0.0)

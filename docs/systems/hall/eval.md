@@ -1,11 +1,10 @@
 # Quantum Hall Evaluation
 
 Configuration reference for `jaqmc hall evaluate`.
-This page shows the effective defaults for the evaluation workflow preset. Use
-`--dry-run` to see the resolved config for your run, or add
-`workflow.config.verbose=true` to include field descriptions. Evaluation keys
+This page shows the evaluation workflow defaults. `--dry-run` prints the
+resolved config for a specific run. Evaluation keys
 for `run.*`, `sampler.*`, and `writers.*` live at the config root. Defaults are
-resolved in this order: schema defaults, workflow preset, YAML config, then CLI
+resolved in this order: schema defaults, YAML config, then CLI
 overrides. For training config, see <project:train.md>.
 
 Root-level runtime keys such as `logging.*`, `jax.*`, and `distributed.*` are
@@ -49,11 +48,8 @@ MHPO options match the [training wavefunction config](#hall-train-wf).
 
 ### Free options (`wf.*`)
 
-```{eval-rst}
-.. config-defaults:: jaqmc.app.hall.wavefunction.free.Free
-   :prefix: wf
-   :scope: Free
-```
+The `free` monopole-harmonics wavefunction takes no extra `wf.*` configuration
+keys.
 
 ## Run Options (`run.*`)
 
@@ -78,8 +74,11 @@ proposal.
 ## Writers (`writers.*`)
 
 The evaluation NPY writer is always enabled because its per-step statistics
-are required for digest computation. It writes to `evaluation_stats.npy`; other
-root-level writer keys enable additional outputs.
+are required for digest computation, and it writes to `evaluation_stats.npy`.
+Other writers are disabled by default; add one by setting its `module` key, such
+as `writers.console.module=console` or `writers.csv.module=csv`. The CSV writer
+writes `evaluation_stats.csv` in `workflow.save_path` and takes no extra
+configuration keys.
 
 ### Console writer (`writers.console.*`)
 
@@ -88,137 +87,20 @@ root-level writer keys enable additional outputs.
    :prefix: writers.console
 ```
 
-### CSV writer (`writers.csv.*`)
-
-```{eval-rst}
-.. config-defaults:: jaqmc.writer.csv.CSVWriter
-   :prefix: writers.csv
-```
-
 (hall-estimators)=
+(hall-angular-projection)=
 ## Estimators (`estimators.*`)
 
-Energy estimator definitions match training, with additional evaluation-only
-estimators enabled through boolean flags.
-
-- `TotalEnergy` is added automatically by the workflow and is not configurable
-  via a config key.
-- When `system.lz_penalty` or `system.l2_penalty` are nonzero, a
-  `PenalizedLoss` estimator is added automatically. That requires both energy
-  and angular momentum to be enabled. Reported energy remains `total_energy`.
-- `estimators.enabled.energy` defaults to `true`.
-- `estimators.enabled.angular_momentum` defaults to `true`. Setting it to
-  `false` while an angular-momentum penalty is active raises a configuration
-  error.
-- `estimators.enabled.angular_projection` defaults to `false` and is available
-  only during evaluation. It requires the energy estimator and resolves
-  requested total-angular-momentum sectors from rotational overlap kernels.
-- `estimators.enabled.density` defaults to `false`.
-- `estimators.enabled.pair_correlation` defaults to `false`.
-- `estimators.enabled.one_rdm` defaults to `false`.
-
-### Kinetic energy (`estimators.energy.kinetic.*`)
-
-Covariant kinetic energy on the Haldane sphere. See
-[Kinetic energy](../../guide/estimators/kinetic.md#spherical-kinetic-energy).
+Training and evaluation share this estimator schema. Runtime dependencies such
+as the wavefunction and sphere geometry are wired at startup and omitted from
+YAML. For physics, derivations, and post-processing (including
+[angular-momentum sector projection](../../guide/estimators/angular-momentum.md)
+and pair-correlation normalization), see
+<project:../../guide/estimators/index.md>. For the API, see
+[Estimators](../../api-reference/estimators.md).
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.estimator.kinetic.SphericalKinetic
-   :prefix: estimators.energy.kinetic
-```
-
-### Angular momentum (`estimators.angular_momentum.*`)
-
-Computes `angular_momentum_z`, `angular_momentum_z_square`, and
-`angular_momentum_square` on the Haldane sphere. See
-[Angular momentum](../../guide/estimators/angular-momentum.md)
-for its formulation, and {ref}`hall-angular-projection` for sector
-weights $p_L$.
-
-```{eval-rst}
-.. config-defaults:: jaqmc.estimator.angular_momentum.SphericalAngularMomentum
-   :prefix: estimators.angular_momentum
-```
-
-(hall-angular-projection)=
-### Angular-momentum sector projection (`estimators.angular_projection.*`)
-
-Resolves requested total-angular-momentum sectors during evaluation. Requires
-`estimators.enabled.energy=true`. See
-[Angular momentum](../../guide/estimators/angular-momentum.md)
-for the overlap kernels, Haar sampling, and how to read $p_L$.
-
-`angular_momenta` defaults to `[0]`; list every integer or half-integer $L$
-that might carry weight. `n_rotations` is the number of fresh Haar samples
-drawn per walker evaluation.
-
-```bash
-jaqmc hall evaluate \
-  estimators.enabled.angular_projection=true \
-  estimators.angular_projection.angular_momenta='[0,1,2,3]' \
-  estimators.angular_projection.n_rotations=256
-```
-
-```yaml
-estimators:
-  enabled:
-    angular_projection: true
-  angular_projection:
-    angular_momenta: [0, 1, 2, 3]
-    n_rotations: 256
-```
-
-The digest reports `angular_projection:angular_momentum` (requested $L$),
-`angular_projection:weight` ($p_L$), and `angular_projection:energy`
-($E_L$). Block the per-step `angular_projection:weight` and
-`angular_projection:energy_weight` ($h_L$) series in `evaluation_stats.npy`
-the same way [Analyzing evaluations](../../guide/analyzing-evaluations.md)
-treats per-step energies.
-
-```{eval-rst}
-.. config-defaults:: jaqmc.estimator.angular_momentum.SphericalAngularMomentumProjection
-   :prefix: estimators.angular_projection
-```
-
-### Coulomb potential (`estimators.energy.potential.*`)
-
-```{eval-rst}
-.. config-defaults:: jaqmc.app.hall.hamiltonian.SpherePotential
-   :prefix: estimators.energy.potential
-```
-
-### Density (`estimators.density.*`)
-
-Accumulates a histogram of the polar angle $\theta$ to measure electron density on the sphere.
-
-```{eval-rst}
-.. config-defaults:: jaqmc.estimator.density.spherical.SphericalDensity
-   :prefix: estimators.density
-```
-
-### Pair correlation (`estimators.pair_correlation.*`)
-
-Accumulates a histogram of geodesic pair angles $\theta_{ij}$,
-weighted by $1/\sin\theta_{ij}$, on the Haldane sphere. The digest
-holds the raw weighted counts; multiply by
-$4b / (\pi N^2 n_{\text{walkers}} n_{\text{steps}})$ — with $b$ the
-bin count, $N$ the electron number, $n_{\text{walkers}}$ the global
-walker count (`workflow.batch_size`), and $n_{\text{steps}}$ the step
-count from the digest key `pair_correlation:n_steps` — to obtain the
-pair correlation function $g(\theta)$.
-
-```{eval-rst}
-.. config-defaults:: jaqmc.app.hall.estimator.pair_correlation.PairCorrelation
-   :prefix: estimators.pair_correlation
-```
-
-### One-body RDM (`estimators.one_rdm.*`)
-
-Computes the one-body reduced density matrix in the monopole harmonic
-basis. The trace is the number of electrons on the lowest Landau level,
-$N_\text{LLL}$.
-
-```{eval-rst}
-.. config-defaults:: jaqmc.app.hall.estimator.one_rdm.OneRDM
-   :prefix: estimators.one_rdm
+.. config-defaults::
+   :prefix: estimators
+   :defaults-from: jaqmc.app.hall.workflow.HallEvalWorkflow
 ```

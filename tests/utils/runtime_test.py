@@ -8,8 +8,7 @@ import sys
 import textwrap
 from unittest.mock import call
 
-from jaqmc.utils.config import ConfigManager
-from jaqmc.utils.runtime import JaxConfig, configure_runtime
+from jaqmc.utils.runtime import JaxConfig
 
 
 def _run_cli_in_subprocess(
@@ -22,13 +21,18 @@ def _run_cli_in_subprocess(
         import warnings
         from click.testing import CliRunner
         from jaqmc.utils.cli import make_cli
+        from jaqmc.utils.config import config_to_dict
+        from jaqmc.workflow.base import Workflow
 
         result_holder = {}
 
         @make_cli
-        def check_workflow(cfg, dry_run=False):
+        def check_workflow(configs, dotlist, dry_run=False):
             import jax
             from jax import numpy as jnp
+
+            workflow = Workflow.from_config(configs, dotlist)
+            workflow.initialize_runtime(dry_run=dry_run)
 
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
@@ -46,7 +50,7 @@ def _run_cli_in_subprocess(
                     "default_matmul_precision",
                 )
             }
-            result_holder["resolved_jax"] = cfg.resolved_config["jax"]
+            result_holder["resolved_jax"] = config_to_dict(workflow.jax)
 
         res = CliRunner().invoke(check_workflow, sys.argv[1:])
         assert res.exit_code == 0, res.output
@@ -123,68 +127,3 @@ def test_cli_startup_enables_x64_from_config_without_truncation_warning():
         "disable_jit": False,
         "default_matmul_precision": "float32",
     }
-
-
-def test_configure_runtime_applies_logging_jax_and_distributed_in_order(mocker):
-    calls = []
-
-    mocker.patch(
-        "jaqmc.utils.runtime.LoggingConfig.apply",
-        autospec=True,
-        side_effect=lambda self: calls.append(f"logging:{self.level}"),
-    )
-    mocker.patch(
-        "jaqmc.utils.runtime.JaxConfig.apply",
-        autospec=True,
-        side_effect=lambda _self: calls.append("jax"),
-    )
-    mocker.patch(
-        "jaqmc.utils.runtime.DistributedConfig.init_runtime",
-        autospec=True,
-        side_effect=lambda _self: calls.append("distributed"),
-    )
-
-    cfg = ConfigManager(
-        {
-            "logging": {"level": "warning"},
-            "jax": {
-                "enable_x64": True,
-                "default_matmul_precision": "highest",
-            },
-            "distributed": {
-                "coordinator_address": "127.0.0.1:1234",
-                "num_processes": 2,
-                "process_id": 1,
-            },
-        }
-    )
-
-    configure_runtime(cfg)
-
-    assert calls == ["logging:warning", "jax", "distributed"]
-
-
-def test_configure_runtime_skips_distributed_init_on_dry_run(mocker):
-    logging_apply = mocker.patch("jaqmc.utils.runtime.LoggingConfig.apply")
-    jax_apply = mocker.patch("jaqmc.utils.runtime.JaxConfig.apply", autospec=True)
-    init_runtime = mocker.patch(
-        "jaqmc.utils.runtime.DistributedConfig.init_runtime", autospec=True
-    )
-
-    cfg = ConfigManager(
-        {
-            "logging": {"level": "info"},
-            "jax": {"enable_x64": True},
-            "distributed": {
-                "coordinator_address": "127.0.0.1:1234",
-                "num_processes": 2,
-                "process_id": 1,
-            },
-        }
-    )
-
-    configure_runtime(cfg, dry_run=True)
-
-    logging_apply.assert_called_once_with()
-    jax_apply.assert_called_once()
-    init_runtime.assert_not_called()

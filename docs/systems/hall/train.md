@@ -1,28 +1,23 @@
 # Quantum Hall Training
 
 Configuration reference for `jaqmc hall train`.
-This page shows the effective defaults for the train workflow preset. Use
-`--dry-run` to see the resolved config for your run, or add
-`workflow.config.verbose=true` to include field descriptions. Keys use the same
-dot notation as CLI overrides, such as `train.run.iterations=5000`. Defaults
-are resolved in this order: schema defaults, workflow preset, YAML config, then
-CLI overrides. For evaluation config, see <project:eval.md>.
+This page shows the train workflow defaults. `--dry-run` prints the
+resolved config for a specific run. Keys use the same dot notation as CLI overrides,
+such as `train.run.iterations=5000`. Defaults are resolved in this order:
+schema defaults, YAML config, then CLI overrides. For evaluation config, see
+<project:eval.md>.
 
 Root-level runtime keys such as `logging.*`, `jax.*`, and `distributed.*` are
 shared by all commands. See <project:../../guide/runtime-configuration.md>.
-
-```{eval-rst}
-.. config-context::
-   :preset: jaqmc.app.hall.workflow.HallTrainWorkflow.default_preset
-```
 
 ## Workflow (`workflow.*`)
 
 These keys control workflow-level settings shared across all stages.
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.workflow.base.WorkflowConfig
+.. config-defaults::
    :prefix: workflow
+   :defaults-from: jaqmc.app.hall.workflow.HallTrainWorkflow
 ```
 
 (hall-train-system)=
@@ -33,8 +28,9 @@ Defines the quantum Hall system on the Haldane sphere.
 See <project:index.md> for physics background and usage examples.
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.app.hall.config.HallConfig
+.. config-defaults::
    :prefix: system
+   :defaults-from: jaqmc.app.hall.workflow.HallTrainWorkflow
 ```
 
 (hall-train-wf)=
@@ -53,8 +49,9 @@ See <project:index.md> for background on each architecture.
 ### MHPO options (`wf.*`)
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.app.hall.wavefunction.mhpo.MHPO
+.. config-defaults::
    :prefix: wf
+   :defaults-from: jaqmc.app.hall.workflow.HallTrainWorkflow
    :scope: MHPO
 ```
 
@@ -65,8 +62,9 @@ The Hall workflow uses adaptive Metropolis-Hastings sampling with a spherical
 proposal.
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.sampler.mcmc.MCMCSampler
+.. config-defaults::
    :prefix: sampler
+   :defaults-from: jaqmc.app.hall.workflow.HallTrainWorkflow
 ```
 
 (hall-train-stage)=
@@ -78,8 +76,9 @@ The VMC optimization loop. Samples electron configurations on the Haldane sphere
 ### Run options (`train.run.*`)
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.workflow.stage.vmc.VMCWorkStageConfig
+.. config-defaults::
    :prefix: train.run
+   :defaults-from: jaqmc.app.hall.workflow.HallTrainWorkflow
 ```
 
 (hall-train-optim)=
@@ -91,8 +90,9 @@ The VMC optimization loop. Samples electron configurations on the Haldane sphere
 #### KFAC options
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.optimizer.kfac.kfac.KFACOptimizer
+.. config-defaults::
    :prefix: train.optim
+   :defaults-from: jaqmc.app.hall.workflow.HallTrainWorkflow
    :scope: KFAC
 ```
 
@@ -124,26 +124,16 @@ The VMC optimization loop. Samples electron configurations on the Haldane sphere
 ### Writers (`train.writers.*`)
 
 The train stage enables `console`, `csv`, and `npy` writers by default.
+`csv` and `npy` write `train_stats.csv` and `train_stats.npy` in
+`workflow.save_path` and take no extra configuration keys; set
+`train.writers.csv=null` or `train.writers.npy=null` to disable them.
 
 #### Console writer (`train.writers.console.*`)
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.writer.console.ConsoleWriter
+.. config-defaults::
    :prefix: train.writers.console
-```
-
-#### CSV writer (`train.writers.csv.*`)
-
-```{eval-rst}
-.. config-defaults:: jaqmc.writer.csv.CSVWriter
-   :prefix: train.writers.csv
-```
-
-#### NPY writer (`train.writers.npy.*`)
-
-```{eval-rst}
-.. config-defaults:: jaqmc.writer.npy.NPYWriter
-   :prefix: train.writers.npy
+   :defaults-from: jaqmc.app.hall.workflow.HallTrainWorkflow
 ```
 
 ### Loss gradients (`train.grads.*`)
@@ -152,8 +142,9 @@ The workflow resolves {py:obj}`~jaqmc.estimator.loss_grad.LossAndGrad`
 from `train.grads.*`. See [Loss and gradient](../../guide/estimators/loss-grad.md) for the clipping formulas.
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.estimator.loss_grad.LossAndGrad
+.. config-defaults::
    :prefix: train.grads
+   :defaults-from: jaqmc.app.hall.workflow.HallTrainWorkflow
 ```
 
 ---
@@ -161,46 +152,6 @@ from `train.grads.*`. See [Loss and gradient](../../guide/estimators/loss-grad.m
 (hall-train-estimators)=
 ## Estimators (`estimators.*`)
 
-Energy estimators are configured programmatically by the workflow and are not
-typically overridden via config. The same definitions are used by
-<project:eval.md>. For physics and derivations, see
-<project:../../guide/estimators/index.md>. For the API, see
-[Estimators](../../api-reference/estimators.md).
-
-`TotalEnergy` automatically sums all `energy:`-prefixed components.
-`SphericalAngularMomentum` is enabled by default; set
-`estimators.enabled.angular_momentum=false` to omit it. When
-`system.lz_penalty` or `system.l2_penalty` are nonzero, angular momentum
-is required by `PenalizedLoss`. `TotalEnergy` and `PenalizedLoss` are not
-configurable via config keys.
-
-### Kinetic energy (`estimators.energy.kinetic.*`)
-
-Covariant kinetic energy on the Haldane sphere. See
-[Kinetic energy](../../guide/estimators/kinetic.md#spherical-kinetic-energy).
-
-```{eval-rst}
-.. config-defaults:: jaqmc.estimator.kinetic.SphericalKinetic
-   :prefix: estimators.energy.kinetic
-```
-
-### Angular momentum (`estimators.angular_momentum.*`)
-
-Computes `angular_momentum_z`, `angular_momentum_z_square`, and
-`angular_momentum_square` for the Haldane sphere. See
-[Angular momentum](../../guide/estimators/angular-momentum.md)
-for its formulation.
-
-```{eval-rst}
-.. config-defaults:: jaqmc.estimator.angular_momentum.SphericalAngularMomentum
-   :prefix: estimators.angular_momentum
-```
-
-### Coulomb potential (`estimators.energy.potential.*`)
-
-Coulomb repulsion on the Haldane sphere.
-
-```{eval-rst}
-.. config-defaults:: jaqmc.app.hall.hamiltonian.SpherePotential
-   :prefix: estimators.energy.potential
-```
+Training and evaluation share the same estimator schema and defaults; see the
+[evaluation estimator config](#hall-estimators). During training, the
+total-energy estimator is always enabled and cannot be toggled off.

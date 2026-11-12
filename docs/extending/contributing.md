@@ -44,7 +44,7 @@ In VS Code, the [Ruff](https://marketplace.visualstudio.com/items?itemName=charl
 
 - **License headers.** Every Python file begins with the Apache-2.0 header. The pre-commit hook inserts this header automatically on new `.py` files.
 - **Lint rules.** Ruff errors should be resolved in code rather than suppressed with `# noqa` comments.
-- **Type annotations.** New functions, methods, and dataclass fields require standard Python 3.12+ type annotations without `from __future__ import annotations`.
+- **Type annotations.** New functions, methods, and dataclass fields require standard Python 3.12+ type annotations without `from __future__ import annotations`, which stringizes field types at runtime and breaks configuration schema resolution.
 
 ## Docstrings
 
@@ -74,7 +74,7 @@ with deep neural networks",
 
 ### Config Dataclasses
 
-For classes decorated with `@configurable_dataclass` (and `Wavefunction` subclasses), field descriptions belong in the class docstring under `Args:`. Sphinx extracts field descriptions from `Args:` for the documentation's configuration tables, and `workflow.config.verbose=true` includes the class docstring in resolved configuration output.
+For classes decorated with `@configurable_dataclass` (and `Wavefunction` subclasses), field descriptions belong in the class docstring under `Args:`. Sphinx extracts field descriptions from `Args:` for the documentation's configuration tables.
 
 ## Testing
 

@@ -1,16 +1,19 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+"""Periodic solid workflows."""
+
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import field
 from functools import partial
-from typing import Any
+from typing import Annotated
 
 import numpy as np
 from jax import numpy as jnp
 from upath import UPath
 
-from jaqmc.estimator import EstimatorLike
+from jaqmc.estimator import EstimatorCollection, WithToggles
 from jaqmc.estimator.density import FractionalAxis, FractionalDensity
 from jaqmc.estimator.ecp import ECPEnergy
 from jaqmc.estimator.kinetic import EuclideanKinetic
@@ -18,214 +21,139 @@ from jaqmc.estimator.ph import PHEnergy
 from jaqmc.estimator.spin import SpinSquared
 from jaqmc.estimator.total_energy import TotalEnergy
 from jaqmc.geometry.pbc import build_distance_fn, make_pbc_gaussian_proposal
-from jaqmc.optimizer.kfac import KFACOptimizer
-from jaqmc.optimizer.optax import adam
-from jaqmc.sampler.mcmc import MCMCSampler
-from jaqmc.utils.atomic import make_pretrain_loss
-from jaqmc.utils.atomic.pretrain import make_pretrain_log_amplitude
-from jaqmc.utils.config import ConfigManager, ConfigManagerLike
+from jaqmc.sampler import SamplerLike
+from jaqmc.sampler.mcmc import MCMCSampler, SamplingProposal
+from jaqmc.utils.atomic.pretrain import make_pretrain_log_amplitude, make_pretrain_loss
+from jaqmc.utils.config import ModuleConfig, configurable_dataclass
 from jaqmc.utils.reference import auto_generate_reference
 from jaqmc.utils.wiring import wire
-from jaqmc.wavefunction import Wavefunction
-from jaqmc.workflow import EvaluationWorkflow, VMCWorkflow
-from jaqmc.workflow.stage import EvaluationWorkStage, VMCWorkStage
-from jaqmc.workflow.stage.vmc import VMCStageBuilder
+from jaqmc.workflow.evaluation import EvaluationWorkflow
+from jaqmc.workflow.stage.evaluation import EvaluationWorkStage
+from jaqmc.workflow.stage.vmc import VMCWorkStage, VMCWorkStageConfig
+from jaqmc.workflow.vmc import (
+    VMCPretrainConfig,
+    VMCTrainConfig,
+    VMCWorkflow,
+    stage_writers,
+)
 
 from .config import SolidConfig, SolidPySCFSolverConfig
 from .data import data_init
 from .hamiltonian import PotentialEnergy
 from .reference import SolidReference, load_reference
 from .reference import pyscf as reference_pyscf
-from .wavefunction import SolidWavefunction
+from .wavefunction import SolidWavefunction, SolidWavefunctionLike
 
 logger = logging.getLogger(__name__)
 
 
-class SolidTrainWorkflow(VMCWorkflow):
-    """VMC training workflow for periodic solid-state systems."""
+@configurable_dataclass
+class SolidEnergyEstimators(EstimatorCollection):
+    """Energy component estimators for periodic solid systems.
 
-    @classmethod
-    def default_preset(cls) -> dict[str, Any]:
-        console_fields = (
-            "pmove:.2f,energy=total_energy:.4f,variance=total_energy_real_var:.4f"
-        )
-        return {
-            "pretrain": {
-                "run": {"iterations": 2_000},
-                "optim": {
-                    "learning_rate": {
-                        "module": "jaqmc.optimizer.schedule:Constant",
-                        "rate": 3e-4,
-                    }
-                },
+    Args:
+        potential: Periodic Coulomb potential energy via Ewald summation.
+        kinetic: Euclidean kinetic energy. Disabled when ``system.pp`` selects
+            PH for any atom because :class:`~jaqmc.estimator.ph.PHEnergy`
+            computes the kinetic term, and enabled otherwise.
+        ecp: Semi-local effective core potential energy. Enabled when
+            ``system.pp`` selects an ECP for at least one atom.
+        ph: Local Pseudo-Hamiltonian energy correction. Enabled when
+            ``system.pp`` selects ``"ph"`` for at least one atom.
+        total: Sums enabled ``energy:``-prefixed components into
+            ``total_energy``.
+    """
+
+    potential: PotentialEnergy = field(default_factory=PotentialEnergy)
+    kinetic: EuclideanKinetic = field(default_factory=EuclideanKinetic)
+    ecp: ECPEnergy = field(default_factory=ECPEnergy)
+    ph: PHEnergy = field(default_factory=PHEnergy)
+    total: TotalEnergy = field(default_factory=TotalEnergy)
+
+
+@configurable_dataclass
+class SolidEstimators(EstimatorCollection):
+    """Observables evaluated by periodic solid workflows.
+
+    Args:
+        energy: Energy component estimators.
+        spin: Total spin-squared (:math:`S^2`) estimator.
+        density: Electron density histogram in fractional supercell
+            coordinates over :math:`[0, 1)`.
+    """
+
+    energy: SolidEnergyEstimators = field(default_factory=SolidEnergyEstimators)
+    spin: SpinSquared = field(default_factory=SpinSquared)
+    density: FractionalDensity = field(
+        default_factory=lambda: FractionalDensity(
+            axes={
+                name: FractionalAxis(lattice_index=index, bins=50)
+                for name, index in [("a", 0), ("b", 1), ("c", 2)]
             },
-            "train": {
-                "run": {"iterations": 200_000},
-                "writers": {"console": {"fields": console_fields}},
-            },
-        }
-
-    def __init__(self, cfg: ConfigManager) -> None:
-        super().__init__(cfg)
-        system_config, wf, sampling_proposal = configure_system(cfg)
-
-        self.wf = wf
-        self.reference: SolidReference | None = None
-        self._system_config = system_config
-        if reference_path := cfg.get("reference", ""):
-            self.reference = load_reference(UPath(reference_path), self._system_config)
-        self.data_init = partial(data_init, system_config)
-
-        sampler = cfg.get("sampler", MCMCSampler(sampling_proposal=sampling_proposal))
-
-        self._pretrain_builder: VMCStageBuilder | None = None
-        if cfg.get("pretrain.run.iterations", 2_000) > 0:
-            self._pretrain_sample_fraction = cfg.get("pretrain.sample_fraction", 1.0)
-            pretrain = VMCWorkStage.builder(cfg.scoped("pretrain"), wf, name="pretrain")
-            pretrain.configure_optimizer(default=adam, f_log_psi=wf.logpsi)
-            pretrain.configure_writers()
-            self._pretrain_builder = pretrain
-
-        train = VMCWorkStage.builder(cfg.scoped("train"), wf)
-        train.configure_sample_plan(wf.logpsi, {"electrons": sampler})
-        train.configure_optimizer(default=KFACOptimizer, f_log_psi=wf.logpsi)
-        estimators = make_estimators(cfg, wf, system_config, always_enable_energy=True)
-        train.configure_estimators(**estimators)
-        train.configure_loss_grads(f_log_psi=wf.logpsi)
-        self.train_stage = train.build()
-
-    def prepare(self, dry_run: bool = False) -> None:
-        super().prepare(dry_run)
-        if dry_run and self.reference is None:
-            return
-
-        if self.reference is None:
-            reference_path = self.save_path / "reference.npz"
-            if (restore_reference_path := self.restore_dir / "reference.npz").exists():
-                reference_path = restore_reference_path
-            if not reference_path.exists():
-                auto_generate_reference(
-                    path=reference_path,
-                    job=reference_pyscf.SolidPySCFReferenceJob(
-                        self._system_config, SolidPySCFSolverConfig()
-                    ),
-                )
-            self.reference = load_reference(reference_path, self._system_config)
-        reference = self.reference
-        _assign_klist(self.wf, reference)
-
-        if self._pretrain_builder is None:
-            return
-        nspins = (
-            self._system_config.electron_spins[0] * self._system_config.scale,
-            self._system_config.electron_spins[1] * self._system_config.scale,
         )
-        loss_estimator = make_pretrain_loss(
-            orbitals_fn=self.wf.orbitals,
-            orbital_ref=reference,
-            nspins=nspins,
-            full_det=self.wf.full_det,
-        )
-        f_log_amplitude = make_pretrain_log_amplitude(
-            self.wf.logpsi,
-            lambda data: reference.eval_slater(data.electrons, nspins).real,
-            ref_fraction=self._pretrain_sample_fraction,
-        )
-        self._pretrain_builder.configure_sample_plan(
-            f_log_amplitude,
-            {"electrons": self.train_stage.sample_plan.samplers["electrons",]},
-        )
-        self._pretrain_builder.configure_estimators(grads=loss_estimator)
-        self.pretrain_stage = self._pretrain_builder.build()
+    )
 
 
-class SolidEvalWorkflow(EvaluationWorkflow):
-    """Evaluation workflow for periodic solid-state systems."""
+@configurable_dataclass
+class SolidPretrainConfig(VMCPretrainConfig):
+    """Configuration for the solid orbital pretraining stage.
 
-    def __init__(self, cfg: ConfigManager) -> None:
-        super().__init__(cfg)
-        system_config, wf, sampling_proposal = configure_system(cfg)
+    Args:
+        sample_fraction: Weight of the reference in the log amplitude sampled
+            during pretraining (0.0 = pure neural ansatz, 1.0 = pure reference).
+    """
 
-        self.wf = wf
-        self._system_config = system_config
-        self.reference: SolidReference | None = None
-        if reference_path := cfg.get("reference", ""):
-            self.reference = load_reference(UPath(reference_path), self._system_config)
-        self.data_init = partial(data_init, system_config)
-
-        evaluation = EvaluationWorkStage.builder(cfg, wf, name="evaluation")
-        sampler = cfg.get("sampler", MCMCSampler(sampling_proposal=sampling_proposal))
-        evaluation.configure_sample_plan(wf.logpsi, {"electrons": sampler})
-
-        eval_estimators = make_estimators(cfg, wf, system_config)
-        evaluation.configure_estimators(**eval_estimators)
-        self.evaluation_stage = evaluation.build()
-
-    def prepare(self, dry_run: bool = False) -> None:
-        super().prepare(dry_run)
-        if dry_run and self.reference is None:
-            return
-        if self.reference is None:
-            filename = "reference.npz"
-            reference_path = self.save_path / filename
-            if (restore_reference_path := self.restore_dir / filename).exists():
-                reference_path = restore_reference_path
-            elif (
-                self.source_dir
-                and (source_reference_path := self.source_dir / filename).exists()
-            ):
-                reference_path = source_reference_path
-            if not reference_path.exists():
-                auto_generate_reference(
-                    path=reference_path,
-                    job=reference_pyscf.SolidPySCFReferenceJob(
-                        self._system_config, SolidPySCFSolverConfig()
-                    ),
-                )
-            self.reference = load_reference(reference_path, self._system_config)
-        _assign_klist(self.wf, self.reference)
+    sample_fraction: float = 1.0
 
 
-def configure_system(
-    cfg: ConfigManagerLike,
-) -> tuple[SolidConfig, SolidWavefunction, Callable]:
-    """Build the shared system objects for solid workflows.
+def _supercell_spins(system: SolidConfig) -> tuple[int, int]:
+    n_up, n_down = system.electron_spins
+    return n_up * system.scale, n_down * system.scale
+
+
+def _configure_system(
+    system: SolidConfig, wf: SolidWavefunctionLike
+) -> SamplingProposal:
+    wf.nspins = _supercell_spins(system)
+    wf.primitive_lattice = jnp.asarray(system.lattice_vectors)
+    wf.simulation_lattice = jnp.asarray(system.supercell_lattice)
+    return make_pbc_gaussian_proposal(jnp.asarray(system.supercell_lattice))
+
+
+def _load_reference(
+    reference: str | None,
+    system: SolidConfig,
+    save_path: UPath,
+    search_dirs: Sequence[UPath | None],
+) -> SolidReference:
+    """Load ``reference``, or find or generate ``reference.npz`` for the run.
+
+    Without an explicit path, the first ``search_dirs`` entry holding
+    ``reference.npz`` wins, then ``save_path``; if none exists, a default PySCF
+    reference is generated under ``save_path``.
 
     Returns:
-        Tuple of (system_config, wavefunction, sampling_proposal).
-
-    Raises:
-        TypeError: If the wavefunction does not implement SolidWavefunction.
+        The reference validated against ``system``.
     """
-    system_config: SolidConfig | Callable[[], SolidConfig] = cfg.get_module(
-        "system", SolidConfig
-    )
-    if callable(system_config):
-        system_config = system_config()
-
-    nspins = (
-        system_config.electron_spins[0] * system_config.scale,
-        system_config.electron_spins[1] * system_config.scale,
-    )
-
-    supercell_lattice = jnp.asarray(system_config.supercell_lattice)
-    lattice_vectors = system_config.lattice_vectors
-
-    wf = cfg.get_module("wf", "jaqmc.app.solid.wavefunction")
-    wf.nspins = nspins
-    wf.primitive_lattice = lattice_vectors
-    wf.simulation_lattice = supercell_lattice
-
-    sampling_proposal = make_pbc_gaussian_proposal(supercell_lattice)
-
-    if not isinstance(wf, Wavefunction) or not isinstance(wf, SolidWavefunction):
-        raise TypeError(
-            f"Wavefunction must implement SolidWavefunction, got {type(wf).__name__}"
+    if reference:
+        return load_reference(UPath(reference), system)
+    filename = "reference.npz"
+    reference_path = save_path / filename
+    for directory in search_dirs:
+        if directory is not None and (candidate := directory / filename).exists():
+            reference_path = candidate
+            break
+    if not reference_path.exists():
+        auto_generate_reference(
+            path=reference_path,
+            job=reference_pyscf.SolidPySCFReferenceJob(
+                system, SolidPySCFSolverConfig()
+            ),
         )
-    return system_config, wf, sampling_proposal
+    return load_reference(reference_path, system)
 
 
-def _assign_klist(wf: SolidWavefunction, reference: SolidReference) -> None:
+def _assign_klist(wf: SolidWavefunctionLike, reference: SolidReference) -> None:
     wf.klist = reference.get_orbital_kpoints()
     logger.info(
         "Using following k-points:\n%s",
@@ -236,77 +164,138 @@ def _assign_klist(wf: SolidWavefunction, reference: SolidReference) -> None:
     )
 
 
-def make_estimators(
-    cfg: ConfigManagerLike,
-    wf: SolidWavefunction,
-    system_config: SolidConfig,
-    always_enable_energy: bool = False,
-) -> dict[str, EstimatorLike]:
-    estimators: dict[str, EstimatorLike] = {}
-    if always_enable_energy or cfg.get("estimators.enabled.energy", True):
-        supercell_lattice = jnp.asarray(system_config.supercell_lattice)
-        twist = jnp.array(system_config.twist)
+def _wire_estimators(
+    settings: SolidEstimators, wf: SolidWavefunctionLike, system: SolidConfig
+) -> None:
+    energy = settings.energy
+    lattice = jnp.asarray(system.supercell_lattice)
+    symbols = [atom.symbol for atom in system.atoms] * system.scale
+    energy.potential.supercell_lattice = lattice
+    energy.kinetic.f_log_psi = wf.logpsi
+    energy.ecp.ecp_coefficients = system.ecp_coefficients
+    energy.ecp.atom_symbols = symbols
+    energy.ecp.phase_logpsi = wf.phase_logpsi
+    energy.ecp.lattice = lattice
+    energy.ecp.twist = jnp.asarray(system.twist)
+    energy.ph.f_log_psi = wf.logpsi
+    energy.ph.atom_symbols = symbols
+    energy.ph.ph = list(system.ph_elements)
+    energy.ph.distance_fn = build_distance_fn(lattice)
+    settings.spin.n_up = system.electron_spins[0] * system.scale
+    settings.spin.n_down = system.electron_spins[1] * system.scale
+    settings.spin.phase_logpsi = wf.phase_logpsi
+    settings.density.inv_lattice = jnp.linalg.inv(lattice)
 
-        estimators["potential"] = PotentialEnergy(supercell_lattice=supercell_lattice)
-        if not system_config.ph_elements:
-            estimators["kinetic"] = cfg.get(
-                "estimators.energy.kinetic", EuclideanKinetic(f_log_psi=wf.logpsi)
-            )
-        else:
-            logger.warning(
-                "PH is active: the regular EuclideanKinetic estimator is "
-                "inactive, and `estimators.energy.kinetic.*` overrides are "
-                "ignored. Use `estimators.energy.ph.kinetic_backend` to "
-                "select the PH derivative backend."
-            )
-        if ecp_coefficients := system_config.ecp_coefficients:
-            logger.info("ECP enabled for elements: %s", list(ecp_coefficients.keys()))
-            estimators["ecp"] = cfg.get(
-                "estimators.energy.ecp",
-                ECPEnergy(
-                    ecp_coefficients=ecp_coefficients,
-                    atom_symbols=[atom.symbol for atom in system_config.atoms]
-                    * system_config.scale,
-                    phase_logpsi=wf.phase_logpsi,
-                    lattice=supercell_lattice,
-                    twist=twist,
-                ),
-            )
-        if system_config.ph_elements:
-            logger.info("PH enabled for elements: %s", list(system_config.ph_elements))
-            estimators["ph"] = cfg.get(
-                "estimators.energy.ph",
-                PHEnergy(
-                    f_log_psi=wf.logpsi,
-                    atom_symbols=[atom.symbol for atom in system_config.atoms]
-                    * system_config.scale,
-                    ph=list(system_config.ph_elements),
-                    distance_fn=build_distance_fn(supercell_lattice),
-                ),
-            )
-        estimators["total"] = TotalEnergy()
-    if cfg.get("estimators.enabled.spin", False):
-        estimators["spin"] = cfg.get(
-            "estimators.spin",
-            SpinSquared(
-                n_up=system_config.electron_spins[0] * system_config.scale,
-                n_down=system_config.electron_spins[1] * system_config.scale,
-                phase_logpsi=wf.phase_logpsi,
+
+@configurable_dataclass
+class SolidWorkflowBase:
+    system: Annotated[
+        SolidConfig | Callable[[], SolidConfig],
+        ModuleConfig(package="jaqmc.app.solid.config"),
+    ] = field(default_factory=SolidConfig)
+    wf: Annotated[
+        SolidWavefunctionLike,
+        ModuleConfig(package="jaqmc.app.solid.wavefunction"),
+    ] = field(default_factory=SolidWavefunction)
+    sampler: Annotated[SamplerLike, ModuleConfig(package="jaqmc.sampler")] = field(
+        default_factory=MCMCSampler
+    )
+    estimators: Annotated[SolidEstimators, WithToggles(spin=False, density=False)] = (
+        field(default_factory=SolidEstimators)
+    )
+    reference: str | None = None
+
+    def __post_init__(self) -> None:
+        system = self.system() if callable(self.system) else self.system
+        self.estimators.energy.set_enabled(
+            ph=bool(system.ph_elements),
+            kinetic=not system.ph_elements,
+            ecp=bool(system.ecp_coefficients),
+        )
+
+
+@configurable_dataclass
+class SolidTrainWorkflow(SolidWorkflowBase, VMCWorkflow):
+    pretrain: SolidPretrainConfig = field(
+        default_factory=lambda: SolidPretrainConfig(
+            run=VMCWorkStageConfig(iterations=2_000)
+        )
+    )
+    train: VMCTrainConfig = field(
+        default_factory=lambda: VMCTrainConfig(
+            run=VMCWorkStageConfig(iterations=200_000),
+            writers=stage_writers(
+                "pmove:.2f,energy=total_energy:.4f,variance=total_energy_real_var:.4f"
             ),
         )
-    if cfg.get("estimators.enabled.density", False):
-        supercell_lattice = jnp.asarray(system_config.supercell_lattice)
-        inv_lattice = jnp.linalg.inv(supercell_lattice)
-        density = cfg.get(
-            "estimators.density",
-            FractionalDensity(
-                axes={
-                    "a": FractionalAxis(lattice_index=0, bins=50),
-                    "b": FractionalAxis(lattice_index=1, bins=50),
-                    "c": FractionalAxis(lattice_index=2, bins=50),
-                }
-            ),
+    )
+
+    def build_runtime(self) -> None:
+        system = self.system() if callable(self.system) else self.system
+        proposal = _configure_system(system, self.wf)
+        wire(self.sampler, sampling_proposal=proposal)
+        reference = _load_reference(
+            self.reference, system, self.save_path, [self.restore_dir]
         )
-        wire(density, inv_lattice=inv_lattice)
-        estimators["density"] = density
-    return estimators
+        _assign_klist(self.wf, reference)
+        if self.pretrain.run.iterations > 0:
+            self.pretrain_stage = self._build_pretrain_stage(reference, system)
+        train = VMCWorkStage.builder(self.train.run, self.wf, name="train")
+        train.configure_sample_plan(self.wf.logpsi, {"electrons": self.sampler})
+        train.configure_optimizer(self.train.optim, f_log_psi=self.wf.logpsi)
+        _wire_estimators(self.estimators, self.wf, system)
+        train.configure_estimators(self.estimators)
+        train.configure_loss_grads(self.train.grads, f_log_psi=self.wf.logpsi)
+        train.configure_writers(self.train.writers)
+        self.train_stage = train.build()
+        self.data_init = partial(data_init, system)
+
+    def _build_pretrain_stage(
+        self, reference: SolidReference, system: SolidConfig
+    ) -> VMCWorkStage:
+        nspins = _supercell_spins(system)
+        loss = make_pretrain_loss(
+            orbitals_fn=self.wf.orbitals,
+            orbital_ref=reference,
+            nspins=nspins,
+            full_det=self.wf.full_det,
+        )
+        log_amplitude = make_pretrain_log_amplitude(
+            self.wf.logpsi,
+            lambda data: reference.eval_slater(data.electrons, nspins).real,
+            ref_fraction=self.pretrain.sample_fraction,
+        )
+        pretrain = VMCWorkStage.builder(self.pretrain.run, self.wf, name="pretrain")
+        pretrain.configure_sample_plan(log_amplitude, {"electrons": self.sampler})
+        pretrain.configure_optimizer(self.pretrain.optim, f_log_psi=self.wf.logpsi)
+        pretrain.configure_estimators({"grads": loss})
+        pretrain.configure_writers(self.pretrain.writers)
+        return pretrain.build()
+
+
+@configurable_dataclass
+class SolidEvalWorkflow(SolidWorkflowBase, EvaluationWorkflow):
+    estimators: Annotated[
+        SolidEstimators, WithToggles(energy=True, spin=False, density=False)
+    ] = field(default_factory=SolidEstimators)
+
+    def build_runtime(self) -> None:
+        system = self.system() if callable(self.system) else self.system
+        proposal = _configure_system(system, self.wf)
+        wire(self.sampler, sampling_proposal=proposal)
+        reference = _load_reference(
+            self.reference,
+            system,
+            self.save_path,
+            [self.restore_dir, self.source_dir],
+        )
+        _assign_klist(self.wf, reference)
+        evaluation = EvaluationWorkStage.builder(
+            self.run_config, self.wf, name="evaluation"
+        )
+        evaluation.configure_sample_plan(self.wf.logpsi, {"electrons": self.sampler})
+        _wire_estimators(self.estimators, self.wf, system)
+        evaluation.configure_estimators(self.estimators)
+        evaluation.configure_writers(self.writers)
+        self.evaluation_stage = evaluation.build()
+        self.data_init = partial(data_init, system)

@@ -1,17 +1,19 @@
 # Configuration
 
-{class}`~jaqmc.utils.config.ConfigManager` is the central configuration API. It merges YAML files, CLI overrides, and preset configs into a single resolved config tree. Use {meth}`~jaqmc.utils.config.ConfigManager.get` to read values, {meth}`~jaqmc.utils.config.ConfigManager.get_module` to instantiate swappable components, and {meth}`~jaqmc.utils.config.ConfigManager.get_collection` to build named collections of components.
+{func}`~jaqmc.utils.config.parse_config` merges YAML layers and CLI
+overrides into a typed dataclass. Workflows expose the same operation through
+{meth}`~jaqmc.workflow.base.Workflow.from_config`.
 
 For a conceptual overview of the config system, see <project:../guide/configuration.md> in the user guide and <project:../extending/configuration.md> in the extending guide.
 
-## Config manager
+## Configuration API
 
 ```{eval-rst}
-.. autoclass:: jaqmc.utils.config.ConfigManager
-   :members: get, get_module, get_collection, scoped, use_preset, finalize, to_yaml
+.. autofunction:: jaqmc.utils.config.parse_config
 
-.. autoclass:: jaqmc.utils.config.ScopedConfigManager
-   :members: get, get_module, get_collection
+.. autofunction:: jaqmc.utils.config.config_to_yaml
+
+.. autoclass:: jaqmc.utils.config.ModuleConfig
 ```
 
 ## Component wiring
@@ -43,5 +45,4 @@ Components use {func}`~jaqmc.utils.wiring.runtime_dep` to declare dependencies t
 ```{eval-rst}
 .. autofunction:: jaqmc.utils.yaml_format.dump_yaml
 
-.. autofunction:: jaqmc.utils.yaml_format.annotate_yaml_with_sources
 ```

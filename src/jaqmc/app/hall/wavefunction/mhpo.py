@@ -3,6 +3,7 @@
 
 """Monopole harmonics product orbital (MHPO) wavefunction on the Haldane sphere."""
 
+from dataclasses import field
 from typing import Literal
 
 import jax
@@ -16,7 +17,6 @@ from jaqmc.app.hall.data import HallData
 from jaqmc.array_types import Params
 from jaqmc.geometry.sphere import cartesian_from_spinor
 from jaqmc.laplacian.precision import ContractionMode, jacobian_contraction_scope
-from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import ComplexWFOutput
 from jaqmc.wavefunction.output.logdet import LogDet
 from jaqmc.wavefunction.output.orbital import SplitChannelDense
@@ -187,9 +187,6 @@ class MHPO(HallWavefunction):
             learned dressing in FP16 with the same contractions (retaining an FP32
             residual stream when ``backbone="psiformer"``). Both nonstandard modes
             retain FP32 Jastrow and complex determinant evaluation.
-        nspins: ``(n_up, n_down)`` electron counts.
-        monopole_strength: :math:`Q = \text{flux}/2`.
-        flux: Magnetic flux :math:`2Q`.
         ndets: Number of determinants.
         num_heads: Number of attention heads.
         heads_dim: Dimension of each attention head.
@@ -197,24 +194,16 @@ class MHPO(HallWavefunction):
         num_layers: Number of backbone layers.
         orbital_readout: Monopole-harmonic readout parameterization.
         dressing: Flux dressing configuration (see :class:`DressingConfig`).
-        interaction_strength: Coulomb interaction scaling factor for the Jastrow.
-        radius: Sphere radius used by the Jastrow cusp (runtime dep, wired by
-            the workflow to match the estimators).
     """
 
     precision: Literal["standard", "fp16_jac", "fp16_mixed"] = "standard"
-    nspins: tuple[int, int] = runtime_dep()
-    monopole_strength: float = runtime_dep()
-    flux: int = runtime_dep()
-    interaction_strength: float = runtime_dep()
-    radius: float = runtime_dep()
     ndets: int = 1
     backbone: Literal["psiformer", "lapnet"] = "psiformer"
     num_heads: int = 4
     heads_dim: int = 64
     num_layers: int = 2
     orbital_readout: Literal["direct", "factorized"] = "direct"
-    dressing: DressingConfig = DressingConfig()
+    dressing: DressingConfig = field(default_factory=DressingConfig)
 
     def setup(self) -> None:
         q_effective = reduced_monopole_strength(

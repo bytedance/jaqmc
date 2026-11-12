@@ -7,8 +7,6 @@ import numpy as np
 from jax import numpy as jnp
 from scipy import special as ss
 
-from jaqmc.utils.wiring import runtime_dep
-
 from .base import HallWavefunction
 
 __all__ = ["Free"]
@@ -67,17 +65,7 @@ class Free(HallWavefunction):
 
     Fills the lowest Landau level with monopole harmonics. Useful as a
     reference for verifying kinetic energy computations.
-
-    Args:
-        nspins: ``(n_up, n_down)`` electron counts.
-        flux: Magnetic flux :math:`2Q`.
-        interaction_strength: Coulomb interaction scaling factor accepted for
-            shared Hall workflow wiring. The free wavefunction does not use it.
     """
-
-    nspins: tuple[int, int] = runtime_dep()
-    flux: int = runtime_dep()
-    interaction_strength: float = runtime_dep()
 
     def setup(self):
         orbitals = []

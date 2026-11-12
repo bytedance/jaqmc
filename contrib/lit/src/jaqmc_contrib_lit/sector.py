@@ -10,8 +10,6 @@ geometry can safely be captured by JAX-compiled parity checks without
 introducing NumPy work into the compiled path.
 """
 
-from __future__ import annotations
-
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, replace

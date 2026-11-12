@@ -16,6 +16,8 @@ from jaqmc_contrib_lit.state import _ContinuationRecord
 from jaqmc_contrib_lit.workflow import LITWorkflow
 from jax import numpy as jnp
 
+from jaqmc.workflow.base import WorkflowConfig
+
 
 class _BridgeStats(NamedTuple):
     loss: jax.Array
@@ -41,6 +43,7 @@ def _bridge_stats(fidelity: float, *, ess: float = 1.0) -> _BridgeStats:
 
 def test_adaptive_continuation_bisects_and_propagates_accepted_bridges():
     workflow = object.__new__(LITWorkflow)
+    workflow.config = WorkflowConfig()
     workflow.lit_config = LITConfig()
     workflow.lit_config.solver.warm_start_omega = 0.0
     workflow.lit_config.continuation.iterations = 1
@@ -150,8 +153,8 @@ def test_continuation_checkpoint_round_trip_revalidates_for_resume(tmp_path):
     )
     rng = jax.random.key(17)
     saver = object.__new__(LITWorkflow)
+    saver.config = WorkflowConfig(save_path=str(old_run))
     saver.lit_config = config
-    saver.save_path = old_run
     saver._save_lit_continuation_checkpoint(
         response_params,
         stats,
@@ -176,8 +179,8 @@ def test_continuation_checkpoint_round_trip_revalidates_for_resume(tmp_path):
     restore_config.continuation.restore_path = str(old_run)
     _, _, _, restore_digests = _checkpoint_inputs(restore_config)
     workflow = object.__new__(LITWorkflow)
+    workflow.config = WorkflowConfig(save_path=str(tmp_path / "new"))
     workflow.lit_config = restore_config
-    workflow.save_path = tmp_path / "new"
     revalidated = stats._replace(fidelity=jnp.asarray(0.996))
     workflow._evaluate_lit_checkpoint = lambda **_kwargs: revalidated
 
