@@ -45,7 +45,9 @@ def _write_qe_xml(
     lattice: float = 4.0,
     nelec: float | None = None,
     symbol: str = "He",
-    converged: bool | None = None,
+    functional: str = "PBE",
+    converged: bool | None = True,
+    opt_converged: bool | None = None,
     weights: list[float] | None = None,
     eigenvalues: list[str] | None = None,
     symmetry_flags: tuple[bool, bool] | None = (True, True),
@@ -58,7 +60,8 @@ def _write_qe_xml(
         len(kpoints) if packed_spin else (len(kpoints) // 2 if lsda else len(kpoints))
     )
     if weights is None:
-        weights = [1 / nkpoints] * len(kpoints)
+        spin_degeneracy = 1.0 if lsda else 2.0
+        weights = [spin_degeneracy / nkpoints] * len(kpoints)
     assert len(weights) == len(kpoints)
     if nelec is None:
         nelec = sum(
@@ -82,12 +85,22 @@ def _write_qe_xml(
         )
     )
     convergence = ""
-    if converged is not None:
-        convergence = (
-            "<convergence_info>"
+    if converged is not None or opt_converged is not None:
+        scf_conv = (
+            "<scf_conv>"
             f"<convergence_achieved>{str(converged).lower()}</convergence_achieved>"
-            "</convergence_info>"
+            "</scf_conv>"
+            if converged is not None
+            else ""
         )
+        opt_conv = (
+            "<opt_conv>"
+            f"<convergence_achieved>{str(opt_converged).lower()}</convergence_achieved>"
+            "</opt_conv>"
+            if opt_converged is not None
+            else ""
+        )
+        convergence = f"<convergence_info>{opt_conv}{scf_conv}</convergence_info>"
     spin_metadata = ""
     if packed_spin:
         assert spin_bands is not None
@@ -113,7 +126,7 @@ def _write_qe_xml(
   {symmetry_metadata}
   <output>
     {convergence}
-    <dft><functional>PBE</functional></dft>
+    <dft><functional>{functional}</functional></dft>
     <atomic_structure alat="{lattice}">
       <cell>
         <a1>{lattice} 0 0</a1>

@@ -50,48 +50,29 @@ def build_reference(calculation: QECalculation) -> PlaneWaveSolidReference:
 def _pack_spin_channels(
     calculation: QECalculation,
 ) -> tuple[_PackedSpinChannel, _PackedSpinChannel]:
-    if calculation.spin_polarized:
-        counts = tuple(
-            _rounded_electron_count(
-                float(sum(occupation.sum() for occupation in channel.occupations)),
-                "spin channel",
-            )
-            for channel in (calculation.alpha, calculation.beta)
-        )
-    else:
-        # QE nspin=1 occupations are 0-2, so the per-spin QMC count is half
-        # the occupation sum. Smearing does not change that scale.
-        occupation_sum = float(
-            sum(occupation.sum() for occupation in calculation.alpha.occupations)
-        )
-        count = _rounded_electron_count(occupation_sum / 2, "unpolarized spin channel")
-        counts = (count, count)
-    alpha = _pack_channel(
-        calculation.alpha,
-        _selected_bands(
-            calculation.alpha,
-            counts[0],
-            spin_polarized=calculation.spin_polarized,
-            spin=0,
-        ),
+    description = (
+        "spin channel" if calculation.spin_polarized else "unpolarized spin channel"
     )
-    beta = _pack_channel(
-        calculation.beta,
-        _selected_bands(
-            calculation.beta,
-            counts[1],
-            spin_polarized=calculation.spin_polarized,
-            spin=1,
-        ),
-    )
-    return alpha, beta
+    packed = [
+        _pack_channel(
+            channel,
+            _selected_bands(
+                channel,
+                _rounded_electron_count(
+                    float(sum(occ.sum() for occ in channel.occupations)),
+                    description,
+                ),
+                spin=spin,
+            ),
+        )
+        for spin, channel in enumerate((calculation.alpha, calculation.beta))
+    ]
+    return packed[0], packed[1]
 
 
-def _fixed_occupations(
-    occupations: tuple[np.ndarray, ...], allowed: tuple[float, ...]
-) -> bool:
+def _fixed_occupations(occupations: tuple[np.ndarray, ...]) -> bool:
     return all(
-        np.all(np.any(np.isclose(values[:, None], allowed, atol=1e-8), axis=1))
+        np.all(np.any(np.isclose(values[:, None], (0.0, 1.0), atol=1e-8), axis=1))
         for values in occupations
     )
 
@@ -107,11 +88,9 @@ def _selected_bands(
     channel: BandChannel,
     electron_count: int,
     *,
-    spin_polarized: bool,
     spin: int,
 ) -> tuple[np.ndarray, ...]:
-    allowed = (0.0, 1.0) if spin_polarized else (0.0, 2.0)
-    if _fixed_occupations(channel.occupations, allowed):
+    if _fixed_occupations(channel.occupations):
         return tuple(
             np.flatnonzero(occupation > 0.9) for occupation in channel.occupations
         )

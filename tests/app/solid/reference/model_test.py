@@ -12,6 +12,7 @@ from jaqmc.app.solid.reference import PlaneWaveSolidReference, SolidReference
 
 
 def _plane_wave_reference() -> PlaneWaveSolidReference:
+    b0 = 2 * np.pi / 4
     return PlaneWaveSolidReference(
         symbols=("He",),
         atom_coords=np.zeros((1, 3)),
@@ -20,13 +21,23 @@ def _plane_wave_reference() -> PlaneWaveSolidReference:
         kpoints=np.asarray([[0.0, 0.0, 0.0], [0.5, 0.0, 0.0], [1.0, 0.0, 0.0]]),
         alpha_counts=np.asarray([1, 1, 0]),
         beta_counts=np.asarray([1, 1, 0]),
-        alpha_coeffs=np.asarray([[2.0, 3.0]], dtype=complex),
-        beta_coeffs=np.asarray([[5.0, 7.0]], dtype=complex),
+        # Include a zero-padded trailing row for the first k-point (where the
+        # real G=0 component is followed by a padded G=0, coeff=0 entry).
+        alpha_coeffs=np.asarray([[2.0, 3.0], [0.0, 4.0]], dtype=complex),
+        beta_coeffs=np.asarray([[5.0, 7.0], [0.0, 0.0]], dtype=complex),
         alpha_g_vectors=np.asarray(
-            [[[0.0, 0.0, 0.0]], [[0.25, 0.0, 0.0]], [[0.0, 0.0, 0.0]]]
+            [
+                [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+                [[0.0, 0.0, 0.0], [b0, 0.0, 0.0]],
+                [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+            ]
         ),
         beta_g_vectors=np.asarray(
-            [[[1.0, 0.0, 0.0]], [[0.75, 0.0, 0.0]], [[0.0, 0.0, 0.0]]]
+            [
+                [[b0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+                [[-b0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+                [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+            ]
         ),
     )
 
@@ -56,6 +67,7 @@ def test_plane_wave_reference_roundtrip(tmp_path, path_uri):
 
 def test_plane_wave_reference_evaluates_spin_and_kpoint_orbitals():
     reference = _plane_wave_reference()
+    b0 = 2 * np.pi / 4
     positions = jnp.asarray(
         [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0], [3.0, 0.0, 0.0]]]
     )
@@ -64,19 +76,19 @@ def test_plane_wave_reference_evaluates_spin_and_kpoint_orbitals():
     volume_normalization = 1 / np.sqrt(4**3)
     expected_alpha = volume_normalization * np.asarray(
         [
-            [2.0, 3.0],
-            [2.0, 3.0 * np.exp(0.75j)],
+            [2.0, 3.0 + 4.0],
+            [2.0, (3.0 + 4.0 * np.exp(1j * b0 * 1.0)) * np.exp(1j * 0.5 * 1.0)],
         ]
     )
     expected_beta = volume_normalization * np.asarray(
         [
-            [5.0 * np.exp(2.0j), 7.0 * np.exp(2.5j)],
-            [5.0 * np.exp(3.0j), 7.0 * np.exp(3.75j)],
+            [5.0 * np.exp(1j * b0 * 2.0), 7.0 * np.exp(1j * (0.5 - b0) * 2.0)],
+            [5.0 * np.exp(1j * b0 * 3.0), 7.0 * np.exp(1j * (0.5 - b0) * 3.0)],
         ]
     )
 
-    np.testing.assert_allclose(alpha[0], expected_alpha)
-    np.testing.assert_allclose(beta[0], expected_beta)
+    np.testing.assert_allclose(alpha[0], expected_alpha, atol=1e-6)
+    np.testing.assert_allclose(beta[0], expected_beta, atol=1e-6)
     assert np.asarray(reference.get_orbital_kpoints()).tolist() == [
         [0.0, 0.0, 0.0],
         [0.5, 0.0, 0.0],
@@ -84,6 +96,106 @@ def test_plane_wave_reference_evaluates_spin_and_kpoint_orbitals():
         [0.5, 0.0, 0.0],
     ]
     assert reference.get_kpoint_occupancies()[2][1:] == (0, 0)
+
+
+def test_plane_wave_reference_bspline_matches_analytic_bloch_sum_and_periodicity():
+    rng = np.random.default_rng(7)
+    lattice = np.asarray([[4.0, 0.4, 0.0], [0.0, 4.2, 0.3], [0.2, 0.0, 4.5]])
+    reciprocal = 2 * np.pi * np.linalg.inv(lattice).T
+    kpoints = np.asarray([np.zeros(3), 0.25 * reciprocal[0] - 0.5 * reciprocal[1]])
+    alpha_counts = np.asarray([2, 1])
+    beta_counts = np.asarray([1, 2])
+
+    miller = np.stack(
+        np.meshgrid(
+            np.arange(-3, 4), np.arange(-3, 4), np.arange(-3, 4), indexing="ij"
+        ),
+        axis=-1,
+    ).reshape(-1, 3)
+    g_vectors = miller @ reciprocal
+    g_sq = np.sum(g_vectors**2, axis=-1, keepdims=True)
+    envelope_decay = np.exp(-0.5 * g_sq)
+    alpha_coeffs = (
+        rng.standard_normal((len(miller), 3))
+        + 1j * rng.standard_normal((len(miller), 3))
+    ) * envelope_decay
+    beta_coeffs = (
+        rng.standard_normal((len(miller), 3))
+        + 1j * rng.standard_normal((len(miller), 3))
+    ) * envelope_decay
+
+    reference = PlaneWaveSolidReference(
+        symbols=("H", "H"),
+        atom_coords=np.zeros((2, 3)),
+        lattice=lattice,
+        kpoints=kpoints,
+        alpha_counts=alpha_counts,
+        beta_counts=beta_counts,
+        alpha_coeffs=alpha_coeffs,
+        beta_coeffs=beta_coeffs,
+        alpha_g_vectors=g_vectors,
+        beta_g_vectors=g_vectors,
+    )
+
+    positions = rng.uniform(-2.0, 6.0, size=(3, 6, 3))
+    alpha, beta = reference.eval_orbitals(jnp.asarray(positions))
+
+    omega = abs(np.linalg.det(lattice))
+    alpha_k = kpoints[np.repeat(np.arange(len(kpoints)), alpha_counts)]
+    beta_k = kpoints[np.repeat(np.arange(len(kpoints)), beta_counts)]
+    exact_alpha = (
+        np.einsum(
+            "bng,go->bno",
+            np.exp(1j * np.einsum("bni,gi->bng", positions[:, :3], g_vectors)),
+            alpha_coeffs,
+        )
+        * np.exp(1j * np.einsum("bni,oi->bno", positions[:, :3], alpha_k))
+        / np.sqrt(omega)
+    )
+    exact_beta = (
+        np.einsum(
+            "bng,go->bno",
+            np.exp(1j * np.einsum("bni,gi->bng", positions[:, 3:], g_vectors)),
+            beta_coeffs,
+        )
+        * np.exp(1j * np.einsum("bni,oi->bno", positions[:, 3:], beta_k))
+        / np.sqrt(omega)
+    )
+    np.testing.assert_allclose(alpha, exact_alpha, rtol=2e-4, atol=2e-4)
+    np.testing.assert_allclose(beta, exact_beta, rtol=2e-4, atol=2e-4)
+
+    shift = np.asarray([1, -2, 3]) @ lattice
+    shifted_alpha, shifted_beta = reference.eval_orbitals(
+        jnp.asarray(positions + shift)
+    )
+    np.testing.assert_allclose(
+        shifted_alpha,
+        alpha * np.exp(1j * (shift @ alpha_k.T)),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    np.testing.assert_allclose(
+        shifted_beta,
+        beta * np.exp(1j * (shift @ beta_k.T)),
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+
+def test_plane_wave_reference_rejects_incommensurate_g_vectors():
+    with pytest.raises(ValueError, match="integer combinations"):
+        PlaneWaveSolidReference(
+            symbols=("He",),
+            atom_coords=np.zeros((1, 3)),
+            lattice=np.eye(3) * 4,
+            kpoints=np.zeros((1, 3)),
+            alpha_counts=np.asarray([1]),
+            beta_counts=np.asarray([1]),
+            alpha_coeffs=np.ones((1, 1), dtype=complex),
+            beta_coeffs=np.ones((1, 1), dtype=complex),
+            alpha_g_vectors=np.asarray([[0.25, 0.0, 0.0]]),
+            beta_g_vectors=np.asarray([[0.0, 0.0, 0.0]]),
+        )
 
 
 def test_load_rejects_reference_file_missing_kind_specific_arrays(tmp_path):

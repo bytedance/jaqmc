@@ -35,7 +35,7 @@ class WavefunctionBlock:
 
 @dataclass(frozen=True)
 class BandChannel:
-    """One spin channel with one band record for each k-point."""
+    """One spin channel with per-spin QMC occupations at each physical k-point."""
 
     kpoints: np.ndarray
     occupations: tuple[np.ndarray, ...]
@@ -83,7 +83,6 @@ def read_qe_calculation(save_dir: Path) -> QECalculation:
     _require_unreduced_mesh(root)
     output = _require(root, "{*}output")
     _require_scf_converged(output)
-    _require_pbe(output)
     symbols, positions, lattice, alat = _read_atomic_structure(output)
     kpoints, alpha_occ, alpha_energy, beta_occ, beta_energy, spin_polarized = (
         _normalized_band_channels(output, alat)
@@ -163,23 +162,11 @@ def _require_unreduced_mesh(root: ET.Element) -> None:
 
 
 def _require_scf_converged(output: ET.Element) -> None:
-    convergence = output.find("{*}convergence_info")
-    achieved = (
-        convergence.find("{*}convergence_achieved") if convergence is not None else None
-    )
-    if achieved is not None and not _qe_boolean(achieved.text):
+    convergence = _require(output, "{*}convergence_info")
+    scf_conv = _require(convergence, "{*}scf_conv")
+    achieved = _require(scf_conv, "{*}convergence_achieved")
+    if not _qe_boolean(achieved.text):
         raise ValueError("Quantum ESPRESSO SCF calculation did not converge.")
-
-
-def _require_pbe(output: ET.Element) -> None:
-    functional_node = output.find(".//{*}functional")
-    functional = (
-        functional_node.text.strip()
-        if functional_node is not None and functional_node.text
-        else None
-    )
-    if functional not in (None, "PBE", "pbe"):
-        raise ValueError("Only PBE Quantum ESPRESSO references are supported.")
 
 
 def _read_atomic_structure(
@@ -215,24 +202,20 @@ def _read_atomic_structure(
 
 def _validate_electron_count(
     band_structure: ET.Element,
-    entries: list[ET.Element],
+    weights: np.ndarray,
     occupations: tuple[np.ndarray, ...],
 ) -> None:
     try:
         reported = float((_require(band_structure, "{*}nelec").text or "").strip())
-        weights = [
-            float(_require(entry, "{*}k_point").attrib["weight"]) for entry in entries
-        ]
-    except (KeyError, ValueError) as exc:
+    except ValueError as exc:
         raise ValueError(
-            "QE band structure must provide a total electron count and a weight "
-            "for every k-point."
+            "QE band structure must provide a total electron count."
         ) from exc
     occupied = sum(
         weight * float(occupation.sum())
         for weight, occupation in zip(weights, occupations, strict=True)
     )
-    if not np.isclose(occupied, reported):
+    if not np.isfinite(reported) or not np.isclose(occupied, reported):
         raise ValueError(
             "QE weighted occupations do not match its reported electron count: "
             f"{occupied} != {reported}."
@@ -245,6 +228,7 @@ def _band_entries(
     np.ndarray,
     tuple[np.ndarray, ...],
     tuple[np.ndarray, ...],
+    np.ndarray,
     bool,
     ET.Element,
     list[ET.Element],
@@ -267,8 +251,41 @@ def _band_entries(
     eigenvalues = tuple(
         _numbers(_require(entry, "{*}eigenvalues")) for entry in entries
     )
-    _validate_electron_count(bands, entries, occupations)
-    return kpoints, occupations, eigenvalues, spin_polarized, bands, entries
+    try:
+        weights = np.asarray(
+            [float(_require(entry, "{*}k_point").attrib["weight"]) for entry in entries]
+        )
+    except (KeyError, ValueError) as exc:
+        raise ValueError(
+            "QE band structure must provide a weight for every k-point."
+        ) from exc
+    if not np.all(np.isfinite(weights) & (weights > 0)):
+        raise ValueError("QE conversion requires finite, positive k-point weights.")
+    _validate_electron_count(bands, weights, occupations)
+    return kpoints, occupations, eigenvalues, weights, spin_polarized, bands, entries
+
+
+def _per_spin_occupations(
+    occupations: tuple[np.ndarray, ...],
+    weights: np.ndarray,
+    *,
+    nkpoints: int,
+    spin_degeneracy: int,
+) -> tuple[np.ndarray, ...]:
+    """Convert weighted cell occupations to per-spin QMC-supercell occupations.
+
+    Returns:
+        One occupation per band on an equally weighted, unreduced mesh.
+
+    Raises:
+        ValueError: If the k-point weights are not uniform.
+    """
+    if not np.allclose(weights, weights[0], rtol=1e-8, atol=0):
+        raise ValueError("QE conversion requires uniform k-point weights.")
+    # QE reads occupations * weight. Undo cell averaging for the QMC mesh,
+    # then split the unpolarized electron contribution between the two spins.
+    scale = nkpoints * float(weights[0]) / spin_degeneracy
+    return tuple(occupation * scale for occupation in occupations)
 
 
 def _normalized_band_channels(
@@ -281,19 +298,22 @@ def _normalized_band_channels(
     tuple[np.ndarray, ...],
     bool,
 ]:
-    """Split either QE spin-polarized band layout into alpha and beta meshes.
+    """Normalize QE weights and split packed or separate collinear spin bands.
 
     Returns:
-        Physical k-points, alpha occupations/energies, beta occupations/energies,
+        Physical k-points, per-spin QMC occupations and energies for alpha and beta,
         and whether the calculation is spin-polarized.
 
     Raises:
         ValueError: If QE spin or band metadata is inconsistent.
     """
-    kpoints, occupations, eigenvalues, spin_polarized, bands, entries = _band_entries(
-        output, alat
+    kpoints, occupations, eigenvalues, weights, spin_polarized, bands, entries = (
+        _band_entries(output, alat)
     )
     if not spin_polarized:
+        occupations = _per_spin_occupations(
+            occupations, weights, nkpoints=len(kpoints), spin_degeneracy=2
+        )
         return kpoints, occupations, eigenvalues, occupations, eigenvalues, False
 
     nks = bands.find("{*}nks")
@@ -324,6 +344,9 @@ def _normalized_band_channels(
             raise ValueError(
                 "Packed-spin QE bands must contain positive nbnd_up + nbnd_dw values."
             )
+        occupations = _per_spin_occupations(
+            occupations, weights, nkpoints=len(kpoints), spin_degeneracy=1
+        )
         return (
             kpoints,
             tuple(values[:nup] for values in occupations),
@@ -338,6 +361,9 @@ def _normalized_band_channels(
     split = len(kpoints) // 2
     if not np.allclose(kpoints[:split], kpoints[split:]):
         raise ValueError("QE spin channels must use the same k-point mesh.")
+    occupations = _per_spin_occupations(
+        occupations, weights, nkpoints=split, spin_degeneracy=1
+    )
     return (
         kpoints[:split],
         occupations[:split],

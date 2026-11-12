@@ -25,9 +25,12 @@ Without that key, JaQMC resolves the reference in this order:
    use the effective charge derived from `system.pp`; custom per-atom charges
    need a prepared reference.
 
-An explicit `reference=` path skips this search and is loaded directly;
-training does not search the job directory written by
+An explicit `reference=` path skips this search and is loaded directly. Training
+does not search the job directory written by
 `jaqmc molecule reference prepare`.
+
+A loaded reference must match the atomic coordinates and the alpha and beta
+electron counts of the configured molecule.
 
 On multiple hosts, the reference path must be readable by every process. The
 [shared-storage requirements](../../guide/multi-device.md#shared-storage)

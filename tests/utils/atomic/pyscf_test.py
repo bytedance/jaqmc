@@ -57,17 +57,17 @@ def test_resolve_pyscf_basis_overlays_mapping_on_automatic() -> None:
     ("occupations", "unrestricted", "expected_alpha", "expected_beta"),
     [
         pytest.param(
-            np.asarray([0.0, 1.0, 2.0]),
+            np.asarray([[0.0, 1.0, 2.0], [2.0, 0.0, 0.0]]),
             False,
-            np.asarray([False, True, True]),
-            np.asarray([False, False, True]),
+            np.asarray([[False, True, True], [True, False, False]]),
+            np.asarray([[False, False, True], [True, False, False]]),
             id="restricted",
         ),
         pytest.param(
-            np.asarray([[[0.0, 1.0]], [[1.0, 0.0]]]),
+            np.asarray([[[0.0, 1.0], [1.0, 1.0]], [[1.0, 0.0], [0.0, 1.0]]]),
             True,
-            np.asarray([[False, True]]),
-            np.asarray([[True, False]]),
+            np.asarray([[False, True], [True, True]]),
+            np.asarray([[True, False], [False, True]]),
             id="unrestricted",
         ),
     ],
@@ -75,10 +75,14 @@ def test_resolve_pyscf_basis_overlays_mapping_on_automatic() -> None:
 def test_occupied_orbital_masks(
     occupations, unrestricted, expected_alpha, expected_beta
 ):
-    alpha, beta = occupied_orbital_masks(occupations, unrestricted=unrestricted)
+    alpha, beta = occupied_orbital_masks(
+        occupations, unrestricted=unrestricted, nelec=(3, 2)
+    )
 
     np.testing.assert_array_equal(alpha, expected_alpha)
     np.testing.assert_array_equal(beta, expected_beta)
+    with pytest.raises(ValueError, match="do not match the electron count"):
+        occupied_orbital_masks(occupations, unrestricted=unrestricted, nelec=(2, 2))
 
 
 @pytest.mark.parametrize(

@@ -104,9 +104,9 @@ def occupied_orbital_masks(
     each spin channel separately as 0 or 1. The returned masks preserve every
     non-spin dimension of ``occupations``.
 
-    When ``nelec`` is given as the system's ``(n_alpha, n_beta)`` electron
-    counts, the occupied counts at every leading (e.g. k-point) index must
-    equal it.
+    When ``nelec`` is given as ``(n_alpha, n_beta)``, the total occupied
+    counts across all leading indices must equal it. Periodic callers pass
+    electron counts summed over all k-points.
 
     Returns:
         Boolean masks for occupied alpha and beta orbital columns.
@@ -128,8 +128,7 @@ def occupied_orbital_masks(
     else:
         alpha_masks, beta_masks = occupations > 0.9, occupations > 1.1
     if nelec is not None and (
-        np.any(alpha_masks.sum(axis=-1) != nelec[0])
-        or np.any(beta_masks.sum(axis=-1) != nelec[1])
+        alpha_masks.sum() != nelec[0] or beta_masks.sum() != nelec[1]
     ):
         raise ValueError(
             "PySCF occupied orbital counts do not match the electron count "
