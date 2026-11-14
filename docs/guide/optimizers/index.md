@@ -29,14 +29,23 @@ The tradeoff is cost: natural gradient methods are more expensive per step. For 
 
 KFAC is the default optimizer, so no configuration change is needed. The key tunable parameters are:
 
-- `damping` (default `1e-3`) - regularization added to the curvature matrix.
-- `norm_constraint` (default `1e-3`) - scales the update down so that its approximate squared Fisher norm is at most this value.
+- `damping` (default `1e-3`) - Tikhonov regularization added to the curvature factors before inversion. Larger values improve conditioning when local energies fluctuate strongly.
+- `norm_constraint` (default `1e-3`) - cap on the approximate squared Fisher norm of each parameter step.
+- `inverse_update_period` (default `1`) - number of training steps between Kronecker-factor inverse updates. Curvature moving averages still update every step while cached factor inverses are reused in between.
+- `use_cholesky_inversion` (default `false`) - whether damped Kronecker factors are inverted with a positive-definite Cholesky solver instead of general LU inversion.
+
+For large wavefunctions where KFAC factor inversion takes a noticeable share of step time, Cholesky inversion and a larger inverse update period reduce per-step overhead on GPUs:
+
+```bash
+train.optim.use_cholesky_inversion=true train.optim.inverse_update_period=2
+```
+
+Values of `inverse_update_period` around `2` to `5` amortize factor inversion across steps with little effect on steady-state convergence, whereas much larger periods can leave cached inverses stale when the wavefunction changes rapidly. Enabling `use_cholesky_inversion=true` skips `kfac-jax`'s per-factor `NaN`/`Inf` conditional check and relies on the damped factors remaining strictly positive-definite. The default `damping=1e-3` typically keeps factors well-conditioned, whereas very small damping values (below `1e-4`) or severe local-energy spikes can cause non-positive-definite factors and `NaN` updates.
 
 JaQMC's KFAC tags cover parameters and inputs that share the same dtype, as
 well as the common mixed case where `float32` parameters receive `float64`
 inputs or produce `float64` values. Other dtype combinations may need
-additional validation. Check that graph registration matches the `float32`
-case before relying on them.
+additional validation against the `float32` graph registration.
 
 See the [configuration reference](#train-optim) for all KFAC options.
 
