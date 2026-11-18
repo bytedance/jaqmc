@@ -184,7 +184,6 @@ def test_sr_optimizer_evaluates_configured_precision() -> None:
             max_norm=None,
             score_chunk_size=None,
             gram_num_chunks=None,
-            gram_dot_prec=None,
         )
         upd, _ = sr.update(
             grads,

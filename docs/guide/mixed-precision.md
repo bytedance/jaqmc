@@ -9,20 +9,24 @@ JaQMC separates precision control into a wavefunction-wide default (`wf.precisio
 |------|--------------|--------------------------------|---------------------------|
 | `standard` (default) | Normal dtype promotion between inputs and parameters (FP32 by default, or FP64 when `jax.enable_x64=true`). | Standard dtype promotion. | Follows orbital dtype (at least FP32). |
 | `fp16_jac` | FP32 neural evaluation. | Power-of-two scaled FP16 operands with FP32 accumulation. | FP32 (real or complex). |
-| `fp16_mixed` | FP16 neural layers with scoped `bfloat16` matmul precision and architecture-specific FP32 protections (envelopes, Bloch phases, Jastrows, and Psiformer residual streams stay in FP32). | Power-of-two scaled FP16 operands with FP32 accumulation. | FP32 (real or complex). |
+| `fp16_mixed` | FP16 neural layers with scoped `bfloat16` matmul precision and architecture-specific FP32 protections (envelopes, Bloch phases, Jastrows, and Psiformer residual streams stay in FP32, and molecular LapNet requires `wf.use_layernorm=true`, see <project:wavefunction.md>). | Power-of-two scaled FP16 operands with FP32 accumulation. | FP32 (real or complex). |
 
 When a mode is selected, the wavefunction configures its internal layer dtypes and JAX matmul precision scopes automatically without changing root `jax.*` flags (`fp16_jac` and `fp16_mixed` pin neural evaluation to FP32 or FP16 even if `jax.enable_x64=true` is set).
 
-These modes match the two workloads that dominate QMC runtime:
+These modes match the two types of wavefunction evaluations in a QMC workflow:
 
-1. **Second-derivative contractions** in Forward Laplacian local energy estimators (the default `forward_laplacian` backend for kinetic energy and Pseudo-Hamiltonian energy), which propagate $O(N_{\text{elec}})$ Jacobian tangents through every neural layer. Local energy derivatives, parameter gradients, and natural-gradient preconditioners are sensitive to forward-pass rounding, so they use `fp16_jac` to accelerate Jacobian contractions while keeping forward passes in FP32.
-2. **Repeated forward passes** in Markov Chain Monte Carlo (MCMC) sampling and nonlocal estimators such as effective core potentials (ECPs), which evaluate $\log\psi$ many times per walker without second derivatives. Ratio-based proposals and quadratures tolerate FP16 neural forward passes well, so they can override their mode to `fp16_mixed`.
+1. **Second-derivative Laplacian contractions** in Forward Laplacian local energy estimators (such as kinetic energy or Pseudo-Hamiltonian energy). Setting `wf.precision=fp16_jac` accelerates these Jacobian contractions while keeping every forward pass in FP32.
+2. **Forward and first-order passes** in consumers that evaluate the wavefunction or its parameter derivatives without second derivatives (such as MCMC samplers, forward-only nonlocal estimators, and optimizer score or curvature passes). Because these consumers do not run `forward_laplacian`, `fp16_jac` leaves them in FP32, while overriding `<scope>.wavefunction_precision` to `fp16_mixed` accelerates their neural forward and backward passes on FP16 Tensor Cores:
+
+| Consumer Role | Consumer Scope | Recommended Mode |
+|---|---|---|
+| **Laplacian local energy** | `estimators.energy.kinetic`, `estimators.energy.ph` | `null` (inherits `wf.precision=fp16_jac`) |
+| **MCMC sampling** | `sampler` | `fp16_mixed` |
+| **Forward-only estimators** (when present) | e.g., `estimators.energy.ecp` | `fp16_mixed` (or a [tiered schedule](#ecp-nonlocal-precision) for `ecp`) |
+| **Loss gradients** | `train.grads` | `null` (inherits `wf.precision=fp16_jac`) |
+| **Natural-gradient optimizer pass** | `train.optim` | `null` (conservative FP32) or `fp16_mixed` (faster score/curvature pass) |
 
 Because stored parameters and checkpoint `.npz` files never change layout or dtype across modes, you can mix precision modes across consumers during training and switch back to `standard` precision for final evaluation.
-
-:::{important}
-**LapNet prerequisite for `fp16_mixed`**: If you use molecular **LapNet** (`wf.module=lapnet`) and plan to enable `fp16_mixed` (either initially or when resuming a run), set `wf.use_layernorm=true` in your system config before starting training so intermediate attention and MLP activations stay well-scaled in FP16. Unlike `wf.precision`, `wf.use_layernorm` alters model parameters and must remain set for both training and evaluation. FermiNet, Psiformer, and Hall MHPO (including `wf.backbone=lapnet`, which enables LayerNorm automatically) require no architecture changes (see <project:wavefunction.md>).
-:::
 
 ## Speedup Workflow
 
@@ -40,7 +44,7 @@ If you want a conservative speedup with zero change to the forward pass or sampl
 
 ### 2. Accelerate forward-heavy consumers (`*.wavefunction_precision`)
 
-Any component that evaluates the wavefunction (`sampler`, wavefunction-dependent `estimators.*`, `train.grads`, and natural-gradient `train.optim`) exposes a `wavefunction_precision` setting (`null` inherits `wf.precision`). On runs with many Metropolis-Hastings sub-steps or expensive nonlocal evaluations, override `wavefunction_precision` on those forward-heavy consumers to `fp16_mixed`:
+Any component that evaluates the wavefunction (`sampler`, wavefunction-dependent `estimators.*`, `train.grads`, and natural-gradient `train.optim`) exposes a `wavefunction_precision` setting (`null` inherits `wf.precision`). Because `fp16_jac` only accelerates second-derivative Laplacian contractions, forward-only and first-order consumers remain in FP32 unless overridden to `fp16_mixed`:
 
 ```bash
 jaqmc <app> train ... \
@@ -49,9 +53,30 @@ jaqmc <app> train ... \
   workflow.save_path=./runs/<name>-prod
 ```
 
-Leaving local energy estimators, `train.grads`, and `train.optim` at `null` keeps local energy derivatives, parameter gradients, and natural-gradient preconditioner curvature at `fp16_jac` (FP32 forward pass) for optimization stability, while the sampler's repeated proposals run in `fp16_mixed`. On ECP systems, you can similarly pass `estimators.energy.ecp.wavefunction_precision=fp16_mixed` or configure a [tiered nonlocal ECP precision schedule](#ecp-nonlocal-precision) in YAML.
+Leaving local energy estimators and `train.grads` at `null` keeps local energy derivatives and parameter gradients at `fp16_jac` (FP32 forward pass) for optimization stability, while the sampler's repeated proposals run in `fp16_mixed`. Depending on which components your workflow enables, you can apply the same override to other forward-only or first-order consumers:
 
-If training with `fp16_mixed` introduces energy spikes or NaNs on a challenging system, fall back to `wf.precision=fp16_jac` with `*.wavefunction_precision=null`, or test with `wf.precision=standard` (and `*.wavefunction_precision=null` if also testing `jax.enable_x64=true`, see <project:troubleshooting.md>).
+- **Forward-only nonlocal estimators** (when present, such as ECPs): Pass `estimators.energy.ecp.wavefunction_precision=fp16_mixed` or configure a [tiered nonlocal ECP precision schedule](#ecp-nonlocal-precision) in YAML.
+- **Natural-gradient optimizers** (`train.optim`): Pass `train.optim.wavefunction_precision=fp16_mixed` to accelerate the optimizer's first-order score or curvature wavefunction pass. Some optimizers also expose dedicated precision settings for their own internal linear algebra (for example, `gram_dot_prec` and `gram_solve_prec` in Stochastic Reconfiguration, see [Gram Matrix Precision](#sr-gram-precision)).
+
+:::{admonition} Example: Molecular LapNet with Stochastic Reconfiguration
+:class: note
+
+For a molecular LapNet calculation trained with SR (`train.optim.module=sr`), set `wf.use_layernorm=true` in your system config (so attention and MLP activations stay well-scaled in `fp16_mixed`, and keep it set during `evaluate` since it adds layer-norm parameters) and combine `fp16_jac`, `fp16_mixed`, and SR's Gram precision settings:
+
+```bash
+# Add train.optim.gram_solve_prec=F32_PCG on GPUs with limited FP64 throughput (e.g., H20)
+jaqmc molecule train ... \
+  wf.module=lapnet wf.use_layernorm=true \
+  wf.precision=fp16_jac \
+  sampler.wavefunction_precision=fp16_mixed \
+  train.optim.module=sr \
+  train.optim.wavefunction_precision=fp16_mixed \
+  train.optim.gram_dot_prec=F16 \
+  workflow.save_path=./runs/<name>-prod
+```
+:::
+
+If training with `fp16_mixed` introduces energy spikes or NaNs on a challenging system, reset consumer overrides to `null` (starting with `train.optim.wavefunction_precision=null` if set), fall back to `wf.precision=fp16_jac` with `*.wavefunction_precision=null`, or test with `wf.precision=standard` (and `*.wavefunction_precision=null` if also testing `jax.enable_x64=true`, see <project:troubleshooting.md>).
 
 (mixed-precision-evaluation-and-resuming)=
 ### 3. Verify final observables in standard precision
@@ -78,6 +103,7 @@ Precision settings are recorded in the resolved configuration file (`train_confi
 
 - <project:wavefunction.md>: Architecture-specific precision details for FermiNet, LapNet, and Psiformer.
 - <project:estimators/ecp.md>: Rank-fraction precision schedules for nonlocal ECP integrals.
+- [Gram Matrix Precision](#sr-gram-precision): Optimizer-internal Gram contraction and linear-solve precision for Stochastic Reconfiguration.
 - <project:running-workflows.md>: Shared training, resume, and evaluation workflow mechanics.
 - <project:analyzing-evaluations.md>: Extracting final observables and uncertainties from evaluation runs.
 - <project:troubleshooting.md>: Diagnosing NaNs, energy spikes, and train-versus-evaluation discrepancies.

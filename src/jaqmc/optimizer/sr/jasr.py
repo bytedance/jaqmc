@@ -3,9 +3,8 @@
 
 import dataclasses
 from collections.abc import Callable, Sequence
-from enum import Enum
 from functools import partial, reduce
-from typing import Any, Literal, NamedTuple, overload
+from typing import Any, Literal, NamedTuple, cast, get_args, overload
 
 import jax
 import numpy as np
@@ -28,40 +27,10 @@ try:
 except ImportError:
     from jax._src import core as jcore  # type: ignore[no-redef]
 
-
-def get_preset_params(f32_dot: bool = False) -> dict:
-    """Get preset parameters for the optimizer.
-
-    Args:
-        f32_dot: Whether to use float32 for dot product in calculating the gram matrix.
-        This is useful for GPUs with very limited F64 compute, like H20.
-
-    Returns:
-        A dictionary of preset parameters.
-    """
-    params = dict(
-        max_norm="fixed",
-        damping=1e-3,
-        max_cond_num=1e7,
-        robust_gamma="sqrt",
-        spring_mu=0.9,
-        march_beta=0.995,
-        march_mode="var",
-        eps=1e-8,
-        mixed_precision=True,  # double precision is important in inversion
-        score_norm_clip=None,  # do not use score norm clipping
-        score_chunk_size=128,  # to save memory; set to None for small model
-        gram_num_chunks=4,  # to save memory; set to None for small model
-        gram_dot_prec="F64",  # double precision to minimize numerical error
-        prune_inactive=True,  # prune inactive parameters to speed up calculation
-    )
-    if f32_dot:  #
-        params.update(
-            gram_num_chunks=16,  # This is necessary to have smaller numerical error
-            gram_dot_prec="F32_HIGH",  # use single precision to speed up dot product
-            march_beta=0.95,  # larger beta might smooth out some numerical instability
-        )
-    return params
+DotPrecision = Literal["F64", "F32", "F16", "F16_X3"]
+SolvePrecision = Literal["F64", "F32_PCG", "F32"]
+_DOT_PRECISIONS: tuple[str, ...] = get_args(DotPrecision)
+_SOLVE_PRECISIONS: tuple[str, ...] = get_args(SolvePrecision)
 
 
 def robust_sr(
@@ -76,12 +45,12 @@ def robust_sr(
     march_beta: optax.ScalarOrSchedule | None = None,
     march_mode: Literal["diff", "var"] = "diff",
     eps: float = 1e-8,
-    mixed_precision: bool = True,
     score_in_axes: int | Sequence[Any] = 0,
     score_chunk_size: int | None = None,
     score_norm_clip: float | None = None,
     gram_num_chunks: int | None = None,
-    gram_dot_prec: "PrecisionLike" = None,
+    gram_dot_prec: DotPrecision = "F64",
+    gram_solve_prec: SolvePrecision = "F64",
     axis_name: str | None = None,
     prune_inactive: bool = False,
 ) -> optax.GradientTransformationExtraArgs:
@@ -114,18 +83,19 @@ def robust_sr(
             'diff' (default, using update differences) or 'var' (using score
             variance along sample axis).
         eps: Small numerical constant for numerical stability.
-        mixed_precision: Whether to use mixed precision for the gram
-            factorization.
         score_in_axes: Axes for score computation that will be passed to vmap
             when computing the score matrix.
         score_chunk_size: Chunk size for score computation. If ``None``,
             full-batch score computation is used.
         score_norm_clip: Optional clip value for the mean of absolute values of
             each row of the score matrix. If ``None``, no clipping is applied.
-        gram_num_chunks: Number of chunks for gram computation. If ``None``,
-            full-batch gram computation is used.
-        gram_dot_prec: Precision for the gram matrix computation. If ``None``,
-            use the default (highest in dtype) precision.
+        gram_num_chunks: Number of parameter chunks for Gram matrix
+            computation. If ``None``, the chunk count is chosen automatically
+            based on parameter count and device count (``1`` sets unchunked).
+        gram_dot_prec: Precision for the gram matrix computation (``"F64"``,
+            ``"F32"``, ``"F16"``, or ``"F16_X3"``).
+        gram_solve_prec: Precision mode for accumulating, regularizing, and
+            inverting the Gram matrix (``"F64"``, ``"F32_PCG"``, or ``"F32"``).
         axis_name: Axis name for multi-device mapping.
         prune_inactive: Whether to structurally prune parameter leaves that do
             not contribute to the linearized ``log_psi_fn`` for the current
@@ -170,12 +140,12 @@ def robust_sr(
         march_beta=march_beta,
         march_mode=march_mode,
         eps=eps,
-        mixed_precision=mixed_precision,
         score_in_axes=score_in_axes,
         score_chunk_size=score_chunk_size,
         score_norm_clip=score_norm_clip,
         gram_num_chunks=gram_num_chunks,
         gram_dot_prec=gram_dot_prec,
+        gram_solve_prec=gram_solve_prec,
         axis_name=axis_name,
         prune_inactive=prune_inactive,
     )
@@ -229,12 +199,12 @@ def scale_by_fisher_inverse(  # noqa: C901
     march_beta: optax.ScalarOrSchedule | None = None,
     march_mode: Literal["diff", "var"] = "diff",
     eps: float = 1e-8,
-    mixed_precision: bool = True,
     score_in_axes: int | Sequence[Any] = 0,
     score_chunk_size: int | None = None,
     score_norm_clip: float | None = None,
     gram_num_chunks: int | None = None,
-    gram_dot_prec: "PrecisionLike" = None,
+    gram_dot_prec: DotPrecision = "F64",
+    gram_solve_prec: SolvePrecision = "F64",
     axis_name: str | None = None,
     prune_inactive: bool = False,
 ) -> optax.GradientTransformationExtraArgs:
@@ -289,8 +259,6 @@ def scale_by_fisher_inverse(  # noqa: C901
             updated with current score before it is used to calculate the
             scale.
         eps: Small numerical constant for numerical stability.
-        mixed_precision: Whether to use mixed precision for the Cholesky
-            factorization.
         score_in_axes: Axes for score computation that will be passed to vmap
             when computing the score matrix.
         score_chunk_size: Chunk size for the score matrix computation.
@@ -298,10 +266,13 @@ def scale_by_fisher_inverse(  # noqa: C901
             to reduce memory footprint.
         score_norm_clip: Optional clip value for the mean of absolute values of
             each row of the score matrix. If ``None``, no clipping is applied.
-        gram_num_chunks: Number of chunks for the gram matrix computation.
-            If not ``None``, use lax.scan to reduce memory footprint.
-        gram_dot_prec: Precision for the gram matrix computation. If ``None``,
-            use the default (highest in dtype) precision.
+        gram_num_chunks: Number of parameter chunks for the Gram matrix
+            computation. If ``None``, the chunk count is chosen automatically
+            based on parameter count and device count (``1`` sets unchunked).
+        gram_dot_prec: Precision for the gram matrix computation (``"F64"``,
+            ``"F32"``, ``"F16"``, or ``"F16_X3"``).
+        gram_solve_prec: Precision mode for accumulating, regularizing, and
+            inverting the Gram matrix (``"F64"``, ``"F32_PCG"``, or ``"F32"``).
         axis_name: Axis name for multi-device mapping.
         prune_inactive: Whether to structurally prune parameter leaves that are
             inactive in the linearized ``log_psi_fn``. When enabled, the score
@@ -312,12 +283,16 @@ def scale_by_fisher_inverse(  # noqa: C901
         An ``optax.GradientTransformationExtraArgs`` taking ``(params, data)``.
 
     Raises:
-        ValueError: If ``robust_gamma`` is an unsupported string value, or if
-            ``prune_inactive=True`` removes every parameter leaf for the
-            current input signature.
+        ValueError: If ``robust_gamma``, ``gram_dot_prec``, or
+            ``gram_solve_prec`` is unsupported, or if ``prune_inactive=True``
+            removes every parameter leaf for the current input signature.
     """
     if isinstance(robust_gamma, str) and robust_gamma != "sqrt":
         raise ValueError("robust_gamma must be None, 'sqrt', a scalar, or a schedule.")
+
+    solve_prec = get_solve_precision(gram_solve_prec)
+    use_x64 = solve_prec != "F32"
+    get_precision(gram_dot_prec, use_x64)
 
     grad_log_psi = adaptive_grad(log_psi_fn, argnums=0)
 
@@ -461,33 +436,25 @@ def scale_by_fisher_inverse(  # noqa: C901
             else 0.0
         )
 
-        # Use mixed precision for calculation and inversion of gram matrix
-        with _enable_x64(mixed_precision):
-            # calculate and regularize gram matrix (score @ score.T)
+        # Calculate, regularize, and invert the Gram matrix
+        with _enable_x64(use_x64):
             gram = calc_gram_matrix(
                 score,
                 scale_active,
                 num_chunks=gram_num_chunks,
-                use_x64=mixed_precision,
+                use_x64=use_x64,
                 dot_prec=gram_dot_prec,
                 axis_name=axis_name,
             )
             gram = lift_null_space(gram, n_batch, n_device)
 
-            # handle damping and robust gamma
             lam = jnp.asarray(get_damping(count))
             if max_cond_num is not None:
                 lam = jnp.maximum(lam, estimate_required_damping(gram, max_cond_num))
             gamma = get_gamma(count, lam)
-            gram = gram + lam * jnp.eye(gram.shape[0])
-
-            # inversion is done with cho_solve
-            chol = jsp.linalg.cho_factor(gram)
-            w = jsp.linalg.cho_solve(chol, u_g)
-            z = jsp.linalg.cho_solve(
-                chol,
-                gamma * u_g + u_p - (1.0 - gamma * lam) * w,
-            ).astype(grad_flat.dtype)
+            z = _solve_gram_system(gram, u_g, u_p, lam, gamma, solve_prec).astype(
+                grad_flat.dtype
+            )
             gamma = gamma.astype(grad_flat.dtype)
 
         # Final update
@@ -517,7 +484,7 @@ def calc_gram_matrix(
     *,
     num_chunks: int | None = None,
     use_x64: bool = True,
-    dot_prec: "PrecisionLike" = None,
+    dot_prec: DotPrecision = "F64",
     axis_name: str | None = None,
 ) -> Array:
     """Calculate the kernel matrix ``score diag(scale) score^T``.
@@ -525,117 +492,60 @@ def calc_gram_matrix(
     Returns:
         The dense Gram matrix, optionally accumulated in chunks.
     """
-    if num_chunks is not None:
-        return calc_gram_matrix_chunked(
-            score,
-            scale,
-            num_chunks=num_chunks,
-            use_x64=use_x64,
-            dot_prec=dot_prec,
-            axis_name=axis_name,
-        )
     paxis = PAxis(axis_name)
-    score_w = score * jnp.sqrt(scale)  # assume positive scale
+    prec = get_precision(dot_prec, use_x64)
+    out_dtype = jnp.float64 if use_x64 else score.dtype
+    local_row_scale, inv_row_scale = _row_scale_pow2(score * jnp.sqrt(scale))
 
-    # normalize score matrix on the row dimension
-    local_row_factor = jnp.max(jnp.abs(score_w), axis=1, keepdims=True)
-    local_row_factor = jnp.clip(local_row_factor, min=1e-4)
-    score_norm = score_w / local_row_factor
-
-    # communication and resharding
-    score_resharded = paxis.all_to_all(
-        pad_to_multiple(score_norm, paxis.size(), axis=1),
-        split_axis=1,
-        concat_axis=0,
-        tiled=True,
-    )  # [n_batch (global), n_params (local)]
-
-    # accumulate gram matrix
-    prec: Precision = get_precision(dot_prec, use_x64)
-    gram_local = dot_with_precision(score_resharded, score_resharded.T, prec)
-    gram_local = gram_local.astype(jnp.float64 if use_x64 else score.dtype)
-    gram = paxis.psum(gram_local)
-
-    # put back the row scales
-    row_factor = paxis.all_gather(local_row_factor, axis=0, tiled=True)
-    row_factor = paxis.pmax(row_factor)  # hack to make it invariant
-    row_factor = row_factor.astype(gram.dtype)
-    gram = gram * (row_factor @ row_factor.T)
-
-    # extra symmetrization for better numerics
-    gram = (gram + gram.T) / 2
-    return gram
-
-
-def calc_gram_matrix_chunked(
-    score: Array,
-    scale: Array,
-    *,
-    num_chunks: int,
-    use_x64: bool = True,
-    dot_prec: "PrecisionLike" = None,
-    axis_name: str | None = None,
-) -> Array:
-    # handle shapes
-    paxis = PAxis(axis_name)
-    n_devices = paxis.size()
-    batch_local, n_params = score.shape
-    batch_global = batch_local * n_devices
-    chunk_size = (n_params + num_chunks - 1) // num_chunks
-    max_start = n_params - chunk_size
-    prec: Precision = get_precision(dot_prec, use_x64)
-
-    # get the row normalization factor
-    local_row_factor = jnp.max(jnp.abs(score * jnp.sqrt(scale)), axis=1, keepdims=True)
-    local_row_factor = jnp.clip(local_row_factor, min=1e-4)
-
-    # loop body to be used in scan
-    def body_fn(gram, chunk_id):
-        # select chunk of score matrix, make sure it's within bounds
-        raw_start = chunk_id * chunk_size
-        start = jnp.minimum(raw_start, max_start)
-        score_chunk = lax.dynamic_slice_in_dim(score, start, chunk_size, axis=1)
-        scale_chunk = (
-            lax.dynamic_slice_in_dim(scale, start, chunk_size, axis=0)
-            if isinstance(scale, Array)
-            else scale
-        )
-
-        # masking out-of-bounds elements; normalize row dimension
-        param_idx = start + jnp.arange(chunk_size)
-        valid = (param_idx >= raw_start) & (param_idx < n_params)
-        score_chunk_w = score_chunk * jnp.sqrt(scale_chunk) * valid
-        score_chunk_norm = score_chunk_w / local_row_factor
-
-        # resharding score chunk
+    def reshard_and_gram(score_w: Array) -> Array:
+        score_norm = score_w * inv_row_scale
+        if prec == "F16":
+            score_norm = score_norm.astype(jnp.float16)
         score_resharded = paxis.all_to_all(
-            pad_to_multiple(score_chunk_norm, n_devices, axis=1),
+            pad_to_multiple(score_norm, paxis.size(), axis=1),
             split_axis=1,
             concat_axis=0,
             tiled=True,
-        )  # [batch_global, chunk_size / n_devices]
+        )  # [batch_global, n_params_local]
+        return _gram_product(score_resharded, prec).astype(out_dtype)
 
-        # gram accumulation
-        gram_local = dot_with_precision(score_resharded, score_resharded.T, prec)
-        gram_local = gram_local.astype(jnp.float64 if use_x64 else gram.dtype)
-        gram = gram + paxis.psum(gram_local)
-        return gram, None
+    if num_chunks is None:
+        # F16/F16_X3 saturate Tensor Cores at S = 64 blocks of 512 (32k params/device,
+        # <1 GiB) while larger S inflates [S, 512, 512] FP32 buffers. F32/F64 run
+        # unbatched 256x256 2D GEMMs that need a larger K (256k params/device, ~4-8 GiB
+        # at B=4096) to occupy the GPU and amortize scan overhead.
+        cols_per_device = 64 * 512 if prec in ("F16", "F16_X3") else 512 * 512
+        max_chunk = paxis.size() * cols_per_device
+        num_chunks = (score.shape[1] + max_chunk - 1) // max_chunk
 
-    # scan over chunks
-    gram0 = jnp.zeros(
-        (batch_global, batch_global), dtype=jnp.float64 if use_x64 else score.dtype
-    )
-    gram, _ = lax.scan(body_fn, gram0, jnp.arange(num_chunks))
+    if num_chunks <= 1:
+        gram_local = reshard_and_gram(score * jnp.sqrt(scale))
+    else:
+        batch_local, n_params = score.shape
+        batch_global = batch_local * paxis.size()
+        chunk_size = (n_params + num_chunks - 1) // num_chunks
+        max_start = n_params - chunk_size
 
-    # put back the row scales
-    row_factor = paxis.all_gather(local_row_factor, axis=0, tiled=True)
-    row_factor = paxis.pmax(row_factor)  # hack to make it invariant
-    row_factor = row_factor.astype(gram.dtype)
-    gram = gram * (row_factor @ row_factor.T)
+        def body_fn(gram, chunk_id):
+            raw_start = chunk_id * chunk_size
+            start = jnp.minimum(raw_start, max_start)
+            score_chunk = lax.dynamic_slice_in_dim(score, start, chunk_size, axis=1)
+            scale_chunk = (
+                lax.dynamic_slice_in_dim(scale, start, chunk_size, axis=0)
+                if isinstance(scale, Array)
+                else scale
+            )
+            param_idx = start + jnp.arange(chunk_size)
+            valid = (param_idx >= raw_start) & (param_idx < n_params)
+            score_chunk_w = score_chunk * jnp.sqrt(scale_chunk) * valid
+            return gram + reshard_and_gram(score_chunk_w), None
 
-    # extra symmetrization for better numerics
-    gram = (gram + gram.T) / 2
-    return gram
+        gram0 = paxis.pvary(jnp.zeros((batch_global, batch_global), dtype=out_dtype))
+        gram_local, _ = lax.scan(body_fn, gram0, jnp.arange(num_chunks))
+
+    row_scale = paxis.all_gather(local_row_scale, axis=0, tiled=True).astype(out_dtype)
+    gram = paxis.psum(gram_local * (row_scale @ row_scale.T))
+    return (gram + gram.T) / 2
 
 
 def lift_null_space(gram: Array, n_batch: int, n_device: int = 1):
@@ -670,11 +580,10 @@ def power_iteration(A: Array, num_iters: int = 10) -> Array:
     Returns:
         Approximation to the largest eigenvalue of ``A``.
     """
-    with jax.ensure_compile_time_eval():
-        n = A.shape[0]
-        key = jax.random.key(42)
-        v0 = jax.random.uniform(key, (n,), dtype=A.dtype)
-        v0 = v0 / jnp.linalg.norm(v0)
+    n = A.shape[0]
+    v0_np = np.random.default_rng(42).uniform(size=(n,))
+    v0_np = v0_np / np.linalg.norm(v0_np)
+    v0 = jnp.asarray(v0_np, dtype=A.dtype)
 
     def body_fun(i, v):
         v_next = jnp.dot(A, v)
@@ -750,35 +659,241 @@ def scale_by_constrained_norm(
 # Below are helper functions ##########
 
 
-class Precision(Enum):
-    F32_LOW = lax.Precision.DEFAULT.value
-    F32_MID = lax.Precision.HIGH.value
-    F32_HIGH = lax.Precision.HIGHEST.value
-    F64 = 100
+def get_solve_precision(label: SolvePrecision | str) -> SolvePrecision:
+    if isinstance(label, str) and label.upper() in _SOLVE_PRECISIONS:
+        return cast(SolvePrecision, label.upper())
+    raise ValueError(
+        f"Unsupported gram_solve_prec {label!r}; expected 'F64', 'F32_PCG', or 'F32'."
+    )
 
 
-PrecisionLike = int | str | Precision | None
+def _solve_gram_system(
+    gram: Array,
+    u_g: Array,
+    u_p: Array | float,
+    lam: Array,
+    gamma: Array,
+    solve_prec: SolvePrecision,
+) -> Array:
+    """Solve the dual SR linear systems for ``z``.
+
+    Given the null-space-lifted Gram matrix ``gram`` and damping ``lam``,
+    computes ``w = F^{-1} u_g`` and ``z = F^{-1} (gamma u_g + u_p - (1 - gamma lam) w)``
+    where ``F = gram + lam I``.
+
+    Returns:
+        The dual vector ``z`` in ``gram.dtype``.
+    """
+    n = gram.shape[0]
+    gram_reg = gram + lam * jnp.eye(n, dtype=gram.dtype)
+
+    def direct_solve() -> Array:
+        chol = jsp.linalg.cho_factor(gram_reg)
+        w_direct = jsp.linalg.cho_solve(chol, u_g)
+        return jsp.linalg.cho_solve(
+            chol, gamma * u_g + u_p - (1.0 - gamma * lam) * w_direct
+        )
+
+    if solve_prec in ("F64", "F32"):
+        return direct_solve()
+
+    # solve_prec == "F32_PCG": diagonally equilibrate gram_reg so diagonal entries
+    # are 1.0 and off-diagonals lie in [-1, 1] before factoring in FP32, then
+    # refine with FP64 PCG. Only top up diagonals whose existing relative damping
+    # (lam / diag_reg) is below the 2e-5 FP32 safety floor.
+    diag_reg = jnp.maximum(jnp.diag(gram_reg), 1e-30)
+    inv_sqrt_diag = lax.rsqrt(diag_reg)
+    gram_equil = gram_reg * (inv_sqrt_diag[:, None] * inv_sqrt_diag[None, :])
+    rel_lam = lam / diag_reg
+    shift_floor = 2e-5
+    extra_shift = jnp.maximum(0.0, shift_floor - rel_lam).astype(jnp.float32)
+    # Where extra_shift > 0, the FP32 preconditioner replaces rel_lam with
+    # shift_floor and suppresses collinear outlier modes by shift_floor / rel_lam;
+    # undo that suppression in the stopping check so PCG does not exit early.
+    err_weight = jnp.maximum(1.0, shift_floor / jnp.maximum(rel_lam, 1e-30))
+    gram_f32 = gram_equil.astype(jnp.float32) + jnp.diag(extra_shift)
+    chol_f32 = jsp.linalg.cho_factor(gram_f32)
+
+    def precond(v: Array) -> Array:
+        v_scaled = (v * inv_sqrt_diag).astype(jnp.float32)
+        return (
+            jsp.linalg.cho_solve(chol_f32, v_scaled).astype(jnp.float64) * inv_sqrt_diag
+        )
+
+    def pcg(b: Array, rtol: float = 1e-6, max_iters: int = 15) -> Array:
+        b = b.astype(jnp.float64)
+        x0 = precond(b)
+        r0 = b - gram_reg @ x0
+        z0 = precond(r0)
+        tol_sq = (rtol**2) * jnp.dot(x0, x0)
+
+        def cond_fn(carry):
+            step, _x, _r, z_r, _p, _rz = carry
+            z_weighted = z_r * err_weight
+            return (step < max_iters) & (jnp.dot(z_weighted, z_weighted) > tol_sq)
+
+        def body_fn(carry):
+            step, x, r, _z_r, p, rz = carry
+            ap = gram_reg @ p
+            p_ap = jnp.dot(p, ap)
+            alpha = jnp.where(p_ap > 0, rz / p_ap, 0.0)
+            x_next = x + alpha * p
+            r_next = r - alpha * ap
+            z_next = precond(r_next)
+            rz_next = jnp.dot(r_next, z_next)
+            beta = jnp.where(rz > 0, rz_next / rz, 0.0)
+            p_next = z_next + beta * p
+            return step + 1, x_next, r_next, z_next, p_next, rz_next
+
+        _, x, _, _, _, _ = lax.while_loop(
+            cond_fn,
+            body_fn,
+            (jnp.int32(0), x0, r0, z0, z0, jnp.dot(r0, z0)),
+        )
+        return x
+
+    w = pcg(u_g)
+    z = pcg(gamma * u_g + u_p - (1.0 - gamma * lam) * w)
+    return lax.cond(jnp.all(jnp.isfinite(z)), lambda: z, direct_solve)
 
 
-def get_precision(label: PrecisionLike, under_x64: bool) -> Precision:
-    if label is None:
-        precision = Precision.F64 if under_x64 else Precision.F32_HIGH
-    if isinstance(label, int):
-        precision = Precision(label)
-    if isinstance(label, str):
-        precision = Precision[label.upper()]
-    if not under_x64 and precision == Precision.F64:
-        raise ValueError(f"Precision {precision} is not supported without x64.")
+def get_precision(label: DotPrecision | str, under_x64: bool) -> DotPrecision:
+    if isinstance(label, str) and label.upper() in _DOT_PRECISIONS:
+        precision = cast(DotPrecision, label.upper())
+    else:
+        raise ValueError(
+            f"Unsupported gram_dot_prec {label!r}; expected 'F64', "
+            "'F32', 'F16', or 'F16_X3'."
+        )
+    if not under_x64 and precision == "F64":
+        raise ValueError(
+            "gram_dot_prec='F64' requires float64 Gram accumulation "
+            "(gram_solve_prec='F64' or 'F32_PCG'); when using "
+            "gram_solve_prec='F32', set gram_dot_prec to 'F32', 'F16', or 'F16_X3'."
+        )
     return precision
 
 
-def dot_with_precision(a, b, precision: Precision):
-    if precision == Precision.F64:
+def dot_with_precision(a, b, precision: DotPrecision):
+    if precision == "F64":
         a, b = a.astype(jnp.float64), b.astype(jnp.float64)
         return jnp.dot(a, b)
     else:
         a, b = a.astype(jnp.float32), b.astype(jnp.float32)
-        return jnp.dot(a, b, precision=lax.Precision(precision.value))
+        return jnp.dot(a, b, precision=lax.Precision.HIGHEST)
+
+
+def _upper_triangle_gram(
+    num_blocks: int, block_dot: Callable[[int, int], Array]
+) -> Array:
+    if num_blocks == 1:
+        return block_dot(0, 0)
+    products = {
+        (i, j): block_dot(i, j) for i in range(num_blocks) for j in range(i, num_blocks)
+    }
+    return jnp.block(
+        [
+            [products[i, j] if i <= j else products[j, i].T for j in range(num_blocks)]
+            for i in range(num_blocks)
+        ]
+    )
+
+
+def _row_scale_pow2(x: Array) -> tuple[Array, Array]:
+    """Compute exact power-of-2 row scales so non-zero entries lie in [-1, 1].
+
+    Returns:
+        Tuple ``(row_scale, inv_row_scale)`` of ``[batch, 1]`` power-of-2
+        factors in ``x.dtype``.
+    """
+    amax = jnp.max(jnp.abs(x), axis=1, keepdims=True)
+    _, exp = jnp.frexp(amax)
+    exp = jnp.clip(exp, -60, 60)
+    one = jnp.ones((), dtype=x.dtype)
+    return jnp.ldexp(one, exp), jnp.ldexp(one, -exp)
+
+
+def _batched_fp16_dot(lhs_3d: Array, rhs_3d: Array) -> Array:
+    """Contract ``[M, S, K_sub]`` and ``[N, S, K_sub]`` in FP16 with FP32 output.
+
+    Returns:
+        The ``[S, M, N]`` per-block products in FP32.
+    """
+    return lax.dot_general(
+        lhs_3d,
+        rhs_3d,
+        dimension_numbers=(((2,), (2,)), ((1,), (1,))),
+        preferred_element_type=jnp.float32,
+    )
+
+
+def _gram_product_fp16(
+    a_norm: Array, *, tile_size: int = 512, k_block_size: int = 512
+) -> Array:
+    """Form ``a_norm @ a_norm.T`` via 1-pass K-blocked FP16.
+
+    Returns:
+        The unscaled Gram matrix in ``float32``.
+    """
+    a_padded = pad_to_multiple(a_norm.astype(jnp.float16), k_block_size, axis=1)
+    hi = a_padded.reshape(a_norm.shape[0], -1, k_block_size)
+    hi_blocks = [hi[s : s + tile_size] for s in range(0, a_norm.shape[0], tile_size)]
+    return _upper_triangle_gram(
+        len(hi_blocks),
+        lambda i, j: jnp.sum(_batched_fp16_dot(hi_blocks[i], hi_blocks[j]), axis=0),
+    )
+
+
+def _gram_product_fp16_x3(
+    a_norm: Array, *, tile_size: int = 512, k_block_size: int = 512
+) -> Array:
+    """Form ``a_norm @ a_norm.T`` via 3-pass compensated K-blocked FP16.
+
+    Returns:
+        The unscaled Gram matrix in ``float32``.
+    """
+    a_padded = pad_to_multiple(a_norm.astype(jnp.float32), k_block_size, axis=1)
+    a_3d = a_padded.reshape(a_norm.shape[0], -1, k_block_size)
+    hi = lax.optimization_barrier(a_3d.astype(jnp.float16))
+    # float16 has 11 significand bits (1 implicit + 10 mantissa), so the
+    # quantization residual (a_3d - hi) has magnitude <= 2^-11. Scaling by
+    # 2^11 shifts the next 11 bits into [-1, 1] before casting to float16.
+    res_scale = jnp.float32(2**11)
+    inv_res_scale = jnp.float32(2**-11)
+    lo = ((a_3d - hi.astype(jnp.float32)) * res_scale).astype(jnp.float16)
+
+    hi_blocks = [hi[s : s + tile_size] for s in range(0, a_norm.shape[0], tile_size)]
+    lo_blocks = [lo[s : s + tile_size] for s in range(0, a_norm.shape[0], tile_size)]
+
+    def block_dot(i: int, j: int) -> Array:
+        p_hh = _batched_fp16_dot(hi_blocks[i], hi_blocks[j])
+        p_hl = _batched_fp16_dot(hi_blocks[i], lo_blocks[j])
+        if i == j:
+            c_ii = jnp.sum(p_hl, axis=0) * inv_res_scale
+            return jnp.sum(p_hh, axis=0) + c_ii + c_ii.T
+        p_lh = _batched_fp16_dot(lo_blocks[i], hi_blocks[j])
+        return jnp.sum(p_hh + (p_hl + p_lh) * inv_res_scale, axis=0)
+
+    return _upper_triangle_gram(len(hi_blocks), block_dot)
+
+
+def _gram_product(a: Array, precision: DotPrecision, tile_size: int = 256) -> Array:
+    """Form ``a @ a.T`` for row-normalized ``a`` using upper-triangle tiling.
+
+    Returns:
+        The dense product in the requested dot precision.
+    """
+    if precision == "F16":
+        return _gram_product_fp16(a)
+    if precision == "F16_X3":
+        return _gram_product_fp16_x3(a)
+
+    a = a.astype(jnp.float64 if precision == "F64" else jnp.float32)
+    blocks = [a[s : s + tile_size] for s in range(0, a.shape[0], tile_size)]
+    return _upper_triangle_gram(
+        len(blocks),
+        lambda i, j: dot_with_precision(blocks[i], blocks[j].T, precision),
+    )
 
 
 @overload

@@ -14,7 +14,7 @@ from jaqmc.utils.config import configurable_dataclass, module_config
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
 
-from .jasr import robust_sr
+from .jasr import DotPrecision, SolvePrecision, robust_sr
 
 __all__ = ["SROptimizer"]
 
@@ -61,14 +61,17 @@ class SROptimizer:
         march_mode: MARCH variance mode. ``"diff"`` uses update differences and
             ``"var"`` uses score variance along the batch axis.
         eps: Small numerical constant for stability.
-        mixed_precision: Whether to use mixed precision for Gram factorization.
         score_chunk_size: Chunk size for score computation. If ``None``,
             full-batch score computation is used.
         score_norm_clip: Optional clip value for the mean absolute score per
             batch row. If ``None``, score clipping is disabled.
-        gram_num_chunks: Number of chunks for Gram matrix computation. If
-            ``None``, full-batch Gram computation is used.
-        gram_dot_prec: Precision mode for Gram matrix dot products.
+        gram_num_chunks: Number of parameter chunks for Gram matrix
+            computation. If ``None``, the chunk count is chosen automatically
+            based on parameter count and device count (``1`` sets unchunked).
+        gram_dot_prec: Precision mode for Gram matrix dot products (``"F64"``,
+            ``"F32"``, ``"F16"``, or ``"F16_X3"``).
+        gram_solve_prec: Precision mode for accumulating, regularizing, and
+            inverting the Gram matrix (``"F64"``, ``"F32_PCG"``, or ``"F32"``).
     """
 
     learning_rate: Any = module_config(Standard, direct_value_type=float)
@@ -94,11 +97,11 @@ class SROptimizer:
     )
     march_mode: Literal["var", "diff"] = "var"
     eps: float = 1e-8
-    mixed_precision: bool = True
     score_chunk_size: int | None = 128
     score_norm_clip: float | None = None
     gram_num_chunks: int | None = 4
-    gram_dot_prec: str | None = "F64"
+    gram_dot_prec: DotPrecision = "F64"
+    gram_solve_prec: SolvePrecision = "F64"
     wavefunction_precision: str | None = None
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
 
@@ -126,12 +129,12 @@ class SROptimizer:
             march_beta=self.march_beta,
             march_mode=self.march_mode,
             eps=self.eps,
-            mixed_precision=self.mixed_precision,
             score_in_axes=(batched_data.vmap_axis,),
             score_chunk_size=self.score_chunk_size,
             score_norm_clip=self.score_norm_clip,
             gram_num_chunks=self.gram_num_chunks,
             gram_dot_prec=self.gram_dot_prec,
+            gram_solve_prec=self.gram_solve_prec,
             axis_name=parallel_jax.BATCH_AXIS_NAME,
             prune_inactive=False,
         )

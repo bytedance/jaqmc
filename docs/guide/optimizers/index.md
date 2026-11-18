@@ -65,8 +65,16 @@ train.optim.march_beta=null
 To use SR instead of the default KFAC:
 
 ```bash
-train.optim.module=sr
+# Default FP64 Gram construction and solve
+jaqmc <app> train train.optim.module=sr
+
+# Fast mixed-precision SR optimizer step (add train.optim.gram_solve_prec=F32_PCG on non-FP64 GPUs such as H20)
+jaqmc <app> train train.optim.module=sr \
+  train.optim.gram_dot_prec=F16 \
+  train.optim.wavefunction_precision=fp16_mixed
 ```
+
+To accelerate the entire VMC step (including kinetic energy and MCMC sampling alongside SR), see <project:../mixed-precision.md>.
 
 The key tunable parameters are:
 
@@ -74,8 +82,10 @@ The key tunable parameters are:
 - `robust_gamma` (default `"sqrt"`) - controls how strongly low-curvature directions fall back from SR toward first-order scaling. Set `null` for standard damped SR or `1.0` for the more conservative legacy robust-SR behavior.
 - `max_norm` (default `"fixed"`) - ties the update norm to `learning_rate`. Set a float for an explicit cap or `null` to disable the norm constraint.
 - `max_cond_num` (default `1e7`) - adaptively raises damping to limit Gram-matrix conditioning.
-- `score_chunk_size` / `gram_num_chunks` - trade speed for lower memory use on large systems.
-- `wavefunction_precision` (default `null`) - wavefunction precision mode used for score evaluation (`null` inherits `wf.precision`, see <project:../mixed-precision.md>).
+- `score_chunk_size` (default `null`) / `gram_num_chunks` (default `1`) - trade throughput for lower peak memory on large systems. Keep `score_chunk_size` at `null` (or as large a walker chunk as fits in memory, such as `128`–`512`) and `gram_num_chunks` small (`1`–`4`) to avoid extra backward-pass or multi-GPU `all_to_all` overhead.
+- `gram_dot_prec` (default `"F64"`) - precision mode for Gram matrix inner products. Set `"F16"` (or `"F16_X3"` under very small damping, $\lambda \le 10^{-5}$) to accelerate the Gram matrix product on FP16 Tensor Cores (see [Gram Matrix Precision](#sr-gram-precision)).
+- `gram_solve_prec` (default `"F64"`) - precision mode for Gram matrix accumulation and inversion (`"F64"`, `"F32_PCG"`, or `"F32"`). Keep `"F64"` on GPUs with full-rate FP64 Tensor Cores (such as A100 or H100), and set `"F32_PCG"` on GPUs with limited FP64 throughput (such as H20, see [Gram Matrix Precision](#sr-gram-precision)).
+- `wavefunction_precision` (default `null`) - wavefunction precision mode used for score evaluation (`null` inherits `wf.precision`, or set `"fp16_mixed"` to accelerate `grad_logpsi`, see <project:../mixed-precision.md>).
 
 For the derivation, failure mode, and efficient kernel-form update used by JaQMC, see {doc}`sr-spring-march`.
 

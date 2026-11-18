@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import partial
+from typing import Any, cast
 
 import chex
 import jax
@@ -16,9 +17,7 @@ from jaqmc.optimizer.sr.jasr import (
     _enable_x64,
     active_leaf_indices,
     calc_gram_matrix,
-    calc_gram_matrix_chunked,
     estimate_required_damping,
-    get_preset_params,
     get_structural_active_mask,
     lift_null_space,
     robust_sr,
@@ -773,18 +772,20 @@ def test_multi_device_parity(complex, mode, chunk_size):
     opt_single = scale_by_fisher_inverse(
         _simple_log_psi,
         damping=lam,
+        max_cond_num=1e7,
         spring_mu=None,
         axis_name=None,
         score_chunk_size=chunk_size,
-        mixed_precision=True,
+        gram_solve_prec="F64",
     )
     opt_multi = scale_by_fisher_inverse(
         _simple_log_psi,
         damping=lam,
+        max_cond_num=1e7,
         spring_mu=None,
         axis_name="i",
         score_chunk_size=chunk_size,
-        mixed_precision=True,
+        gram_solve_prec="F64",
     )
 
     state_s = opt_single.init(params)
@@ -827,11 +828,12 @@ def test_calc_gram_chunked_parity(use_x64):
     gram_ref = (score_rows * s) @ score_rows.T
 
     with _enable_x64(use_x64):
-        gram_chunked = calc_gram_matrix_chunked(
+        gram_chunked = calc_gram_matrix(
             score_rows,
             s,
             num_chunks=num_chunks,
             use_x64=use_x64,
+            dot_prec="F64" if use_x64 else "F32",
         )
 
     assert gram_chunked.dtype == jnp.float64 if use_x64 else jnp.float32
@@ -853,9 +855,10 @@ def test_calc_gram_chunked_no_all_gather():
     score_rows, s = _random_score_and_scale(n_batch, n_params)
 
     fn = partial(
-        calc_gram_matrix_chunked,
+        calc_gram_matrix,
         num_chunks=num_chunks,
         use_x64=False,
+        dot_prec="F32",
         axis_name="i",
     )
     jit_fn = jax.jit(jax.smap(fn, in_axes=(0, None), out_axes=0, axis_name="i"))
@@ -868,6 +871,21 @@ def test_calc_gram_chunked_no_all_gather():
     assert hlo_module is not None
     hlo = hlo_module.as_hlo_text()
     assert hlo.count("all-gather") == 1  # only once for row factor
+    assert hlo.count("all-reduce") == 1
+
+    fn_f16 = partial(
+        calc_gram_matrix,
+        num_chunks=num_chunks,
+        use_x64=False,
+        dot_prec="F16",
+        axis_name="i",
+    )
+    jit_fn_f16 = jax.jit(jax.smap(fn_f16, in_axes=(0, None), out_axes=0, axis_name="i"))
+    with jax.set_mesh(mesh):
+        hlo_f16_mod = jit_fn_f16.lower(score_rows, s).compiler_ir(dialect="hlo")
+    assert hlo_f16_mod is not None
+    hlo_f16 = hlo_f16_mod.as_hlo_text()
+    assert any("f16[" in line and "all-to-all" in line for line in hlo_f16.splitlines())
 
 
 @pytest.mark.parametrize("mode", ["pmap", "smap"])
@@ -885,7 +903,11 @@ def test_calc_gram_multi_device_parity(mode, num_chunks):
     gram_ref = (score_rows * s) @ score_rows.T
 
     calc_fn = partial(
-        calc_gram_matrix, num_chunks=num_chunks, use_x64=False, axis_name="i"
+        calc_gram_matrix,
+        num_chunks=num_chunks,
+        use_x64=False,
+        dot_prec="F32",
+        axis_name="i",
     )
     if mode == "pmap":
         score_rows = score_rows.reshape(n_devices, n_local, n_params)
@@ -1119,8 +1141,17 @@ def test_robust_sr_fixed_max_norm_sets_update_norm():
             True,
             dict(max_norm=0.1, spring_mu=0.95, march_beta=0.995, score_norm_clip=0.1),
         ),
-        (True, "preset"),
-        (True, "preset_f32"),
+        (
+            True,
+            dict(
+                max_norm="fixed",
+                robust_gamma="sqrt",
+                spring_mu=0.9,
+                march_beta=0.995,
+                march_mode="var",
+                prune_inactive=True,
+            ),
+        ),
     ],
 )
 def test_robust_sr_runs_without_error(with_jit, cfg):
@@ -1129,11 +1160,6 @@ def test_robust_sr_runs_without_error(with_jit, cfg):
     Covers both unconstrained and constrained-norm modes, with optional SPRING/MARCH.
     """
     params, samples, grads = _setup_linear_case(n_batch=5, n_params=4, complex=False)
-    if cfg == "preset":
-        cfg = get_preset_params(f32_dot=False)
-    elif cfg == "preset_f32":
-        cfg = get_preset_params(f32_dot=True)
-
     opt = robust_sr(
         _simple_log_psi,
         learning_rate=0.05,
@@ -1153,3 +1179,234 @@ def test_robust_sr_runs_without_error(with_jit, cfg):
     # Can be applied to params (structure check)
     new_params = optax.apply_updates(params, updates)
     chex.assert_trees_all_equal_shapes(params, new_params)
+
+
+@pytest.mark.parametrize("num_chunks", [None, 3])
+@pytest.mark.parametrize(
+    "dtype,use_x64,dot_prec",
+    [
+        (np.float64, True, "F64"),
+        (np.float32, False, "F32"),
+        (np.float32, True, "F32"),
+    ],
+    ids=["fp64", "fp32", "fp32-dot-fp64-accumulator"],
+)
+def test_calc_gram_upper_triangle_tiles(num_chunks, dtype, use_x64, dot_prec):
+    """Tiled upper-triangle Gram calculation (>256 rows) matches dense product."""
+    rng = np.random.default_rng(418)
+    rows = rng.normal(size=(262, 19)).astype(dtype)
+    rows[0] = 0
+    rows[1] *= 1e-10
+    rows[134] = rows[7]
+    scale = np.exp(rng.uniform(-4, 3, size=19)).astype(dtype)
+    scale[5] = 0
+
+    dense_rows = rows.astype(np.float64)
+    expected = (dense_rows * scale.astype(np.float64)) @ dense_rows.T
+    absolute_products = (np.abs(dense_rows) * scale) @ np.abs(dense_rows).T
+    comparison_scale = np.where(absolute_products > 0, absolute_products, 1.0)
+    tolerance = 32 * np.finfo(dtype).eps
+
+    with _enable_x64(use_x64):
+        actual = np.asarray(
+            calc_gram_matrix(
+                jnp.asarray(rows),
+                jnp.asarray(scale),
+                num_chunks=num_chunks,
+                use_x64=use_x64,
+                dot_prec=dot_prec,
+            )
+        )
+
+    assert actual.dtype == (np.float64 if use_x64 else np.float32)
+    np.testing.assert_array_equal(actual, actual.T)
+    np.testing.assert_allclose(
+        actual / comparison_scale,
+        expected / comparison_scale,
+        rtol=0,
+        atol=tolerance,
+    )
+
+
+@pytest.mark.parametrize(
+    "dot_prec, max_rel_err",
+    [
+        ("F32", 1e-6),
+        ("F16", 5e-4),
+        ("F16_X3", 1e-6),
+    ],
+)
+@pytest.mark.parametrize("num_chunks", [None, 3])
+def test_calc_gram_mixed_precision_modes(dot_prec, max_rel_err, num_chunks):
+    """Mixed-precision Gram modes match FP64 across tiled batches and chunks."""
+    n_batch = 540  # > 512 to exercise multi-tile upper-triangle assembly
+    n_params = 1300  # non-multiple of 512 and num_chunks
+
+    score_rows, s = _random_score_and_scale(n_batch, n_params)
+    col_scales = jnp.geomspace(1e-3, 1e3, n_params, dtype=jnp.float32)
+    s = s * col_scales
+
+    with _enable_x64(True):
+        gram_ref = calc_gram_matrix(
+            score_rows,
+            s,
+            num_chunks=None,
+            use_x64=True,
+            dot_prec="F64",
+        )
+        gram_approx = jax.jit(
+            partial(
+                calc_gram_matrix,
+                num_chunks=num_chunks,
+                use_x64=True,
+                dot_prec=dot_prec,
+            )
+        )(score_rows, s)
+        rel_err = float(
+            jnp.linalg.norm(gram_approx - gram_ref) / jnp.linalg.norm(gram_ref)
+        )
+
+    assert gram_approx.dtype == jnp.float64
+    assert gram_approx.shape == (n_batch, n_batch)
+    np.testing.assert_array_equal(np.asarray(gram_approx), np.asarray(gram_approx.T))
+    assert rel_err < max_rel_err, f"{dot_prec} (chunks={num_chunks}): {rel_err=:.3e}"
+
+
+def test_calc_gram_auto_num_chunks():
+    """`num_chunks=None` auto-chunks past 64*512 cols while `1` stays unchunked."""
+    score_rows, s = _random_score_and_scale(n_batch=8, n_params=64 * 512 + 100)
+    auto_fn = jax.jit(partial(calc_gram_matrix, num_chunks=None, dot_prec="F16_X3"))
+    single_fn = jax.jit(partial(calc_gram_matrix, num_chunks=1, dot_prec="F16_X3"))
+
+    with _enable_x64(True):
+        assert "stablehlo.while" in auto_fn.lower(score_rows, s).as_text()
+        assert "stablehlo.while" not in single_fn.lower(score_rows, s).as_text()
+        gram_auto = auto_fn(score_rows, s)
+        gram_single = single_fn(score_rows, s)
+
+    chex.assert_trees_all_close(gram_auto, gram_single, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.parametrize("damping", [1e-3, 1e-4, 1e-5])
+@pytest.mark.parametrize("dot_prec", ["F64", "F16"])
+def test_gram_solve_prec_f32_pcg_matches_f64(damping, dot_prec):
+    """F32_PCG solve matches direct F64 Cholesky across damping regimes."""
+    params, samples, grads = _setup_linear_case(n_batch=64, n_params=200)
+    opt_f64 = scale_by_fisher_inverse(
+        _simple_log_psi,
+        damping=damping,
+        robust_gamma="sqrt",
+        spring_mu=0.9,
+        march_beta=0.95,
+        march_mode="var",
+        gram_dot_prec=dot_prec,
+        gram_solve_prec="F64",
+    )
+    opt_pcg = scale_by_fisher_inverse(
+        _simple_log_psi,
+        damping=damping,
+        robust_gamma="sqrt",
+        spring_mu=0.9,
+        march_beta=0.95,
+        march_mode="var",
+        gram_dot_prec=dot_prec,
+        gram_solve_prec="F32_PCG",
+    )
+
+    state = opt_f64.init(params)
+    # Seed non-zero prev_delta so the momentum u_p path is also exercised.
+    state = state._replace(prev_delta=jnp.ones_like(state.prev_delta) * 0.1)
+
+    upd_f64, _ = jax.jit(opt_f64.update)(grads, state, params, samples)
+    upd_pcg, _ = jax.jit(opt_pcg.update)(grads, state, params, samples)
+
+    u64, _ = ravel_pytree(upd_f64)
+    upcg, _ = ravel_pytree(upd_pcg)
+    rel_err = float(jnp.linalg.norm(upcg - u64) / jnp.linalg.norm(u64))
+    assert rel_err < 1e-5, f"{damping=}, {dot_prec=}: {rel_err=:.3e}"
+
+
+@pytest.mark.parametrize("collinear", [False, True])
+def test_gram_solve_prec_f32_pcg_heavy_tailed_outliers(collinear):
+    """F32_PCG remains finite and accurate under heavy-tailed outlier walkers."""
+    n_batch, n_params = 256, 512
+    key1, key2, key3 = jax.random.split(jax.random.key(7), 3)
+
+    with _enable_x64(True):
+        params = {"w": jax.random.normal(key1, (n_params,), dtype=jnp.float64)}
+        grads = {"w": jax.random.normal(key3, (n_params,), dtype=jnp.float64)}
+        samples = jax.random.normal(
+            key2, (n_batch, n_params), dtype=jnp.float64
+        ) * jnp.asarray(np.logspace(-3, 0, n_params))
+        samples = (
+            samples
+            / jnp.linalg.norm(samples, axis=1, keepdims=True)
+            * jnp.sqrt(n_batch)
+        )
+        # Outlier walkers with score norm ~5e3 (diagonal ~2.5e7 >> diag_mean)
+        outlier = samples[0] * 5e3
+        perturb = 1e-3 if collinear else 1.0
+        samples = samples.at[0].set(outlier).at[1].set(-outlier + perturb * samples[1])
+
+        opt_f64 = scale_by_fisher_inverse(
+            _simple_log_psi,
+            damping=1e-4,
+            robust_gamma="sqrt",
+            spring_mu=None,
+            march_beta=None,
+            gram_solve_prec="F64",
+        )
+        opt_pcg = scale_by_fisher_inverse(
+            _simple_log_psi,
+            damping=1e-4,
+            robust_gamma="sqrt",
+            spring_mu=None,
+            march_beta=None,
+            gram_solve_prec="F32_PCG",
+        )
+        state = opt_f64.init(params)
+        upd_f64, _ = jax.jit(opt_f64.update)(grads, state, params, samples)
+        upd_pcg, _ = jax.jit(opt_pcg.update)(grads, state, params, samples)
+        u64, _ = ravel_pytree(upd_f64)
+        upcg, _ = ravel_pytree(upd_pcg)
+        assert jnp.all(jnp.isfinite(upcg))
+        rel_err = float(jnp.linalg.norm(upcg - u64) / jnp.linalg.norm(u64))
+
+    # When collinear=True, outlier norm 5e3 and damping 1e-4 yield
+    # cond(gram_reg) ~ 3.3e11, where float64 arithmetic itself has a
+    # conditioning floor of cond * eps_f64 ~ 7e-5 across solvers/platforms.
+    max_rel_err = 5e-5 if collinear else 1e-5
+    assert rel_err < max_rel_err, f"{collinear=}: {rel_err=:.3e}"
+
+
+def test_gram_solve_prec_f32_and_validation():
+    """F32 solve runs without x64 and rejects F64 dot precision."""
+    params, samples, grads = _setup_linear_case(n_batch=8, n_params=16)
+    opt_f32 = scale_by_fisher_inverse(
+        _simple_log_psi,
+        damping=1e-2,
+        gram_dot_prec="F32",
+        gram_solve_prec="F32",
+    )
+    state = opt_f32.init(params)
+    updates, _ = jax.jit(opt_f32.update)(grads, state, params, samples)
+    chex.assert_tree_all_finite(updates)
+
+    with pytest.raises(ValueError, match="requires float64 Gram accumulation"):
+        scale_by_fisher_inverse(
+            _simple_log_psi,
+            gram_dot_prec="F64",
+            gram_solve_prec="F32",
+        )
+
+    with pytest.raises(ValueError, match="Unsupported gram_solve_prec"):
+        scale_by_fisher_inverse(
+            _simple_log_psi,
+            gram_solve_prec=cast(Any, "invalid"),
+        )
+
+    with pytest.raises(ValueError, match="Unsupported gram_dot_prec"):
+        scale_by_fisher_inverse(
+            _simple_log_psi,
+            gram_dot_prec=cast(Any, "invalid"),
+        )
