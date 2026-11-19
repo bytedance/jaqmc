@@ -9,7 +9,6 @@ Backbone-specific tests are in backbone_test.py.
 from dataclasses import replace
 from typing import Any, cast
 
-import h5py
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -402,10 +401,10 @@ class TestWorkflowIntegration:
         MoleculeTrainWorkflow(cfg)()
 
         # Verify training stats file was created with finite, improving losses
-        stats_file = tmp_path / "train_stats.h5"
+        stats_file = tmp_path / "train_stats.npy"
         assert stats_file.exists(), "Training stats file was not created"
-        with h5py.File(stats_file, "r") as f:
-            losses = f["loss"][:]
+        f = np.load(stats_file)
+        losses = f["loss"][:]
         assert np.all(np.isfinite(losses)), "Training produced non-finite loss values"
         last_3_mean = np.mean(losses[-3:])
         assert last_3_mean < -1 or last_3_mean < np.mean(losses[:3]), (

@@ -161,7 +161,7 @@ that apply once the preset section is cleared.
 (moire-train-writers)=
 ### Writers (`train.writers.*`)
 
-The train stage enables `console`, `csv`, and `hdf5` writers by default.
+The train stage enables `console`, `csv`, and `npy` writers by default.
 
 #### Console writer (`train.writers.console.*`)
 
@@ -177,11 +177,11 @@ The train stage enables `console`, `csv`, and `hdf5` writers by default.
    :prefix: train.writers.csv
 ```
 
-#### HDF5 writer (`train.writers.hdf5.*`)
+#### NPY writer (`train.writers.npy.*`)
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.writer.hdf5.HDF5Writer
-   :prefix: train.writers.hdf5
+.. config-defaults:: jaqmc.writer.npy.NPYWriter
+   :prefix: train.writers.npy
 ```
 
 ### Loss gradients (`train.grads.*`)

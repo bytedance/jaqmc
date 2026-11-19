@@ -9,7 +9,7 @@ import operator
 import os
 from pathlib import Path
 
-import h5py
+import numpy as np
 import pytest
 
 from ..utils.distributed import find_free_port, redirect_stdout_stderr, setup_envs
@@ -171,10 +171,10 @@ def test_distributed_training(tmp_path: Path, run, num_processes, mode):
     ckpts = list(tmp_path.glob("train_ckpt_*.npz"))
     assert ckpts, "No checkpoints were created"
 
-    stats_h5 = tmp_path / "train_stats.h5"
-    assert stats_h5.exists()
-    with h5py.File(stats_h5, "r") as f:
-        assert len(f["loss"]) == 1
+    stats_npy = tmp_path / "train_stats.npy"
+    assert stats_npy.exists()
+    f = np.load(stats_npy)
+    assert len(f["loss"]) == 1
 
     if run in {run_molecule, run_solid}:
         assert (tmp_path / "reference.npz").exists()

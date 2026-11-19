@@ -1,6 +1,6 @@
 # Custom Writers
 
-Write a custom writer when you need to record training statistics to a destination beyond console, CSV, or HDF5 — for example, a database, a monitoring dashboard, or a custom binary format.
+Write a custom writer when you need to record training statistics to a destination beyond console, CSV, or NPY — for example, a database, a monitoring dashboard, or a custom binary format.
 
 ## The Write Lifecycle
 
@@ -68,13 +68,13 @@ class MyWriter(Writer):
         self._file.write(f"{step},{energy},{pmove}\n")
 ```
 
-{class}`~jaqmc.writer.csv.CSVWriter` and {class}`~jaqmc.writer.hdf5.HDF5Writer` apply the same copy-then-truncate pattern to `{stage}_stats.*`.
+{class}`~jaqmc.writer.csv.CSVWriter` and {class}`~jaqmc.writer.npy.NPYWriter` apply the same copy-then-truncate pattern to `{stage}_stats.*`.
 
 ## Getting Started
 
 - {class}`~jaqmc.writer.console.ConsoleWriter` — simplest writer. Shows `to_scalar()` usage and selective field display.
 - {class}`~jaqmc.writer.csv.CSVWriter` — file-based writer. Shows `open()` with file handle management, header writing, and `sync_history` for resume.
-- {class}`~jaqmc.writer.hdf5.HDF5Writer` — chunked array writes. Shows `sync_history` for copy into a new directory and checkpoint truncation.
+- {class}`~jaqmc.writer.npy.NPYWriter` — structured array writes. Shows `sync_history` for copy into a new directory and checkpoint truncation.
 - {class}`~jaqmc.writer.wandb.WandbWriter` — external service writer. Shows scalar filtering, W&B run lifecycle, and an optional dependency that must be installed separately.
 
 ## See Also

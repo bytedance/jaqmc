@@ -35,7 +35,7 @@ uv sync --group analysis
 If you're using JaQMC in your own environment:
 
 ```bash
-pip install pandas h5py matplotlib
+pip install pandas matplotlib
 ```
 ````
 

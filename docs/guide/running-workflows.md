@@ -125,7 +125,7 @@ jaqmc <app> train ... \
   train.run.iterations=<larger_value>
 ```
 
-The new directory starts with the resumed stage's stats files (`train_stats.h5` and
+The new directory starts with the resumed stage's stats files (`train_stats.npy` and
 `train_stats.csv` by default), truncated at the restored step. New checkpoints and
 the resolved config are written as the run continues. Outputs from other stages, such as
 `pretrain_*`, stay in the original directory.
@@ -140,7 +140,7 @@ jaqmc <app> evaluate ... \
   run.iterations=1000
 ```
 
-Evaluation always writes per-step statistics to `evaluation_stats.h5` in
+Evaluation always writes per-step statistics to `evaluation_stats.npy` in
 `workflow.save_path`. That file is the input for uncertainty analysis. Console and CSV writers
 are disabled by default; see <project:writers.md> to enable them. For example, to print
 the total energy when the energy estimator is enabled:
@@ -174,7 +174,7 @@ A final report should satisfy these criteria:
 
 1. Final reported observables come from evaluation outputs rather than
    in-training values.
-2. Uncertainty comes from per-step evaluation data in `evaluation_stats.h5`,
+2. Uncertainty comes from per-step evaluation data in `evaluation_stats.npy`,
    not from a single digest value.
 3. The resolved config and run provenance accompany the result.
 4. Non-default estimator, optimizer, and wavefunction settings are recorded.
@@ -237,10 +237,10 @@ save_path/
 ├── train_config.yaml
 ├── reference.npz                 # molecule/solid only: auto-generated orbital reference
 ├── pretrain_ckpt_NNNNNN.npz
-├── pretrain_stats.h5
+├── pretrain_stats.npy
 ├── pretrain_stats.csv
 ├── train_ckpt_NNNNNN.npz
-├── train_stats.h5
+├── train_stats.npy
 └── train_stats.csv
 ```
 
@@ -250,7 +250,7 @@ Typical evaluation output looks like this:
 save_path/
 ├── evaluation_config.yaml
 ├── evaluation_ckpt_NNNNNN.npz
-├── evaluation_stats.h5
+├── evaluation_stats.npy
 ├── evaluation_stats.csv        # optional, depends on configured writers
 └── evaluation_digest.npz
 ```
@@ -258,7 +258,7 @@ save_path/
 A few details are worth keeping straight:
 
 - `*_ckpt_*.npz` files are resumable checkpoints for that stage.
-- `*_stats.h5` stores per-step statistics in a machine-friendly format.
+- `*_stats.npy` stores per-step statistics in a machine-friendly format.
 - `*_stats.csv` is writer-dependent, so it may or may not be present.
 - `evaluation_digest.npz` is the compact summary produced at the end of evaluation.
 
@@ -274,7 +274,7 @@ job may skip step-1000 checkpointing if 10 minutes have not passed yet, but it s
 writes a final checkpoint when the run ends.
 
 For final observables, use evaluation output rather than training logs. In practice,
-`evaluation_digest.npz` is the quick summary, while `evaluation_stats.h5` is the file you
+`evaluation_digest.npz` is the quick summary, while `evaluation_stats.npy` is the file you
 need for uncertainty analysis from per-step data. For a full walkthrough, see
 <project:analyzing-evaluations.md>.
 

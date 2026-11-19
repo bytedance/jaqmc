@@ -172,7 +172,7 @@ writers = cfg.get_collection(
     "train.writers",
     defaults={
         "console": "jaqmc.writer.console:ConsoleWriter",
-        "hdf5": "jaqmc.writer.hdf5:HDF5Writer",
+        "npy": "jaqmc.writer.npy:NPYWriter",
     },
     context=context,  # auto-wires runtime deps into each writer
 )

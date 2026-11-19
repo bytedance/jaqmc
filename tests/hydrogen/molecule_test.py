@@ -1,7 +1,7 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-import h5py
+import numpy as np
 
 from jaqmc.app.molecule.workflow import MoleculeTrainWorkflow
 from jaqmc.utils.config import ConfigManager
@@ -32,11 +32,11 @@ def test_molecule_run(tmp_path):
     assert ckpts, "No checkpoints were created in the temporary directory"
 
     # Check that the average of the last 10 train/loss values is lower than -1
-    with h5py.File(tmp_path / "train_stats.h5", "r") as f:
-        assert f["loss"][0] < 0, "Energy after pretrain is positive"
-        assert f["loss"][-10:].mean() < -1, (
-            "Average of last 10 train/loss values is not larger than -1"
-        )
+    f = np.load(tmp_path / "train_stats.npy")
+    assert f["loss"][0] < 0, "Energy after pretrain is positive"
+    assert f["loss"][-10:].mean() < -1, (
+        "Average of last 10 train/loss values is not larger than -1"
+    )
 
 
 def test_without_pretrain(tmp_path):

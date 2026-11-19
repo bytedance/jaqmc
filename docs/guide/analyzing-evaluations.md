@@ -28,7 +28,7 @@ This tutorial walks through:
 ````{admonition} Extra Packages
 :class: note
 
-This tutorial uses `h5py`, `matplotlib`, and `pyblock` for data analysis and plotting.
+This tutorial uses `matplotlib` and `pyblock` for data analysis and plotting.
 If you're working from a JaQMC repository clone:
 ```bash
 uv sync --group analysis
@@ -37,7 +37,7 @@ uv sync --group analysis
 If you're using JaQMC in your own environment:
 
 ```bash
-pip install pandas h5py matplotlib pyblock
+pip install pandas matplotlib pyblock
 ```
 ````
 
@@ -57,7 +57,6 @@ We'll use the built-in hydrogen atom example, which has a single variational par
 import shutil
 from pathlib import Path
 
-import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 import pyblock.blocking
@@ -169,7 +168,7 @@ show_tree(WORKING_DIR / "eval")
 
 **Key files:**
 - **`evaluation_digest.npz`** — Final observables averaged over all evaluation steps. This is the main result.
-- **`evaluation_stats.h5`** — Per-step statistics written by the mandatory HDF5 writer. Used for digest computation and for the block analysis shown below.
+- **`evaluation_stats.npy`** — Per-step statistics written by the mandatory NPY writer. Used for digest computation and for the block analysis shown below.
 - **`evaluation_ckpt_*.npz`** — Checkpoint for resuming an interrupted evaluation.
 - **`evaluation_config.yaml`** — The resolved configuration.
 
@@ -202,7 +201,7 @@ Because this is a per-step variance (not a variance of the final mean), you cann
 
 ## 5. Estimating Statistical Error
 
-The evaluation stage writes per-step statistics to `evaluation_stats.h5`. Each entry is the walker-averaged energy for one evaluation step. Since consecutive MCMC steps are correlated, a naive standard error ($\sigma / \sqrt{N}$) underestimates the true uncertainty.
+The evaluation stage writes per-step statistics to `evaluation_stats.npy`. Each entry is the walker-averaged energy for one evaluation step. Since consecutive MCMC steps are correlated, a naive standard error ($\sigma / \sqrt{N}$) underestimates the true uncertainty.
 
 **Block averaging** (also called "reblocking") handles this by repeatedly averaging neighbouring pairs of data points until the samples become uncorrelated. We use [pyblock](https://pyblock.readthedocs.io/) to automate this analysis.
 
@@ -211,12 +210,12 @@ If you use pyblock to analyse data for an academic publication, please cite it: 
 ```
 
 ```{code-cell} ipython3
-with h5py.File(WORKING_DIR / "eval" / "evaluation_stats.h5", "r") as f:
-    print("Per-step statistics:")
-    for key in sorted(f.keys()):
-        print(f"  {key}: shape={f[key].shape}, dtype={f[key].dtype}")
+eval_stats = np.load(WORKING_DIR / "eval" / "evaluation_stats.npy")
+print("Per-step statistics:")
+for key in sorted(eval_stats.dtype.names):
+    print(f"  {key}: shape={eval_stats[key].shape}, dtype={eval_stats[key].dtype}")
 
-    total_energy = f["total_energy"][:]
+total_energy = eval_stats["total_energy"]
 ```
 
 ```{code-cell} ipython3
@@ -325,7 +324,7 @@ In this tutorial, we learned how to:
 1. **Run evaluation** by pointing `source_path` at a training directory
 2. **Read the digest** (`evaluation_digest.npz`) for final energy estimates
 3. **Interpret digest fields** — the `_var` fields measure wavefunction quality, not the error of the mean
-4. **Estimate statistical error** from per-step HDF5 data using pyblock's reblocking analysis
+4. **Estimate statistical error** from per-step NPY data using pyblock's reblocking analysis
 5. **Extract and normalize density** from histogram estimators in the digest
 
 For reading training output, see <project:training-stats.md>. For computing custom observables, inspecting per-walker local energies, and evaluating the wavefunction on arbitrary configurations, see <project:analyzing-wavefunctions.md>.

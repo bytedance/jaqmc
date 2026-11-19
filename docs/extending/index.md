@@ -27,7 +27,7 @@ If you are starting from scratch, the usual reading order is
 | Estimator | Computes a physical observable | Spin, electron density, Ewald energy |
 | Sampler | Proposes and accepts/rejects electron moves | Metropolis-Hastings |
 | Optimizer | Transforms gradients into parameter updates | KFAC, Optax wrappers |
-| Writer | Records per-step statistics | Console, HDF5, CSV |
+| Writer | Records per-step statistics | Console, NPY, CSV |
 
 Most custom work involves estimators (new observables) or wavefunctions (new ansatzes). Samplers, optimizers, and writers rarely need custom implementations — the built-in options cover most use cases.
 

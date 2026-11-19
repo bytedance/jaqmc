@@ -3,7 +3,6 @@
 
 from pathlib import Path
 
-import h5py
 import numpy as np
 import pytest
 
@@ -86,11 +85,11 @@ def test_stats_truncated_on_restore(tmp_path: Path):
     assert 4 in ckpt_steps, f"Expected checkpoint at step 4, got {ckpt_steps}"
 
     # Stats have 5 entries (steps 0-4).
-    with h5py.File(tmp_path / "train_stats.h5", "r") as f:
-        assert len(f["loss"]) == 5
-        expected_hdf5_prefix = f["loss"][:resume_step].copy()
-    with (tmp_path / "train_stats.csv").open(encoding="utf8") as f:
-        initial_csv_lines = f.readlines()
+    f = np.load(tmp_path / "train_stats.npy")
+    assert len(f["loss"]) == 5
+    expected_npy_prefix = f["loss"][:resume_step].copy()
+    with (tmp_path / "train_stats.csv").open(encoding="utf8") as f_csv:
+        initial_csv_lines = f_csv.readlines()
     assert len(initial_csv_lines) == 1 + 5
     expected_csv_prefix = initial_csv_lines[: 1 + resume_step]
 
@@ -103,11 +102,11 @@ def test_stats_truncated_on_restore(tmp_path: Path):
     cfg = create_config(iterations=8, seed=2)
     hydrogen_atom_train_workflow(cfg)()
 
-    with h5py.File(tmp_path / "train_stats.h5", "r") as f:
-        np.testing.assert_array_equal(f["loss"][:resume_step], expected_hdf5_prefix)
-        assert len(f["loss"]) == 8
-    with (tmp_path / "train_stats.csv").open(encoding="utf8") as f:
-        lines = f.readlines()
+    f = np.load(tmp_path / "train_stats.npy")
+    np.testing.assert_array_equal(f["loss"][:resume_step], expected_npy_prefix)
+    assert len(f["loss"]) == 8
+    with (tmp_path / "train_stats.csv").open(encoding="utf8") as f_csv:
+        lines = f_csv.readlines()
     assert lines[: 1 + resume_step] == expected_csv_prefix
     assert len(lines) == 1 + 8
     # Verify step column is monotonically increasing (no duplicates)
@@ -143,10 +142,10 @@ def test_cross_directory_resume_inherits_stats(tmp_path: Path):
     hydrogen_atom_train_workflow(create_config(source_dir, 5))()
     hydrogen_atom_train_workflow(create_config(target_dir, 8))()
 
-    with h5py.File(target_dir / "train_stats.h5", "r") as f:
-        assert len(f["loss"]) == 8
-    with (target_dir / "train_stats.csv").open(encoding="utf8") as f:
-        steps = [int(line.split(",")[0]) for line in f.readlines()[1:]]
+    f = np.load(target_dir / "train_stats.npy")
+    assert len(f["loss"]) == 8
+    with (target_dir / "train_stats.csv").open(encoding="utf8") as f_csv:
+        steps = [int(line.split(",")[0]) for line in f_csv.readlines()[1:]]
     assert steps == list(range(8))
 
 
@@ -168,8 +167,8 @@ def test_evaluation_stats_truncated_on_restore(tmp_path: Path):
         save_time_interval=0,
     )
     hydrogen_atom_eval_workflow(cfg)()
-    with h5py.File(eval_dir / "evaluation_stats.h5", "r") as f:
-        expected_prefix = f["total_energy"][:resume_step].copy()
+    f = np.load(eval_dir / "evaluation_stats.npy")
+    expected_prefix = f["total_energy"][:resume_step].copy()
 
     (eval_dir / "evaluation_ckpt_000004.npz").unlink()
     cfg = _evaluation_config(
@@ -181,10 +180,10 @@ def test_evaluation_stats_truncated_on_restore(tmp_path: Path):
     )
     hydrogen_atom_eval_workflow(cfg)()
 
-    with h5py.File(eval_dir / "evaluation_stats.h5", "r") as f:
-        np.testing.assert_array_equal(f["total_energy"][:resume_step], expected_prefix)
-        assert f["total_energy"].shape[0] == 8
-        expected_energy = np.nanmean(f["total_energy"], axis=0)
+    f = np.load(eval_dir / "evaluation_stats.npy")
+    np.testing.assert_array_equal(f["total_energy"][:resume_step], expected_prefix)
+    assert f["total_energy"].shape[0] == 8
+    expected_energy = np.nanmean(f["total_energy"], axis=0)
     with np.load(eval_dir / "evaluation_digest.npz") as digest:
         assert np.isclose(digest["total_energy"], expected_energy)
 
@@ -205,8 +204,8 @@ def test_evaluation_cross_directory_resume_inherits_stats(tmp_path: Path):
         seed=1,
     )
     hydrogen_atom_eval_workflow(cfg)()
-    with h5py.File(source_dir / "evaluation_stats.h5", "r") as f:
-        expected_prefix = f["total_energy"][:].copy()
+    f = np.load(source_dir / "evaluation_stats.npy")
+    expected_prefix = f["total_energy"][:].copy()
 
     cfg = _evaluation_config(
         target_dir,
@@ -217,9 +216,9 @@ def test_evaluation_cross_directory_resume_inherits_stats(tmp_path: Path):
     )
     hydrogen_atom_eval_workflow(cfg)()
 
-    with h5py.File(target_dir / "evaluation_stats.h5", "r") as f:
-        np.testing.assert_array_equal(f["total_energy"][:resume_step], expected_prefix)
-        assert f["total_energy"].shape[0] == 8
-        expected_energy = np.nanmean(f["total_energy"], axis=0)
+    f = np.load(target_dir / "evaluation_stats.npy")
+    np.testing.assert_array_equal(f["total_energy"][:resume_step], expected_prefix)
+    assert f["total_energy"].shape[0] == 8
+    expected_energy = np.nanmean(f["total_energy"], axis=0)
     with np.load(target_dir / "evaluation_digest.npz") as digest:
         assert np.isclose(digest["total_energy"], expected_energy)

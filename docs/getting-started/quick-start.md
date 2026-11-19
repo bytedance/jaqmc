@@ -162,9 +162,9 @@ Here's what the key columns mean:
 - **`energy`** — The variational energy estimate (`total_energy`). Lower is better — for the hydrogen atom, it should converge toward −0.5 Ha (the exact ground-state energy).
 - **`variance`** — The variance of the local energy across walkers (`total_energy_var`). Lower values indicate a more accurate wavefunction.
 
-In addition to the terminal output, the training workflow saves detailed statistics to `train_stats.csv` and `train_stats.h5` under `workflow.save_path`. If you do not set `workflow.save_path` explicitly, JaQMC creates a timestamped output directory under `runs/`. If the current working directory is inside the source repo, that means the repo-level `runs/` directory; outside the repo, it means `./runs/` in your current working directory. These files live alongside checkpoint files such as `train_ckpt_000099.npz`.
+In addition to the terminal output, the training workflow saves detailed statistics to `train_stats.csv` and `train_stats.npy` under `workflow.save_path`. If you do not set `workflow.save_path` explicitly, JaQMC creates a timestamped output directory under `runs/`. If the current working directory is inside the source repo, that means the repo-level `runs/` directory; outside the repo, it means `./runs/` in your current working directory. These files live alongside checkpoint files such as `train_ckpt_000099.npz`.
 
-Here's a quick reference for the most important fields in CSV and HDF5:
+Here's a quick reference for the most important fields in CSV and NPY:
 
 | Field | What it tells you |
 |-------|-------------------|
@@ -176,7 +176,7 @@ Here's a quick reference for the most important fields in CSV and HDF5:
 | `energy:potential` | Potential energy component. |
 
 ```{important}
-Use training logs and `train_stats.*` to monitor optimization, not as the final number you report. For molecule, solid, or Hall production workflows, run `jaqmc <app> evaluate` from the trained run and read `evaluation_digest.npz` for the quick summary or `evaluation_stats.h5` for uncertainty analysis. See [Running Workflows](../guide/running-workflows.md) and <project:../guide/analyzing-evaluations.md>.
+Use training logs and `train_stats.*` to monitor optimization, not as the final number you report. For molecule, solid, or Hall production workflows, run `jaqmc <app> evaluate` from the trained run and read `evaluation_digest.npz` for the quick summary or `evaluation_stats.npy` for uncertainty analysis. See [Running Workflows](../guide/running-workflows.md) and <project:../guide/analyzing-evaluations.md>.
 ```
 
 For deeper analysis — convergence plots, error bars, and reporting guidelines — see <project:../guide/training-stats.md>.

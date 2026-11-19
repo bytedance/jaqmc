@@ -8,7 +8,7 @@ selection through on-disk artifacts: which checkpoints and stats files appear
 in the target directory, and whether stats resume or start fresh.
 """
 
-import h5py
+import numpy as np
 import pytest
 
 from jaqmc.app.electron_gas.workflow import ElectronGasTrainWorkflow
@@ -37,8 +37,8 @@ def _config(
 
 
 def _stats_length(path) -> int:
-    with h5py.File(path, "r") as f:
-        return len(f["loss"])
+    f = np.load(path)
+    return len(f["loss"])
 
 
 def _run_source(source) -> None:
@@ -58,10 +58,10 @@ def test_train_checkpoint_restore_skips_pretrain(tmp_path):
 
     # Pretrain never ran: no pretrain checkpoints or stats in the target.
     assert not list(target.glob("pretrain_ckpt_*.npz"))
-    assert not (target / "pretrain_stats.h5").exists()
+    assert not (target / "pretrain_stats.npy").exists()
     # Train resumed from the source checkpoint (step 2) and continued to
     # iteration 5, inheriting the source stats.
-    assert _stats_length(target / "train_stats.h5") == 5
+    assert _stats_length(target / "train_stats.npy") == 5
 
 
 @pytest.mark.integration
@@ -79,7 +79,7 @@ def test_pretrain_only_restore_resumes_pretrain_and_trains_fresh(tmp_path):
 
     # Pretrain ran first, resuming at step 2: it inherited the source pretrain
     # stats (2 entries) and appended one more.
-    assert _stats_length(target / "pretrain_stats.h5") == 3
+    assert _stats_length(target / "pretrain_stats.npy") == 3
     assert (target / "pretrain_ckpt_000002.npz").exists()
     # Train then started fresh instead of restoring from the source.
-    assert _stats_length(target / "train_stats.h5") == 3
+    assert _stats_length(target / "train_stats.npy") == 3
