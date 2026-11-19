@@ -80,10 +80,17 @@ class KFACOptimizer:
             Fisher norm :math:`v^T F v` is at most the specified value.
         curvature_ema: Decay factor used when calculating the covariance estimate
             moving averages.
-        l2_reg: Tell the optimizer what L2 regularization coefficient you are using.
-        inverse_update_period: Number of steps in between updating the inverse curvature
-            approximation.
-        damping: Fixed damping parameter.
+        l2_reg: L2 regularization coefficient included in the curvature estimate.
+        inverse_update_period: Number of steps between recomputing Kronecker-factor
+            inverses. Curvature moving averages still update every step while cached
+            factor inverses are reused in between.
+        damping: Tikhonov regularization added to the curvature factors before
+            inversion.
+        use_cholesky_inversion: Whether to invert damped Kronecker factors via
+            positive-definite Cholesky solve instead of general LU inversion.
+            Reduces per-step inversion cost on GPUs under standard damping
+            (such as the default ``1e-3``), but can produce ``NaN`` updates if
+            factors lose numerical positive-definiteness.
     """
 
     learning_rate: Any = module_config(Standard, direct_value_type=float)
@@ -92,6 +99,7 @@ class KFACOptimizer:
     l2_reg: float = 0.0
     inverse_update_period: int = 1
     damping: float = 1e-3
+    use_cholesky_inversion: bool = False
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
 
     def init(
@@ -150,13 +158,18 @@ class KFACOptimizer:
         if not hasattr(self, "_tx"):
             raise RuntimeError("KFACOptimizer.init must be called before update")
         opt_state, precond_state = state
-        precond_state = self._preconditioner.maybe_update(
-            precond_state, (params, batched_data), rngs
-        )
-        precond_state = self._preconditioner.increment_count(precond_state)
-        grads, opt_state = self._tx.update(
-            grads, opt_state, precond_state=precond_state
-        )
+        prev_cholesky = kfac_jax.utils.get_use_cholesky_inversion()
+        kfac_jax.utils.set_use_cholesky_inversion(self.use_cholesky_inversion)
+        try:
+            precond_state = self._preconditioner.maybe_update(
+                precond_state, (params, batched_data), rngs
+            )
+            precond_state = self._preconditioner.increment_count(precond_state)
+            grads, opt_state = self._tx.update(
+                grads, opt_state, precond_state=precond_state
+            )
+        finally:
+            kfac_jax.utils.set_use_cholesky_inversion(prev_cholesky)
         return grads, KFACState(opt_state, precond_state)
 
     def _build(self, f_log_psi: NumericWavefunctionEvaluate):
