@@ -21,6 +21,7 @@ from jaqmc.estimator.base import PerWalkerEstimator, mean_reduce
 from jaqmc.geometry.sphere import sample_haar_su2, spinor_coordinates_from_angles
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
+from jaqmc.wavefunction.base import SpinorWavefunctionEvaluate
 
 
 def _rotate_spinors_about_axis(
@@ -85,13 +86,14 @@ class SphericalAngularMomentum(PerWalkerEstimator):
     estimator covers the field-free sphere and the Haldane sphere.
 
     Args:
+        wavefunction_precision: Wavefunction-defined precision mode for angular
+            momentum. ``None`` inherits the wavefunction default.
         f_log_psi_from_spinor: Complex log-psi ``(params, u, v)`` (runtime dep).
         data_field: Electron-coordinate field name (runtime dep).
     """
 
-    f_log_psi_from_spinor: Callable[[Params, jnp.ndarray, jnp.ndarray], jnp.ndarray] = (
-        runtime_dep()
-    )
+    wavefunction_precision: str | None = None
+    f_log_psi_from_spinor: SpinorWavefunctionEvaluate = runtime_dep()
     data_field: str = runtime_dep(default="electrons")
 
     def evaluate_single_walker(
@@ -111,7 +113,9 @@ class SphericalAngularMomentum(PerWalkerEstimator):
 
         def rotated_log_psi(axis: int, angle: jnp.ndarray) -> jnp.ndarray:
             rotated_u, rotated_v = _rotate_spinors_about_axis(u, v, angle, axis)
-            return self.f_log_psi_from_spinor(params, rotated_u, rotated_v)
+            return self.f_log_psi_from_spinor(
+                params, rotated_u, rotated_v, precision=self.wavefunction_precision
+            )
 
         # One scalar dummy angle per Cartesian axis; only diagonal derivatives
         # at zero enter Lz, Lz^2, and L^2.
@@ -188,15 +192,16 @@ class SphericalAngularMomentumProjection(PerWalkerEstimator):
             momenta to resolve.
         n_rotations: Number of fresh Haar rotations sampled per walker
             evaluation.
+        wavefunction_precision: Wavefunction-defined precision mode for
+            angular-momentum projection. ``None`` inherits the wavefunction default.
         f_log_psi_from_spinor: Complex log-psi ``(params, u, v)`` (runtime dep).
         data_field: Electron-coordinate field name (runtime dep).
     """
 
     angular_momenta: tuple[float, ...] = (0.0,)
     n_rotations: int = 256
-    f_log_psi_from_spinor: Callable[[Params, jnp.ndarray, jnp.ndarray], jnp.ndarray] = (
-        runtime_dep()
-    )
+    wavefunction_precision: str | None = None
+    f_log_psi_from_spinor: SpinorWavefunctionEvaluate = runtime_dep()
     data_field: str = runtime_dep(default="electrons")
 
     def __post_init__(self) -> None:
@@ -238,7 +243,9 @@ class SphericalAngularMomentumProjection(PerWalkerEstimator):
         """
         electrons = data[self.data_field]
         u, v = spinor_coordinates_from_angles(electrons)
-        log_psi = self.f_log_psi_from_spinor(params, u, v)
+        log_psi = self.f_log_psi_from_spinor(
+            params, u, v, precision=self.wavefunction_precision
+        )
         spinors = jnp.stack([u, v], axis=-1)
         rotations = sample_haar_su2(rngs, self.n_rotations, electrons.dtype)
         inverse_rotations = jnp.swapaxes(jnp.conj(rotations), -1, -2)
@@ -250,7 +257,12 @@ class SphericalAngularMomentumProjection(PerWalkerEstimator):
 
         def rotated_log_psi(rotated: jnp.ndarray) -> jnp.ndarray:
             rotated_u, rotated_v = rotated[..., 0], rotated[..., 1]
-            return self.f_log_psi_from_spinor(params, rotated_u, rotated_v)
+            return self.f_log_psi_from_spinor(
+                params,
+                rotated_u,
+                rotated_v,
+                precision=self.wavefunction_precision,
+            )
 
         log_ratios = jax.vmap(rotated_log_psi)(rotated_spinors) - log_psi
         overlap_kernel = jnp.exp(log_ratios)

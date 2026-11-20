@@ -2,11 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import field
+from typing import Literal
 
+import jax
+from flax import linen as nn
 from jax import numpy as jnp
 
 from jaqmc.array_types import Params
 from jaqmc.geometry.pbc import DistanceType, SymmetryType
+from jaqmc.laplacian.precision import ContractionMode, jacobian_contraction_scope
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction import Wavefunction
 from jaqmc.wavefunction.backbone.ferminet import FermiLayers
@@ -24,6 +28,12 @@ class SolidWavefunction(Wavefunction[SolidData, ComplexLogDetOutput]):
     """Wavefunction ansatz for solid state systems (periodic boundary conditions).
 
     Args:
+        precision: ``standard`` follows array dtypes. ``fp16_jac`` uses FP32 neural
+            evaluation and scaled FP16 Forward Laplacian Jacobian contractions.
+            ``fp16_mixed`` runs the FermiLayers backbone and orbital projections in
+            FP16 (with ``bfloat16`` default matmul precision) alongside scaled FP16
+            Jacobian contractions. Both nonstandard modes retain FP32 envelope,
+            Bloch phase, and complex determinant evaluation.
         nspins: Tuple of (n_up, n_down) electrons.
         ndets: Number of determinants.
         simulation_lattice: Lattice vectors of the simulation cell.
@@ -42,6 +52,7 @@ class SolidWavefunction(Wavefunction[SolidData, ComplexLogDetOutput]):
         full_det: Whether to use full determinants (default: True).
     """
 
+    precision: Literal["standard", "fp16_jac", "fp16_mixed"] = "standard"
     nspins: tuple[int, int] = runtime_dep()
     klist: jnp.ndarray = runtime_dep()
     simulation_lattice: jnp.ndarray = runtime_dep()
@@ -62,21 +73,28 @@ class SolidWavefunction(Wavefunction[SolidData, ComplexLogDetOutput]):
             distance_type=self.distance_type,
             sym_type=self.sym_type,
         )
+        dtype = {
+            "standard": None,
+            "fp16_jac": jnp.float32,
+            "fp16_mixed": jnp.float16,
+        }[self.precision]
 
         hidden_dims = list(zip(self.hidden_dims_single, self.hidden_dims_double))
-        self.backbone_layer = FermiLayers(self.nspins, hidden_dims)
+        self.backbone_layer = FermiLayers(self.nspins, hidden_dims, dtype=dtype)
 
         self.real_orbital_layer = OrbitalProjection(
             nspins=self.nspins,
             ndets=self.ndets,
             orbitals_spin_split=self.orbitals_spin_split,
             use_bias=False,
+            dtype=dtype,
         )
         self.imag_orbital_layer = OrbitalProjection(
             nspins=self.nspins,
             ndets=self.ndets,
             orbitals_spin_split=self.orbitals_spin_split,
             use_bias=False,
+            dtype=dtype,
         )
 
         self.envelope_layer = Envelope(
@@ -86,7 +104,18 @@ class SolidWavefunction(Wavefunction[SolidData, ComplexLogDetOutput]):
             orbitals_spin_split=self.orbitals_spin_split,
         )
 
-        self.logdet_layer = LogDet()
+        self.logdet_layer = LogDet(
+            dtype=None if self.precision == "standard" else jnp.float32
+        )
+
+    @property
+    def contraction_mode(self) -> ContractionMode:
+        """Forward Laplacian contraction mode for this precision strategy."""
+        return (
+            ContractionMode.SCALED_FP16
+            if self.precision != "standard"
+            else ContractionMode.STANDARD
+        )
 
     def get_orbitals(self, data: SolidData) -> jnp.ndarray:
         """Computes the orbital matrix for the given data.
@@ -98,12 +127,22 @@ class SolidWavefunction(Wavefunction[SolidData, ComplexLogDetOutput]):
             Complex orbital matrix with shape (ndets, nelec_total, nelec_total).
         """
         embedding = self.feature_layer(data.electrons, data.primitive_atoms)
-        h_one, _ = self.backbone_layer(
-            embedding["ae_features"], embedding["ee_features"]
-        )
+        with (
+            jacobian_contraction_scope(self.contraction_mode),
+            jax.default_matmul_precision(
+                "bfloat16"
+                if self.precision == "fp16_mixed"
+                else jax.default_matmul_precision.value
+            ),
+        ):
+            h_one, _ = self.backbone_layer(
+                embedding["ae_features"], embedding["ee_features"]
+            )
 
-        # Combine as a complex orbital matrix (ndets, nelec_total, nelec_total)
-        orbital = self.real_orbital_layer(h_one) + 1j * self.imag_orbital_layer(h_one)
+            # Combine as a complex orbital matrix (ndets, nelec_total, nelec_total)
+            orbital = self.real_orbital_layer(h_one) + 1j * self.imag_orbital_layer(
+                h_one
+            )
         envelope_val = self.envelope_layer(embedding["ae_vec"], embedding["r_ae"])
         orbital = orbital * envelope_val
 
@@ -113,7 +152,7 @@ class SolidWavefunction(Wavefunction[SolidData, ComplexLogDetOutput]):
 
         return orbital
 
-    def __call__(self, data: SolidData):
+    def __call__(self, data: SolidData) -> ComplexLogDetOutput:
         """Evaluates the wavefunction for the given data.
 
         Args:
@@ -125,23 +164,40 @@ class SolidWavefunction(Wavefunction[SolidData, ComplexLogDetOutput]):
         """
         return self.logdet_layer(self.get_orbitals(data))
 
-    def orbitals(self, params: Params, data: SolidData) -> jnp.ndarray:
+    @nn.nowrap
+    def evaluate(
+        self, params: Params, data: SolidData, *, precision: str | None = None
+    ) -> ComplexLogDetOutput:
+        """Return structured wavefunction output with an optional mode."""
+        module = self if precision is None else self.clone(precision=precision)
+        return module.apply(params, data)  # type: ignore
+
+    @nn.nowrap
+    def orbitals(
+        self, params: Params, data: SolidData, *, precision: str | None = None
+    ) -> jnp.ndarray:
         """Evaluates the orbital matrix for the given parameters and data.
 
         Args:
             params: The wavefunction parameters.
             data: The input data containing electron positions and lattice info.
+            precision: Evaluation mode. ``None`` inherits the configured default.
 
         Returns:
             Complex orbital matrix with shape (ndets, nelec_total, nelec_total).
         """
-        return self.apply(params, data, method=self.get_orbitals)  # type: ignore
+        module = self if precision is None else self.clone(precision=precision)
+        return module.apply(params, data, method=module.get_orbitals)  # type: ignore
 
-    def logpsi(self, params, data):
-        return self.evaluate(params, data)["logpsi"]
+    @nn.nowrap
+    def logpsi(
+        self, params: Params, data: SolidData, *, precision: str | None = None
+    ) -> jnp.ndarray:
+        return self.evaluate(params, data, precision=precision)["logpsi"]
 
+    @nn.nowrap
     def phase_logpsi(
-        self, params: Params, data: SolidData
+        self, params: Params, data: SolidData, *, precision: str | None = None
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        logpsi = self.logpsi(params, data)
+        logpsi = self.logpsi(params, data, precision=precision)
         return jnp.exp(1j * logpsi.imag), logpsi.real

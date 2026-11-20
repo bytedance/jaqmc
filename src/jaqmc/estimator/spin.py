@@ -11,6 +11,7 @@ Computes the local value of :math:`S^2` using the identity
 """
 
 from collections.abc import Mapping
+from functools import partial
 from typing import Any
 
 import jax
@@ -42,6 +43,8 @@ class SpinSquared(PerWalkerEstimator):
     is the spin channel with fewer (or equal) electrons.
 
     Args:
+        wavefunction_precision: Wavefunction-defined precision mode passed to
+            wavefunction evaluation. ``None`` inherits the wavefunction default.
         n_up: Number of spin-up electrons.
         n_down: Number of spin-down electrons.
         phase_logpsi: Wavefunction evaluate function returning
@@ -52,6 +55,7 @@ class SpinSquared(PerWalkerEstimator):
 
     n_up: int = runtime_dep()
     n_down: int = runtime_dep()
+    wavefunction_precision: str | None = None
     phase_logpsi: Any = runtime_dep()
     data_field: str = runtime_dep(default="electrons")
 
@@ -69,7 +73,10 @@ class SpinSquared(PerWalkerEstimator):
 
         self._idx_all = jnp.arange(n_elec)
         self._sz = jnp.abs(n_up - n_down) * 0.5
-        self._vmapped_phase_logpsi = jax.vmap(self.phase_logpsi, in_axes=(None, 0))
+        self._vmapped_phase_logpsi = jax.vmap(
+            partial(self.phase_logpsi, precision=self.wavefunction_precision),
+            in_axes=(None, 0),
+        )
         return None
 
     def evaluate_single_walker(
@@ -93,7 +100,9 @@ class SpinSquared(PerWalkerEstimator):
         Returns:
             The :math:`S_- S_+` (or :math:`S_+ S_-`) contribution.
         """
-        orig_sign, orig_logpsi = self.phase_logpsi(params, data)
+        orig_sign, orig_logpsi = self.phase_logpsi(
+            params, data, precision=self.wavefunction_precision
+        )
         per_minority = jax.vmap(
             self._ratio_sum_one_electron,
             in_axes=(None, None, None, None, 0),

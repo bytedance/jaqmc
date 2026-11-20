@@ -15,7 +15,8 @@
 import logging
 from collections import defaultdict
 from collections.abc import Callable, Sequence
-from typing import overload
+from functools import partial
+from typing import Any, overload
 
 import jax
 import jax.numpy as jnp
@@ -27,6 +28,7 @@ from jax.extend.source_info_util import summarize
 from jaqmc.array_types import PyTree
 
 from .guards import is_laptuple, is_sparse_laptuple
+from .precision import eqn_contraction_scope
 from .primitives.core import densify_tree, log_dense_fallback, wrap_general
 from .primitives.registry import get_laplacian
 from .tracing import forward_laplacian_tracing
@@ -121,7 +123,8 @@ def eval_jaxpr_with_forward_laplacian(
         invals = env.read_many(eqn.invars)
 
         try:
-            outvals = _eval_eqn(eqn, invals)
+            with eqn_contraction_scope(eqn):
+                outvals = _eval_eqn(eqn, invals)
         except Exception:
             logger.error(
                 "[lapjax](%s) Error in operation %s.",
@@ -389,11 +392,13 @@ def init_forward_laplacian_state(
     return list(make_laplacian_input(x))
 
 
-def forward_laplacian(fn: Callable) -> Callable:
+def forward_laplacian(fn: Callable, **static_kwargs: Any) -> Callable:
     """Trace fn to Jaxpr, init state, evaluate with Forward Laplacian.
 
     Args:
-        fn: Function to trace (positional-only usage in typical call sites).
+        fn: Function to trace. The returned function accepts positional inputs.
+        **static_kwargs: Fixed keyword arguments bound to ``fn`` before tracing.
+            They are not differentiated or included in input seeding.
 
     Returns:
         A function that accepts plain arrays or pre-constructed LapTuple
@@ -412,6 +417,9 @@ def forward_laplacian(fn: Callable) -> Callable:
         ``LapTuple.dense_jacobian`` instead of assuming ``jacobian`` is already
         dense.
     """
+    primal_jaxpr = jax.make_jaxpr(
+        partial(fn, **static_kwargs) if static_kwargs else fn, return_shape=True
+    )
 
     def wrapped(*args: ArrayOrLapTuple) -> PyTree:
         # Extract plain arrays for tracing
@@ -421,7 +429,7 @@ def forward_laplacian(fn: Callable) -> Callable:
             is_leaf=is_laptuple,
         )
         with forward_laplacian_tracing():
-            closed_jaxpr, out_shape = jax.make_jaxpr(fn, return_shape=True)(*args_arr)
+            closed_jaxpr, out_shape = primal_jaxpr(*args_arr)
 
         flat_args = jtu.tree_leaves(args, is_leaf=is_laptuple)
         lapl_args = init_forward_laplacian_state(*flat_args)

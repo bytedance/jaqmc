@@ -33,6 +33,7 @@ KFAC is the default optimizer, so no configuration change is needed. The key tun
 - `norm_constraint` (default `1e-3`) - cap on the approximate squared Fisher norm of each parameter step.
 - `inverse_update_period` (default `1`) - number of training steps between Kronecker-factor inverse updates. Curvature moving averages still update every step while cached factor inverses are reused in between.
 - `use_cholesky_inversion` (default `false`) - whether damped Kronecker factors are inverted with a positive-definite Cholesky solver instead of general LU inversion.
+- `wavefunction_precision` (default `null`) - wavefunction precision mode used when evaluating curvature (`null` inherits `wf.precision`, see <project:../mixed-precision.md>).
 
 For large wavefunctions where KFAC factor inversion takes a noticeable share of step time, Cholesky inversion and a larger inverse update period reduce per-step overhead on GPUs:
 
@@ -42,10 +43,7 @@ train.optim.use_cholesky_inversion=true train.optim.inverse_update_period=2
 
 Values of `inverse_update_period` around `2` to `5` amortize factor inversion across steps with little effect on steady-state convergence, whereas much larger periods can leave cached inverses stale when the wavefunction changes rapidly. Enabling `use_cholesky_inversion=true` skips `kfac-jax`'s per-factor `NaN`/`Inf` conditional check and relies on the damped factors remaining strictly positive-definite. The default `damping=1e-3` typically keeps factors well-conditioned, whereas very small damping values (below `1e-4`) or severe local-energy spikes can cause non-positive-definite factors and `NaN` updates.
 
-JaQMC's KFAC tags cover parameters and inputs that share the same dtype, as
-well as the common mixed case where `float32` parameters receive `float64`
-inputs or produce `float64` values. Other dtype combinations may need
-additional validation against the `float32` graph registration.
+Built-in `wavefunction_precision` modes work with KFAC out of the box because master parameters remain `float32`. For custom wavefunctions or `jax.enable_x64` runs, JaQMC's KFAC tags cover parameters and inputs that share the same dtype, as well as `float32` parameters receiving `float64` inputs or producing `float64` values. Other custom parameter/input dtype combinations may need additional validation against the `float32` graph registration.
 
 See the [configuration reference](#train-optim) for all KFAC options.
 
@@ -67,8 +65,16 @@ train.optim.march_beta=null
 To use SR instead of the default KFAC:
 
 ```bash
-train.optim.module=sr
+# Default FP64 Gram construction and solve
+jaqmc <app> train train.optim.module=sr
+
+# Fast mixed-precision SR optimizer step (add train.optim.gram_solve_prec=F32_PCG on non-FP64 GPUs such as H20)
+jaqmc <app> train train.optim.module=sr \
+  train.optim.gram_dot_prec=F16 \
+  train.optim.wavefunction_precision=fp16_mixed
 ```
+
+To accelerate the entire VMC step (including kinetic energy and MCMC sampling alongside SR), see <project:../mixed-precision.md>.
 
 The key tunable parameters are:
 
@@ -76,7 +82,10 @@ The key tunable parameters are:
 - `robust_gamma` (default `"sqrt"`) - controls how strongly low-curvature directions fall back from SR toward first-order scaling. Set `null` for standard damped SR or `1.0` for the more conservative legacy robust-SR behavior.
 - `max_norm` (default `"fixed"`) - ties the update norm to `learning_rate`. Set a float for an explicit cap or `null` to disable the norm constraint.
 - `max_cond_num` (default `1e7`) - adaptively raises damping to limit Gram-matrix conditioning.
-- `score_chunk_size` / `gram_num_chunks` - trade speed for lower memory use on large systems.
+- `score_chunk_size` (default `null`) / `gram_num_chunks` (default `1`) - trade throughput for lower peak memory on large systems. Keep `score_chunk_size` at `null` (or as large a walker chunk as fits in memory, such as `128`–`512`) and `gram_num_chunks` small (`1`–`4`) to avoid extra backward-pass or multi-GPU `all_to_all` overhead.
+- `gram_dot_prec` (default `"F64"`) - precision mode for Gram matrix inner products. Set `"F16"` (or `"F16_X3"` under very small damping, $\lambda \le 10^{-5}$) to accelerate the Gram matrix product on FP16 Tensor Cores (see [Gram Matrix Precision](#sr-gram-precision)).
+- `gram_solve_prec` (default `"F64"`) - precision mode for Gram matrix accumulation and inversion (`"F64"`, `"F32_PCG"`, or `"F32"`). Keep `"F64"` on GPUs with full-rate FP64 Tensor Cores (such as A100 or H100), and set `"F32_PCG"` on GPUs with limited FP64 throughput (such as H20, see [Gram Matrix Precision](#sr-gram-precision)).
+- `wavefunction_precision` (default `null`) - wavefunction precision mode used for score evaluation (`null` inherits `wf.precision`, or set `"fp16_mixed"` to accelerate `grad_logpsi`, see <project:../mixed-precision.md>).
 
 For the derivation, failure mode, and efficient kernel-form update used by JaQMC, see {doc}`sr-spring-march`.
 

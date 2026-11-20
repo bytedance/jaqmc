@@ -3,8 +3,10 @@
 
 from typing import TypedDict
 
+import jax
 from flax import linen as nn
 from jax import numpy as jnp
+from jax.typing import DTypeLike
 
 
 class ComplexLogDetOutput(TypedDict):
@@ -48,7 +50,15 @@ class LogDet(nn.Module):
         \exp(\log|\det M_k|)
 
     using the logsumexp trick for numerical stability.
+
+    Args:
+        dtype: Factorization dtype for the determinants. ``None`` promotes half
+            inputs to at least FP32 while preserving wider and complex dtypes.
+            A concrete dtype caps the factorization precision and keeps complex
+            inputs complex.
     """
+
+    dtype: DTypeLike | None = None
 
     def __call__(self, xs: jnp.ndarray) -> RealLogDetOutput | ComplexLogDetOutput:
         """Compute the log-sum of determinants for orbital matrices.
@@ -62,7 +72,17 @@ class LogDet(nn.Module):
             Structured log-determinant output containing the total ``logpsi``
             and per-determinant signs and log absolute values.
         """
-        signs, logdets = jnp.linalg.slogdet(xs)
+        det_dtype = (
+            jnp.result_type(xs.dtype, jnp.float32)
+            if self.dtype is None
+            else jnp.dtype(self.dtype)
+        )
+        if jnp.iscomplexobj(xs) and not jnp.issubdtype(det_dtype, jnp.complexfloating):
+            det_dtype = jnp.dtype(
+                jnp.complex64 if det_dtype == jnp.float32 else jnp.complex128
+            )
+        with jax.default_matmul_precision("float32"):
+            signs, logdets = jnp.linalg.slogdet(xs.astype(det_dtype))
         logmax = jnp.max(logdets)  # logsumexp trick
         if jnp.iscomplexobj(xs):
             return ComplexLogDetOutput(

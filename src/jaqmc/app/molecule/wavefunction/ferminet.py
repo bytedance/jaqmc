@@ -2,13 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import field
+from typing import Literal, cast
 
+import jax
 from jax import numpy as jnp
 
 from jaqmc.app.molecule.data import MoleculeData
-from jaqmc.array_types import Params
+from jaqmc.app.molecule.wavefunction.base import MoleculeWavefunctionModule
+from jaqmc.laplacian.precision import ContractionMode, jacobian_contraction_scope
 from jaqmc.utils.wiring import runtime_dep
-from jaqmc.wavefunction import Wavefunction
 from jaqmc.wavefunction.backbone.ferminet import FermiLayers
 from jaqmc.wavefunction.input.atomic import MoleculeFeatures
 from jaqmc.wavefunction.output.envelope import Envelope, EnvelopeType
@@ -18,7 +20,7 @@ from jaqmc.wavefunction.output.orbital import OrbitalProjection
 __all__ = ["FermiNetWavefunction"]
 
 
-class FermiNetWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
+class FermiNetWavefunction(MoleculeWavefunctionModule):
     """FermiNet ansatz with two-electron feature streams.
 
     Implements the :class:`~.base.MoleculeWavefunction` protocol.
@@ -27,6 +29,12 @@ class FermiNetWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
     (electron-electron) features through separate streams with message passing.
 
     Args:
+        precision: ``standard`` follows array dtypes. ``fp16_jac`` uses FP32 neural
+            evaluation and scaled FP16 Forward Laplacian Jacobian contractions.
+            ``fp16_mixed`` runs the FermiLayers backbone and orbital projections in
+            FP16 (with ``bfloat16`` default matmul precision) alongside scaled FP16
+            Jacobian contractions. Both nonstandard modes retain FP32 envelope and
+            determinant evaluation.
         nspins: Tuple of (num_spin_up, num_spin_down) electrons.
         ndets: Number of determinants.
         hidden_dims_single: Hidden dimensions for single-electron stream.
@@ -40,6 +48,7 @@ class FermiNetWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
 
     """
 
+    precision: Literal["standard", "fp16_jac", "fp16_mixed"] = "standard"
     nspins: tuple[int, int] = runtime_dep()
     ndets: int = 16
     hidden_dims_single: list[int] = field(default_factory=lambda: [256] * 4)
@@ -54,9 +63,17 @@ class FermiNetWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
         if not self.full_det:
             raise ValueError("FermiNet requires full_det=True.")
         self.feature_layer = MoleculeFeatures()
+        dtype = {
+            "standard": None,
+            "fp16_jac": jnp.float32,
+            "fp16_mixed": jnp.float16,
+        }[self.precision]
         hidden_dims = list(zip(self.hidden_dims_single, self.hidden_dims_double))
         self.backbone_layer = FermiLayers(
-            self.nspins, hidden_dims, use_last_layer=self.use_last_layer
+            self.nspins,
+            hidden_dims,
+            use_last_layer=self.use_last_layer,
+            dtype=dtype,
         )
 
         self.orbital_layer = OrbitalProjection(
@@ -64,6 +81,7 @@ class FermiNetWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
             ndets=self.ndets,
             orbitals_spin_split=self.orbitals_spin_split,
             use_bias=False,
+            dtype=dtype,
         )
         self.envelope_layer = Envelope(
             envelope_type=self.envelope,
@@ -71,12 +89,23 @@ class FermiNetWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
             nspins=self.nspins,
             orbitals_spin_split=self.orbitals_spin_split,
         )
-        self.logdet_layer = LogDet()
+        self.logdet_layer = LogDet(
+            dtype=None if self.precision == "standard" else jnp.float32
+        )
 
-    def __call__(self, data: MoleculeData):
-        return self.logdet_layer(self.get_orbitals(data))
+    @property
+    def contraction_mode(self) -> ContractionMode:
+        """Forward Laplacian contraction mode for this precision strategy."""
+        return (
+            ContractionMode.SCALED_FP16
+            if self.precision != "standard"
+            else ContractionMode.STANDARD
+        )
 
-    def get_orbitals(self, data):
+    def __call__(self, data: MoleculeData) -> RealLogDetOutput:
+        return cast(RealLogDetOutput, self.logdet_layer(self.get_orbitals(data)))
+
+    def get_orbitals(self, data: MoleculeData) -> jnp.ndarray:
         """Compute orbital matrix from electron and atom positions.
 
         Args:
@@ -86,53 +115,19 @@ class FermiNetWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
             Orbital matrix of shape ``(ndets, n_electrons, n_electrons)``.
         """
         embedding = self.feature_layer(data.electrons, data.atoms)
-        h_one, _ = self.backbone_layer(
-            embedding["ae_features"], embedding["ee_features"]
-        )
-        orbitals = self.orbital_layer(h_one)
+        with (
+            jacobian_contraction_scope(self.contraction_mode),
+            jax.default_matmul_precision(
+                "bfloat16"
+                if self.precision == "fp16_mixed"
+                else jax.default_matmul_precision.value
+            ),
+        ):
+            h_one, _ = self.backbone_layer(
+                embedding["ae_features"], embedding["ee_features"]
+            )
+            orbitals = self.orbital_layer(h_one)
         orbitals = orbitals * self.envelope_layer(
             embedding["ae_vec"], embedding["r_ae"]
         )
         return orbitals
-
-    def logpsi(self, params: Params, data: MoleculeData) -> jnp.ndarray:
-        """Evaluate log|psi| given parameters and data.
-
-        Args:
-            params: Wavefunction parameters from ``init_params``.
-            data: MoleculeData containing electrons and atoms.
-
-        Returns:
-            Scalar log-amplitude of the wavefunction.
-        """
-        return self.evaluate(params, data)["logpsi"]
-
-    def phase_logpsi(
-        self, params: Params, data: MoleculeData
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        """Evaluate (phase, log|psi|) given parameters and data.
-
-        Required for ECP calculations where wavefunction ratios need the phase.
-
-        Args:
-            params: Wavefunction parameters from ``init_params``.
-            data: MoleculeData containing electrons and atoms.
-
-        Returns:
-            Tuple of (phase, log|psi|) where phase is +1 or -1 for real
-            wavefunctions, or a complex unit value for complex wavefunctions.
-        """
-        out = self.evaluate(params, data)
-        return out["sign_logpsi"], out["logpsi"]
-
-    def orbitals(self, params: Params, data: MoleculeData) -> jnp.ndarray:
-        """Evaluate orbitals given parameters and data.
-
-        Args:
-            params: Wavefunction parameters from ``init_params``.
-            data: MoleculeData containing electrons and atoms.
-
-        Returns:
-            Orbital matrix of shape ``(ndets, n_electrons, n_electrons)``.
-        """
-        return self.apply(params, data, method=self.get_orbitals)  # type: ignore

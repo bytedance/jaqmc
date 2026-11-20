@@ -102,3 +102,18 @@ function before decorating it.
 
 If all arguments are plain arrays, the transform takes the ordinary primal path
 and your custom rule is not involved.
+
+(scoped-contraction-precision)=
+## Scoped Contraction Precision
+
+Inside a traced function, {func}`~jaqmc.laplacian.precision.jacobian_contraction_scope` controls how Forward Laplacian evaluates Jacobian contractions without changing primal arithmetic or standard JAX autodiff. In `"scaled_fp16"` ({attr}`~jaqmc.laplacian.precision.ContractionMode.SCALED_FP16`), operands are power-of-two scaled to FP16, contracted with FP32 accumulation, and rescaled back.
+
+Engine-dispatched primitives (such as `dot_general`) honor the active scope automatically. Handwritten `@custom_laplacian` rules can opt in with {func}`~jaqmc.laplacian.precision.scaled_einsum` or {func}`~jaqmc.laplacian.precision.scaled_dot_general`:
+
+```python
+from jaqmc.laplacian.precision import scaled_einsum
+
+
+def contract_jacobian(jac, weight):
+    return scaled_einsum("nij,jk->nik", jac, weight)
+```

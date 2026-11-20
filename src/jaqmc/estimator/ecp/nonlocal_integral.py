@@ -45,11 +45,12 @@ def make_nonlocal_integral(
         electrons: jnp.ndarray,
         atom_positions: jnp.ndarray,
         key: PRNGKey,
+        pair_indices: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
         r"""Compute nonlocal ECP integrals.
 
-        Uses scan over electrons for memory efficiency, with vmap over
-        atoms and quadrature points for parallelism.
+        Uses scan over electrons (or selected ``pair_indices``) for memory
+        efficiency, with vmap over atoms and quadrature points for parallelism.
 
         Args:
             phase_wf: Wavefunction returning (phase, :math:`\log|\psi|`) for
@@ -58,16 +59,24 @@ def make_nonlocal_integral(
             atom_positions: Nearest atom image for each electron-atom pair,
                 shape (n_elec, n_atoms, 3).
             key: PRNG key for random rotations.
+            pair_indices: Optional 1D indices into flattened ``(n_elec * n_atoms)``
+                pairs. When provided, returns shape ``(len(pair_indices), n_nonlocal)``
+                for only the selected pairs.
 
         Returns:
-            Per-channel integrals, shape (n_elec, n_atoms, n_nonlocal).
+            Per-channel integrals of shape ``(n_elec, n_atoms, n_nonlocal)``, or
+            ``(len(pair_indices), n_nonlocal)`` when ``pair_indices`` is given.
             Multiply by radial potentials ``V_l(r)`` and sum to get energy.
         """
         n_elec = electrons.shape[0]
         n_atoms = atom_positions.shape[1]
 
+        if pair_indices is not None and (
+            pair_indices.size == 0 or n_atoms == 0 or n_nonlocal == 0
+        ):
+            return jnp.zeros((pair_indices.size, n_nonlocal), dtype=electrons.dtype)
         if n_atoms == 0 or n_nonlocal == 0:
-            return jnp.zeros((n_elec, n_atoms, n_nonlocal))
+            return jnp.zeros((n_elec, n_atoms, n_nonlocal), dtype=electrons.dtype)
 
         # Reference wavefunction value
         ref_phase, ref_log_psi = phase_wf(electrons)
@@ -92,31 +101,21 @@ def make_nonlocal_integral(
         def electron_contribution(carry, x):
             """Compute integral for one electron-atom pair.
 
-            Args:
-                carry: Unused (scan requires a carry).
-                x: Tuple of (elec_idx, atom_pos, elec_quad_points).
-
             Returns:
-                (carry, channel_integrals) with shape (n_nonlocal,).
+                Tuple of ``(carry, channel_integrals)`` with shape ``(n_nonlocal,)``.
             """
             elec_idx, atom_pos, elec_quad_points = x
-
-            # Compute atom-electron geometry
-            electron = electrons[elec_idx]
-            r_ae_vec = electron - atom_pos
+            r_ae_vec = electrons[elec_idx] - atom_pos
             r_ae_dist = jnp.linalg.norm(r_ae_vec)
             r_ae_dir = r_ae_vec / r_ae_dist
 
-            # Displaced positions on sphere around atom
             displaced_pos = atom_pos + r_ae_dist * elec_quad_points  # (n_quad, 3)
-
-            # Build full electron configurations with this electron displaced
-            displaced_electrons = jnp.tile(electrons, (n_quad, 1, 1))
-            displaced_electrons = displaced_electrons.at[:, elec_idx, :].set(
-                displaced_pos
+            displaced_electrons = (
+                jnp.tile(electrons, (n_quad, 1, 1))
+                .at[:, elec_idx, :]
+                .set(displaced_pos)
             )
 
-            # Compute wavefunction ratios
             if lattice is not None:
                 wrapped_pos, bloch_phase = _wrap_with_bloch_phase(
                     displaced_pos, lattice, twist
@@ -128,31 +127,33 @@ def make_nonlocal_integral(
             else:
                 ratios = wf_ratio(displaced_electrons)
 
-            # Legendre polynomials at cos(theta)
             cos_theta = jnp.dot(elec_quad_points, r_ae_dir)
             pl_values = legendre_polynomials(cos_theta, n_nonlocal)
 
-            # Integrate each angular momentum channel
-            integrals = []
-            for angular_l in range(n_nonlocal):
-                integrand = pl_values[angular_l] * ratios
-                integral = quadrature.integrate(integrand) * (2 * angular_l + 1)
-                integrals.append(integral)
+            integrals = [
+                quadrature.integrate(pl_values[angular_l] * ratios)
+                * (2 * angular_l + 1)
+                for angular_l in range(n_nonlocal)
+            ]
+            return carry, jnp.stack(integrals) / (4 * jnp.pi)
 
-            channel_integrals = jnp.stack(integrals) / (4 * jnp.pi)  # (n_nonlocal,)
-            return carry, channel_integrals
+        if pair_indices is not None:
+            elec_idx = pair_indices // n_atoms
+            atom_idx = pair_indices % n_atoms
+            xs = (
+                elec_idx,
+                atom_positions[elec_idx, atom_idx],
+                quad_points[elec_idx],
+            )
+            _, integrals = jax.lax.scan(electron_contribution, None, xs)
+            return integrals
 
         @partial(jax.vmap, in_axes=1, out_axes=1)
         def per_atom_integral(atom_pos_per_elec: jnp.ndarray) -> jnp.ndarray:
             """Compute integrals for one atom across all electrons.
 
-            Uses scan over electrons to limit memory usage.
-
-            Args:
-                atom_pos_per_elec: This atom's position for each electron, (n_elec, 3).
-
             Returns:
-                Integrals for this atom, shape (n_elec, n_nonlocal).
+                Integrals for this atom with shape ``(n_elec, n_nonlocal)``.
             """
             xs = (jnp.arange(n_elec), atom_pos_per_elec, quad_points)
             _, integrals = jax.lax.scan(electron_contribution, None, xs)

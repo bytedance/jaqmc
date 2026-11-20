@@ -66,6 +66,8 @@ class MCMCSampler(SamplerLike[MCMCState]):
         initial_width: Initial width (stddev) of the Gaussian proposal.
         adapt_frequency: Frequency of adaptive width updates.
         pmove_range: Target range for acceptance rate.
+        wavefunction_precision: Wavefunction-defined precision mode passed to
+            wavefunction evaluation. ``None`` inherits the wavefunction default.
         sampling_proposal: Proposal function for MCMC moves.
     """
 
@@ -73,6 +75,7 @@ class MCMCSampler(SamplerLike[MCMCState]):
     initial_width: float = 0.1
     adapt_frequency: int = 100
     pmove_range: tuple[float, float] = (0.5, 0.55)
+    wavefunction_precision: str | None = None
     sampling_proposal: SamplingProposal = runtime_dep(default=gaussian_proposal)
 
     def init(self, data, rngs):

@@ -1,7 +1,7 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-from __future__ import annotations
+from typing import Any
 
 import jax
 import numpy as np
@@ -14,15 +14,17 @@ from jaqmc.estimator.ph import PHEnergy
 from jaqmc.estimator.total_energy import TotalEnergy
 
 
-def _gaussian_logpsi(params, data: MoleculeData) -> jnp.ndarray:
-    del params
+def _gaussian_logpsi(
+    params: Any, data: MoleculeData, *, precision: str | None = None
+) -> jnp.ndarray:
+    del params, precision
     return -0.3 * jnp.sum(data.electrons**2)
 
 
 def _gaussian_phase_logpsi(
-    params, data: MoleculeData
+    params: Any, data: MoleculeData, *, precision: str | None = None
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
-    return jnp.array(1.0), _gaussian_logpsi(params, data)
+    return jnp.array(1.0), _gaussian_logpsi(params, data, precision=precision)
 
 
 def _li_ecp_coefficients() -> dict[str, object]:

@@ -154,6 +154,29 @@ compressed or logical output-shape metadata.
 .. autotype:: jaqmc.laplacian.SparseJacobian
 ```
 
+## Contraction precision helpers
+
+The helpers in {mod}`jaqmc.laplacian.precision` annotate and resolve reduced-precision Jacobian contractions inside Forward Laplacian evaluations (see [Scoped Contraction Precision](#scoped-contraction-precision)).
+
+```{eval-rst}
+.. automodule:: jaqmc.laplacian.precision
+   :no-members:
+   :no-index:
+
+.. autoclass:: jaqmc.laplacian.precision.ContractionMode
+   :members:
+
+.. autofunction:: jaqmc.laplacian.precision.jacobian_contraction_scope
+
+.. autofunction:: jaqmc.laplacian.precision.current_contraction_mode
+
+.. autofunction:: jaqmc.laplacian.precision.scaled_dot_general
+
+.. autofunction:: jaqmc.laplacian.precision.scaled_einsum
+
+.. autofunction:: jaqmc.laplacian.precision.eqn_contraction_scope
+```
+
 ## Primitive extension helpers
 
 Primitive registry and wrapper-construction helpers are documented under the

@@ -117,6 +117,43 @@ class TestCustomLaplacianPublicTransforms:
         assert_allclose(primals_out, x**2)
         assert_allclose(tangents_out, 2 * x)
 
+    def test_custom_rule_is_independent_of_primal_jit_call_order(self) -> None:
+        """Primal and derivative traces must not reuse each other's cached graph."""
+
+        def make_square():
+            @custom_laplacian
+            def square(value: jnp.ndarray) -> jnp.ndarray:
+                # Only the custom Laplacian rule differentiates this primal.
+                return jax.lax.stop_gradient(value**2)
+
+            @square.def_laplacian_rule
+            def square_rule(value: LapTuple[jnp.ndarray]) -> LapTuple[jnp.ndarray]:
+                return LapTuple(
+                    value.x**2,
+                    2 * value.x * value.dense_jacobian,
+                    2 * value.x * value.laplacian
+                    + 2 * jnp.sum(value.dense_jacobian**2, axis=0),
+                )
+
+            return jax.jit(square), jax.jit(forward_laplacian(square))
+
+        x = jnp.array([0.25, -1.5], dtype=jnp.float32)
+        for primal_first in (False, True):
+            primal, derivative = make_square()
+            if primal_first:
+                primal(x)
+            else:
+                derivative(x)
+            actual = derivative(x)
+            assert isinstance(actual, LapTuple)
+            assert_allclose(primal(x), x**2)
+            assert_allclose(actual.x, x**2)
+            assert_allclose(actual.dense_jacobian, jnp.diag(2 * x))
+            assert_allclose(actual.laplacian, jnp.full_like(x, 2))
+            assert_allclose(
+                jax.jvp(primal, (x,), (jnp.ones_like(x),))[1], jnp.zeros_like(x)
+            )
+
     def test_custom_laplacian_jits_like_plain_function(self):
         """Outside forward_laplacian, JIT lowers the primal custom call."""
         my_square = self._make_square()

@@ -4,15 +4,16 @@
 """LapNet wavefunction implementation for molecules."""
 
 from enum import StrEnum
-from typing import cast
+from typing import Literal, cast
 
+import jax
 from jax import numpy as jnp
 
 from jaqmc.app.molecule.data import MoleculeData
-from jaqmc.array_types import Params
+from jaqmc.app.molecule.wavefunction.base import MoleculeWavefunctionModule
 from jaqmc.geometry import obc
+from jaqmc.laplacian.precision import ContractionMode, jacobian_contraction_scope
 from jaqmc.utils.wiring import runtime_dep
-from jaqmc.wavefunction import Wavefunction
 from jaqmc.wavefunction.backbone.lapnet import LapNetBackbone
 from jaqmc.wavefunction.input.atomic import MoleculeFeatures
 from jaqmc.wavefunction.jastrow import SimpleEEJastrow
@@ -35,12 +36,18 @@ class JastrowType(StrEnum):
     SIMPLE_EE = "simple_ee"
 
 
-class LapNetWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
+class LapNetWavefunction(MoleculeWavefunctionModule):
     """LapNet ansatz with the original two-stream cross-attention backbone.
 
     Implements the :class:`~.base.MoleculeWavefunction` protocol.
 
     Args:
+        precision: ``standard`` follows array dtypes. ``fp16_jac`` uses FP32 neural
+            evaluation and scaled FP16 Forward Laplacian Jacobian contractions.
+            ``fp16_mixed`` runs the LapNet backbone and orbital projections in FP16
+            with the same contractions (enable ``use_layernorm=True`` to keep FP16
+            activations well-scaled). Both nonstandard modes retain FP32 envelope,
+            Jastrow, and determinant evaluation.
         nspins: Tuple of (num_spin_up, num_spin_down) electrons.
         ndets: Number of determinants.
         num_layers: Number of LapNet network layers.
@@ -59,6 +66,7 @@ class LapNetWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
         jastrow_alpha_init: Initial value for Jastrow alpha parameters.
     """
 
+    precision: Literal["standard", "fp16_jac", "fp16_mixed"] = "standard"
     nspins: tuple[int, int] = runtime_dep()
     ndets: int = 16
     num_layers: int = 4
@@ -80,6 +88,11 @@ class LapNetWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
             raise ValueError("LapNet requires full_det=True.")
 
         self.feature_layer = MoleculeFeatures(rescale=self.rescale)
+        dtype = {
+            "standard": None,
+            "fp16_jac": jnp.float32,
+            "fp16_mixed": jnp.float16,
+        }[self.precision]
         self.backbone_layer = LapNetBackbone(
             nspins=self.nspins,
             num_layers=self.num_layers,
@@ -89,11 +102,13 @@ class LapNetWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
             use_input_bias=self.use_input_bias,
             use_backbone_bias=self.use_backbone_bias,
             num_local_updates=self.num_local_updates,
+            dtype=dtype,
         )
         self.orbital_layer = OrbitalProjection(
             nspins=self.nspins,
             ndets=self.ndets,
             use_bias=self.use_orbital_bias,
+            dtype=dtype,
         )
         self.envelope_layer = Envelope(
             envelope_type=self.envelope,
@@ -101,7 +116,9 @@ class LapNetWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
             nspins=self.nspins,
             orbitals_spin_split=True,
         )
-        self.logdet_layer = LogDet()
+        self.logdet_layer = LogDet(
+            dtype=None if self.precision == "standard" else jnp.float32
+        )
 
         self.jastrow_layer: SimpleEEJastrow | None
         match self.jastrow:
@@ -118,11 +135,23 @@ class LapNetWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
                     f"Must be one of: {[e.value for e in JastrowType]}"
                 )
 
+    @property
+    def contraction_mode(self) -> ContractionMode:
+        """Forward Laplacian contraction mode for this precision strategy."""
+        return (
+            ContractionMode.SCALED_FP16
+            if self.precision != "standard"
+            else ContractionMode.STANDARD
+        )
+
     def __call__(self, data: MoleculeData) -> RealLogDetOutput:
         output = cast(RealLogDetOutput, self.logdet_layer(self.get_orbitals(data)))
         if self.jastrow_layer is not None:
             _, r_ee = obc.pair_displacements_within(data.electrons)
-            output = {**output, "logpsi": output["logpsi"] + self.jastrow_layer(r_ee)}
+            output = {
+                **output,
+                "logpsi": output["logpsi"] + self.jastrow_layer(r_ee),
+            }
         return output
 
     def get_orbitals(self, data: MoleculeData) -> jnp.ndarray:
@@ -135,45 +164,14 @@ class LapNetWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
             Orbital matrix of shape ``(ndets, n_electrons, n_electrons)``.
         """
         embedding = self.feature_layer(data.electrons, data.atoms)
-        h_one = self.backbone_layer(embedding["ae_features"])
-        orbitals = self.orbital_layer(h_one)
+        with (
+            jacobian_contraction_scope(self.contraction_mode),
+            jax.default_matmul_precision(
+                "bfloat16"
+                if self.precision == "fp16_mixed"
+                else jax.default_matmul_precision.value
+            ),
+        ):
+            h_one = self.backbone_layer(embedding["ae_features"])
+            orbitals = self.orbital_layer(h_one)
         return orbitals * self.envelope_layer(embedding["ae_vec"], embedding["r_ae"])
-
-    def logpsi(self, params: Params, data: MoleculeData) -> jnp.ndarray:
-        """Evaluate log|psi| given parameters and data.
-
-        Args:
-            params: Wavefunction parameters from ``init_params``.
-            data: MoleculeData containing electrons and atoms.
-
-        Returns:
-            Scalar log-amplitude of the wavefunction.
-        """
-        return self.evaluate(params, data)["logpsi"]
-
-    def phase_logpsi(
-        self, params: Params, data: MoleculeData
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        """Evaluate (phase, log|psi|) given parameters and data.
-
-        Args:
-            params: Wavefunction parameters from ``init_params``.
-            data: MoleculeData containing electrons and atoms.
-
-        Returns:
-            Tuple of (phase, log|psi|), where phase is the real sign.
-        """
-        out = self.evaluate(params, data)
-        return out["sign_logpsi"], out["logpsi"]
-
-    def orbitals(self, params: Params, data: MoleculeData) -> jnp.ndarray:
-        """Evaluate orbitals given parameters and data.
-
-        Args:
-            params: Wavefunction parameters from ``init_params``.
-            data: MoleculeData containing electrons and atoms.
-
-        Returns:
-            Orbital matrix of shape ``(ndets, n_electrons, n_electrons)``.
-        """
-        return self.apply(params, data, method=self.get_orbitals)  # type: ignore

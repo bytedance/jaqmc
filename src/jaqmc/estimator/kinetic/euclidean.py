@@ -5,6 +5,7 @@
 
 import dataclasses
 from collections.abc import Mapping
+from functools import partial
 from typing import Any, cast
 
 from jax import numpy as jnp
@@ -44,6 +45,8 @@ class EuclideanKinetic(PerWalkerEstimator):
        and Laplacian computation details.
 
     Args:
+        wavefunction_precision: Wavefunction-defined precision mode passed to
+            wavefunction evaluation. ``None`` inherits the wavefunction default.
         mode: Laplacian computation strategy. ``forward_laplacian`` is the default
             for JAX 0.7.1 and later, ``scan`` for earlier versions. See
             :class:`LaplacianMode` for details.
@@ -65,6 +68,7 @@ class EuclideanKinetic(PerWalkerEstimator):
 
     mode: LaplacianMode = default_laplacian_mode()
     prefactor: float | list[float] = 1.0
+    wavefunction_precision: str | None = None
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
     data_field: str = runtime_dep(default="electrons")
     sparse: bool = True
@@ -94,10 +98,13 @@ class EuclideanKinetic(PerWalkerEstimator):
             f_log_psi = self.f_log_psi
             data_field = self.data_field
 
-            def scaled_log_psi(params: Params, inner_data: Data) -> jnp.ndarray:
+            def scaled_log_psi(
+                params: Params, inner_data: Data, *, precision: str | None = None
+            ) -> jnp.ndarray:
                 return f_log_psi(
                     params,
                     inner_data.merge({data_field: scale * inner_data[data_field]}),
+                    precision=precision,
                 )
 
             rescaled = dataclasses.replace(
@@ -121,7 +128,9 @@ class EuclideanKinetic(PerWalkerEstimator):
         self, params: Params, data: Data, state: None
     ) -> tuple[dict[str, Any], None]:
         grad_f = transform_with_data(
-            self.f_log_psi, self.data_field, grad_maybe_complex
+            partial(self.f_log_psi, precision=self.wavefunction_precision),
+            self.data_field,
+            grad_maybe_complex,
         )
         flat_positions, positions_shape = flatten_positions(data, self.data_field)
         n = flat_positions.size
@@ -147,7 +156,9 @@ class EuclideanKinetic(PerWalkerEstimator):
             data[self.data_field],
             sparse_axis=0 if self.sparse else None,
         )
-        fwd_result = forward_laplacian(self.f_log_psi)(
+        fwd_result = forward_laplacian(
+            self.f_log_psi, precision=self.wavefunction_precision
+        )(
             params,
             data.merge({self.data_field: positions}),
         )

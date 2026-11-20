@@ -20,6 +20,16 @@ For architecture-specific options (FermiNet, LapNet, Psiformer, and system-speci
    :special-members: __call__
 
 .. autotype:: jaqmc.wavefunction.base.NumericWavefunctionEvaluate
+
+.. autoclass:: jaqmc.wavefunction.SpinorWavefunctionEvaluate
+   :special-members: __call__
+```
+
+### App-level execution adapters
+
+```{eval-rst}
+.. autoclass:: jaqmc.app.molecule.wavefunction.base.MoleculeWavefunctionModule
+   :members:
 ```
 
 ## Output types

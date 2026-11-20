@@ -3,6 +3,7 @@
 
 from flax import linen as nn
 from jax import numpy as jnp
+from jax.typing import DTypeLike
 
 from jaqmc.utils.array import split_nonempty_channels
 
@@ -14,19 +15,30 @@ class SplitChannelDense(nn.Module):
         channels: Tuple of (num_spin_up, num_spin_down) electrons.
         features: Output feature dimensions for DenseGeneral.
         use_bias: Whether to use bias in dense layers.
+        dtype: Projection compute dtype. ``None`` follows the incoming
+            activation dtype.
     """
 
     channels: tuple[int, int]
     features: list[int]
     use_bias: bool = True
+    dtype: DTypeLike | None = None
 
     @nn.compact
-    def __call__(self, h_one: jnp.ndarray):
-        return jnp.concatenate(
+    def __call__(self, h_one: jnp.ndarray) -> jnp.ndarray:
+        h_in = h_one if self.dtype is None else h_one.astype(self.dtype)
+        out = jnp.concatenate(
             [
-                nn.DenseGeneral(self.features, use_bias=self.use_bias)(h)
-                for h in split_nonempty_channels(h_one, self.channels)
+                nn.DenseGeneral(
+                    self.features, use_bias=self.use_bias, dtype=self.dtype
+                )(h)
+                for h in split_nonempty_channels(h_in, self.channels)
             ]
+        )
+        return (
+            out
+            if self.dtype is None
+            else out.astype(jnp.result_type(self.dtype, jnp.float32))
         )
 
 
@@ -49,12 +61,15 @@ class OrbitalProjection(nn.Module):
         orbitals_spin_split: If True, use separate projection for each spin
             channel. Only effective when both spin channels are occupied.
         use_bias: Whether to use bias in dense layers.
+        dtype: Projection compute dtype. ``None`` follows the incoming
+            activation dtype.
     """
 
     nspins: tuple[int, int]
     ndets: int
     orbitals_spin_split: bool = True
     use_bias: bool = False
+    dtype: DTypeLike | None = None
 
     @nn.compact
     def __call__(self, h_one: jnp.ndarray) -> jnp.ndarray:
@@ -69,10 +84,16 @@ class OrbitalProjection(nn.Module):
         n_electrons = sum(self.nspins)
         features = [self.ndets, n_electrons]
         active_spins = [s for s in self.nspins if s > 0]
-
         if self.orbitals_spin_split and len(active_spins) > 1:
-            orbitals = SplitChannelDense(self.nspins, features, self.use_bias)(h_one)
+            orbitals = SplitChannelDense(
+                self.nspins, features, self.use_bias, dtype=self.dtype
+            )(h_one)
         else:
-            orbitals = nn.DenseGeneral(features, use_bias=self.use_bias)(h_one)
+            h_in = h_one if self.dtype is None else h_one.astype(self.dtype)
+            orbitals = nn.DenseGeneral(
+                features, use_bias=self.use_bias, dtype=self.dtype
+            )(h_in)
+            if self.dtype is not None:
+                orbitals = orbitals.astype(jnp.result_type(self.dtype, jnp.float32))
 
         return jnp.transpose(orbitals, (1, 0, 2))

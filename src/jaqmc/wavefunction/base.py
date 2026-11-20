@@ -22,12 +22,16 @@ class WavefunctionInit[DataT: Data](Protocol):
 
 
 class WavefunctionEvaluate[DataT: Data, OutputT](Protocol):
-    def __call__(self, params: Params, data: DataT) -> OutputT:
+    def __call__(
+        self, params: Params, data: DataT, *, precision: str | None = None
+    ) -> OutputT:
         """Evaluate a wavefunction with explicit parameters.
 
         Args:
             params: Parameter PyTree to evaluate.
             data: One-walker input sample.
+            precision: Wavefunction-specific evaluation mode. ``None`` inherits
+                the configured default.
 
         Returns:
             Model output for this walker (scalar or structured output).
@@ -40,6 +44,31 @@ type NumericWavefunctionEvaluate[DataT: Data] = WavefunctionEvaluate[DataT, jnp.
 This alias specializes :class:`WavefunctionEvaluate` to scalar-array outputs,
 which are typically log-amplitude values such as ``log|psi|``.
 """
+
+
+class SpinorWavefunctionEvaluate(Protocol):
+    """Callable protocol for evaluating log-psi from local monopole spinors."""
+
+    def __call__(
+        self,
+        params: Params,
+        u: jnp.ndarray,
+        v: jnp.ndarray,
+        *,
+        precision: str | None = None,
+    ) -> jnp.ndarray:
+        """Evaluate log-psi from spinor coordinates ``(u, v)``.
+
+        Args:
+            params: Parameter PyTree to evaluate.
+            u: First spinor coordinate for every electron.
+            v: Second spinor coordinate for every electron.
+            precision: Wavefunction-specific evaluation mode. ``None`` inherits
+                the configured default.
+
+        Returns:
+            Complex log-wavefunction value for this walker.
+        """
 
 
 class WavefunctionLike[DataT: Data, OutputT](Protocol):
@@ -64,8 +93,9 @@ class Wavefunction[DataT: Data, OutputT](
     - ``__call__(data)``: model definition for one walker (implemented by subclasses).
     - ``apply(params, data, ...)``: Flax runtime API that executes methods with explicit
       variables.
-    - ``evaluate(params, data)``: JaQMC wrapper over ``apply`` that provides a stable
-      typed contract for framework consumers.
+    - ``evaluate(params, data, *, precision=None)``: JaQMC wrapper over ``apply``
+      that provides a stable typed contract for framework consumers.
+
     """
 
     def init_params(self, data: DataT, rngs: PRNGKey) -> Params:
@@ -87,15 +117,31 @@ class Wavefunction[DataT: Data, OutputT](
         explicit parameters.
         """
 
-    def evaluate(self, params: Params, data: DataT) -> OutputT:
+    @nn.nowrap
+    def evaluate(
+        self, params: Params, data: DataT, *, precision: str | None = None
+    ) -> OutputT:
         """Framework-level execution entrypoint.
 
         JaQMC wrapper over :meth:`~flax.linen.Module.apply` that provides a stable typed
         contract, following the signature of :class:`WavefunctionEvaluate`.
 
+        Args:
+            params: Parameter PyTree to evaluate.
+            data: One-walker input sample.
+            precision: Evaluation mode. ``None`` inherits the configured default.
+                Wavefunctions without configurable precision reject explicit modes.
+
         Returns:
             The wavefunction output for the provided parameters and data.
+
+        Raises:
+            ValueError: If an explicit precision mode is requested.
         """
+        if precision is not None:
+            raise ValueError(
+                f"{type(self).__name__} does not support precision mode {precision!r}."
+            )
         return self.apply(params, data)  # type: ignore
 
     @classmethod

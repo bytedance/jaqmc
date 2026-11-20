@@ -105,11 +105,14 @@ class OneRDM(PerWalkerEstimator):
 
     Args:
         flux: Magnetic flux :math:`2Q` (positive integer).
+        wavefunction_precision: Wavefunction-defined precision mode for 1-RDM
+            evaluation. ``None`` inherits the wavefunction default.
         f_log_psi: Complex log-psi function (runtime dep).
         data_field: Name of the data field (runtime dep, default ``"electrons"``).
     """
 
     flux: int = 2
+    wavefunction_precision: str | None = None
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
     data_field: str = runtime_dep(default="electrons")
 
@@ -144,11 +147,13 @@ class OneRDM(PerWalkerEstimator):
         data_prime_electrons = data_prime_electrons.at[idx, idx].set(r_prime)
 
         # Evaluate log-psi at original and displaced configs
-        logpsi = self.f_log_psi(params, data)
+        logpsi = self.f_log_psi(params, data, precision=self.wavefunction_precision)
 
         def eval_displaced(displaced_electrons: jnp.ndarray) -> jnp.ndarray:
             return self.f_log_psi(
-                params, data.merge({self.data_field: displaced_electrons})
+                params,
+                data.merge({self.data_field: displaced_electrons}),
+                precision=self.wavefunction_precision,
             )
 
         logpsi_prime = jax.vmap(eval_displaced)(data_prime_electrons)

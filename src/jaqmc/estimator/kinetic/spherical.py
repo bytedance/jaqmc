@@ -25,6 +25,7 @@ from jaqmc.geometry.sphere import (
 from jaqmc.utils.config import configurable_dataclass
 from jaqmc.utils.func_transform import grad_maybe_complex, linearize_maybe_complex
 from jaqmc.utils.wiring import runtime_dep
+from jaqmc.wavefunction.base import SpinorWavefunctionEvaluate
 
 from ._common import (
     LaplacianMode,
@@ -73,6 +74,8 @@ class SphericalKinetic(PerWalkerEstimator):
         mode: Laplacian computation strategy. ``forward_laplacian`` is the default
             for JAX 0.7.1 and later, ``scan`` for earlier versions. See
             :class:`LaplacianMode` for details.
+        wavefunction_precision: Wavefunction-defined precision mode for kinetic
+            derivatives. ``None`` inherits the wavefunction default.
         f_log_psi_from_spinor: Complex log-psi ``(params, u, v)`` (runtime dep).
         data_field: Electron-coordinate field name.
     """
@@ -80,9 +83,8 @@ class SphericalKinetic(PerWalkerEstimator):
     monopole_strength: float = 0.0
     radius: float = 1.0
     mode: LaplacianMode = default_laplacian_mode()
-    f_log_psi_from_spinor: Callable[[Params, jnp.ndarray, jnp.ndarray], jnp.ndarray] = (
-        runtime_dep()
-    )
+    wavefunction_precision: str | None = None
+    f_log_psi_from_spinor: SpinorWavefunctionEvaluate = runtime_dep()
     data_field: str = runtime_dep(default="electrons")
 
     def __post_init__(self):
@@ -108,7 +110,9 @@ class SphericalKinetic(PerWalkerEstimator):
 
         def f(p: Params, x: jnp.ndarray) -> jnp.ndarray:
             u, v = spinor_coordinates_from_stereographic(x, is_north)
-            return self.f_log_psi_from_spinor(p, u, v)
+            return self.f_log_psi_from_spinor(
+                p, u, v, precision=self.wavefunction_precision
+            )
 
         laplacian, gradient = (
             self._evaluate_forward_laplacian(params, f, plane, sqrt_metric)

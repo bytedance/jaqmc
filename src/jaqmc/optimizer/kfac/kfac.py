@@ -1,6 +1,7 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+from functools import partial
 from typing import Any, NamedTuple
 
 import jax
@@ -91,6 +92,8 @@ class KFACOptimizer:
             Reduces per-step inversion cost on GPUs under standard damping
             (such as the default ``1e-3``), but can produce ``NaN`` updates if
             factors lose numerical positive-definiteness.
+        wavefunction_precision: Wavefunction-defined precision mode passed to
+            wavefunction evaluation. ``None`` inherits the wavefunction default.
     """
 
     learning_rate: Any = module_config(Standard, direct_value_type=float)
@@ -100,6 +103,7 @@ class KFACOptimizer:
     inverse_update_period: int = 1
     damping: float = 1e-3
     use_cholesky_inversion: bool = False
+    wavefunction_precision: str | None = None
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
 
     def init(
@@ -180,7 +184,10 @@ class KFACOptimizer:
         """
 
         def value_func(params: Params, batched_data: BatchedData):
-            batch_log_psi = jax.vmap(f_log_psi, in_axes=(None, batched_data.vmap_axis))
+            batch_log_psi = jax.vmap(
+                partial(f_log_psi, precision=self.wavefunction_precision),
+                in_axes=(None, batched_data.vmap_axis),
+            )
             logpsi = batch_log_psi(params, batched_data.data)
             kfac_jax.register_normal_predictive_distribution(logpsi[:, None])
             return logpsi

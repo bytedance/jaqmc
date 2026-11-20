@@ -58,10 +58,7 @@ When batching a function that returns the full
 {class}`~jaqmc.laplacian.LapTuple`, pass {func}`jax.vmap` an `out_axes` tree
 built with {meth}`~jaqmc.laplacian.LapTuple.pytree_spec`. Pass axis indices as
 metadata, not derivative arrays: `LapTuple(0, 1, 0)` builds a runtime value,
-whereas `pytree_spec(0, 1, 0)` builds the spec JAX expects. For batch axis
-`a`, pass `a` on `x` and `laplacian`. On `jacobian`, pass `a + 1` because
-axis 0 is already the derivative basis—for example `pytree_spec(0, 1, 0)` when
-batching along axis 0:
+whereas `pytree_spec(0, 1, 0)` builds the spec JAX expects. For nonnegative batch axis `a`, pass `a` on `x` and `laplacian` and `a + 1` on `jacobian` (since axis 0 is the derivative basis, e.g. `pytree_spec(0, 1, 0)`); negative axes count from the end and stay unchanged (e.g. `pytree_spec(-1, -1, -1)`):
 
 ```python
 import jax
@@ -80,7 +77,15 @@ to `in_axes`.
 If you only need one field, return that field from the mapped function instead
 and keep the default `vmap` output axes.
 
-It is also fully allowed for `f` to return a PyTree. In that case, the result is also a PyTree with the same structure, and each leaf has `x`, `dense_jacobian`, and `laplacian` attributes.
+If `f` returns a PyTree, the result preserves its structure. Tracked floating
+outputs carry `x`, `dense_jacobian`, and `laplacian` attributes.
+
+(forward-laplacian-fixed-options)=
+Keyword arguments passed to {func}`~jaqmc.laplacian.forward_laplacian` are bound to `f` before tracing (equivalent to {func}`functools.partial`), keeping static options such as `precision` outside input flattening and Jacobian seeding:
+
+```python
+lap_fn = forward_laplacian(f_log_psi, precision=self.wavefunction_precision)
+```
 
 ## Selecting input variables
 

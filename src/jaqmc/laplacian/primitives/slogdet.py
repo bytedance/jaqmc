@@ -14,6 +14,7 @@
 
 from typing import Any
 
+import jax
 import jax.numpy as jnp
 from jax.extend.core import Primitive
 
@@ -31,6 +32,7 @@ def handle_slogdet(
 ):
     del kwargs
     x = args[0]
+
     if is_sparse_laptuple(x):
         log_dense_fallback(
             site="slogdet",
@@ -39,28 +41,40 @@ def handle_slogdet(
         )
         x = x.to_dense()
 
+    orig_dtype = x.x.dtype if isinstance(x, LapTuple) else x.dtype
+    det_dtype = jnp.result_type(orig_dtype, jnp.float32)
     if not isinstance(x, LapTuple):
-        sign, logdet = jnp.linalg.slogdet(x)
-        return sign, logdet
+        with jax.default_matmul_precision("float32"):
+            sign, logdet = jnp.linalg.slogdet(x.astype(det_dtype))
+        return sign.astype(x.dtype), logdet.astype(x.real.dtype)
 
-    A = x.x
-    J = x.jacobian
-    L = x.laplacian
-    sign_val, logdet_val = jnp.linalg.slogdet(A)
-    A_inv = jnp.linalg.inv(A)
-    # Matrix identities:
-    #   d log det(A) = tr(A^{-1} dA)
-    #   d^2 log det(A)[H, H] contributes -tr(A^{-1} H A^{-1} H).
-    Ainv_J = jnp.einsum("...ab,k...bc->k...ac", A_inv, J)
-    full_jac = jnp.trace(Ainv_J, axis1=-1, axis2=-2)
-    full_lapl_jvp = jnp.trace(jnp.matmul(A_inv, L), axis1=-1, axis2=-2)
-    hess_trace = -jnp.sum(Ainv_J * jnp.swapaxes(Ainv_J, -1, -2), axis=(0, -1, -2))
-    logdet_jac = full_jac.real
-    logdet_lapl = full_lapl_jvp.real + hess_trace.real
-    logdet = LapTuple(logdet_val, logdet_jac, logdet_lapl)
+    lap_orig_dtype = x.laplacian.real.dtype
+    A = x.x.astype(det_dtype)
+    J = x.jacobian.astype(det_dtype)
+    L = x.laplacian.astype(det_dtype)
+    with jax.default_matmul_precision("float32"):
+        sign_val, logdet_val = jnp.linalg.slogdet(A)
+        A_inv = jnp.linalg.inv(A)
+        # Matrix identities:
+        #   d log det(A) = tr(A^{-1} dA)
+        #   d^2 log det(A)[H, H] contributes -tr(A^{-1} H A^{-1} H).
+        Ainv_J = jnp.einsum(
+            "...ab,k...bc->k...ac", A_inv, J, preferred_element_type=det_dtype
+        )
+        full_jac = jnp.trace(Ainv_J, axis1=-1, axis2=-2)
+        full_lapl_jvp = jnp.trace(
+            jnp.matmul(A_inv, L, preferred_element_type=det_dtype),
+            axis1=-1,
+            axis2=-2,
+        )
+        hess_trace = -jnp.sum(Ainv_J * jnp.swapaxes(Ainv_J, -1, -2), axis=(0, -1, -2))
+    logdet_dtype = x.x.real.dtype
+    logdet_jac = full_jac.real.astype(logdet_dtype)
+    logdet_lapl = (full_lapl_jvp.real + hess_trace.real).astype(lap_orig_dtype)
+    logdet = LapTuple(logdet_val.astype(logdet_dtype), logdet_jac, logdet_lapl)
 
     if not jnp.iscomplexobj(A):
-        return sign_val, logdet
+        return sign_val.astype(orig_dtype), logdet
 
     # For complex matrices, sign = exp(i theta) with theta = Im(log det(A)),
     # so the phase path is differentiated through that scalar angle.

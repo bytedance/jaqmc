@@ -25,11 +25,11 @@ class HydrogenAtomData(Data):
     electrons: jnp.ndarray
 
 
-class HydrogenAtom(Wavefunction):
+class HydrogenAtom(Wavefunction[HydrogenAtomData, jnp.ndarray]):
     initial_alpha: float = -0.8
 
     @nn.compact
-    def __call__(self, data: HydrogenAtomData):
+    def __call__(self, data: HydrogenAtomData) -> jnp.ndarray:
         alpha = self.param("alpha", lambda *_: jnp.float32(self.initial_alpha), ())
         r_ae = jnp.linalg.norm(data.electrons)
         return r_ae * alpha

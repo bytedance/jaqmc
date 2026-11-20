@@ -171,3 +171,45 @@ def test_batched_complex_sign_output(case):
         rtol=1e-4,
         atol=1e-6,
     )
+
+
+@pytest.mark.requires_x64
+def test_slogdet_preserves_fp64_determinants_and_derivatives() -> None:
+    x = jnp.array([1.1234567890123, 2.3456789012345], dtype=jnp.float64)
+    for complex_matrix in (False, True):
+        offset = jnp.asarray(0.431287654321j if complex_matrix else 0.0)
+        sign, logdet = forward_laplacian(
+            lambda v, c=offset: jnp.linalg.slogdet(jnp.diag(v + c))
+        )(x)
+        expected_sign, _ = jnp.linalg.slogdet(jnp.diag(x + offset))
+        assert (
+            logdet.x.dtype
+            == logdet.dense_jacobian.dtype
+            == logdet.laplacian.dtype
+            == jnp.float64
+        )
+        check_with_brute_force(
+            lambda v, c=offset: jnp.linalg.slogdet(jnp.diag(v + c))[1],
+            x,
+            actual_result=logdet,
+            rtol=1e-12,
+            atol=1e-12,
+        )
+        if complex_matrix:
+            assert isinstance(sign, LapTuple)
+            assert (
+                sign.x.dtype
+                == sign.dense_jacobian.dtype
+                == sign.laplacian.dtype
+                == jnp.complex128
+            )
+            check_with_brute_force(
+                lambda v, c=offset: jnp.linalg.slogdet(jnp.diag(v + c))[0],
+                x,
+                actual_result=sign,
+                rtol=1e-12,
+                atol=1e-12,
+            )
+        else:
+            assert not isinstance(sign, LapTuple)
+            assert_allclose(sign, expected_sign)

@@ -8,6 +8,7 @@ r"""Pseudo-Hamiltonian energy estimator.
 """
 
 from collections.abc import Callable, Mapping
+from functools import partial
 from typing import Any, Literal
 
 import jax
@@ -57,6 +58,8 @@ class PHEnergy(PerWalkerEstimator):
        per-backend implementation notes.
 
     Args:
+        wavefunction_precision: Wavefunction-defined precision mode passed to
+            wavefunction evaluation. ``None`` inherits the wavefunction default.
         f_log_psi: Log-wavefunction evaluate function.
         atom_symbols: Element symbols in geometry order.
         ph: Element symbols configured for PH treatment.
@@ -73,6 +76,7 @@ class PHEnergy(PerWalkerEstimator):
             :func:`~jaqmc.geometry.obc.pair_displacements_between`).
     """
 
+    wavefunction_precision: str | None = None
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
     atom_symbols: list[str] = runtime_dep()
     ph: list[str] = runtime_dep()
@@ -217,7 +221,7 @@ class PHEnergy(PerWalkerEstimator):
             else _standard
         )
         return backend.compute_derivative_energy(
-            self.f_log_psi,
+            partial(self.f_log_psi, precision=self.wavefunction_precision),
             params,
             data,
             ph_atoms,

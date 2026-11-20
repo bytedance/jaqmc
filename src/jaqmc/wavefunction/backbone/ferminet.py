@@ -3,6 +3,7 @@
 
 from flax import linen as nn
 from jax import numpy as jnp
+from jax.typing import DTypeLike
 
 from jaqmc.utils.array import split_nonempty_channels
 
@@ -20,11 +21,14 @@ class FermiLayers(nn.Module):
         use_last_layer: If True, also update the double stream in the final
             layer and return aggregated features. If False, skip the final
             double-stream update.
+        dtype: Optional computation dtype for projections and activations.
+            ``None`` allows natural promotion from inputs and parameters.
     """
 
     nspins: tuple[int, int]
     hidden_dims: list[tuple[int, int]]
     use_last_layer: bool = False
+    dtype: DTypeLike | None = None
 
     @nn.compact
     def __call__(self, h_one, h_two):
@@ -32,6 +36,10 @@ class FermiLayers(nn.Module):
 
         if len(layers) == 0:
             return h_one, h_two
+
+        if self.dtype is not None:
+            h_one = h_one.astype(self.dtype)
+            h_two = h_two.astype(self.dtype)
 
         # Process all but last layer - both streams updated
         for hidden_dim_single, hidden_dim_double in layers[:-1]:
@@ -50,16 +58,17 @@ class FermiLayers(nn.Module):
 
     def _update_single_stream(self, h_one, h_two, hidden_dim):
         h_in = self.aggregate_features(h_one, h_two)
-        h_one_new = nn.tanh(nn.Dense(hidden_dim)(h_in))
+        h_one_new = nn.tanh(nn.Dense(hidden_dim, dtype=self.dtype)(h_in))
         return self.residual(h_one, h_one_new)
 
     def _update_double_stream(self, h_two, hidden_dim):
-        h_two_new = nn.tanh(nn.Dense(hidden_dim)(h_two))
+        h_two_new = nn.tanh(nn.Dense(hidden_dim, dtype=self.dtype)(h_two))
         return self.residual(h_two, h_two_new)
 
     def residual(self, x, y):
         if x.shape == y.shape:
-            return (x + y) / jnp.sqrt(2)
+            summed = x + y
+            return summed / jnp.sqrt(jnp.asarray(2.0, dtype=summed.real.dtype))
         return y
 
     def aggregate_features(self, h_one: jnp.ndarray, h_two: jnp.ndarray):

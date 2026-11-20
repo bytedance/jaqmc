@@ -45,6 +45,25 @@ option, or setting it to `null`, uses `icosahedron_12`.
 
 **PBC support.** When lattice vectors are provided, electron-atom distances use minimum-image convention, and displaced electrons are wrapped back into the cell with the appropriate Bloch phase (twist angle).
 
+(ecp-nonlocal-precision)=
+### Nonlocal precision and tiered pair schedules
+
+Each nonlocal channel evaluates the wavefunction at every quadrature point for every considered $(e, \text{core})$ pair. When the active wavefunction supports reduced-precision modes (see <project:../mixed-precision.md>), `estimators.energy.ecp.wavefunction_precision` can accelerate these evaluations in two ways:
+
+- **Single mode**: A mode string such as `fp16_mixed` evaluates all nonlocal quadrature points in that mode (`null` inherits `wf.precision`).
+- **Rank-fraction tier mapping**: A mapping of `{mode: [low, high]}` with $0 \le \text{low} < \text{high} \le 1$ sorts the $N_{\text{elec}} \times \text{max\_core}$ electron-core pairs in descending order of nonlocal radial magnitude $\max_{l \ge 0} |V_l(r)|$ (from strongest at `0.0` to weakest at `1.0`) and assigns each non-overlapping rank-fraction slice to the specified mode. The key `default` inherits `wf.precision`:
+
+  ```yaml
+  estimators:
+    energy:
+      ecp:
+        wavefunction_precision:
+          default: [0.0, 0.5]
+          fp16_mixed: [0.5, 1.0]
+  ```
+
+  This evaluates the strongest 50% (`[0.0, 0.5]`) of electron-core pairs at the wavefunction's default precision and the weakest 50% (`[0.5, 1.0]`) in `fp16_mixed`. To evaluate all considered pairs without extra truncation beyond `max_core`, the configured intervals must cover `[0.0, 1.0]`: any pair outside all `[low, high]` intervals is skipped. When running `evaluate` in standard precision with a shared YAML file that defines a tier mapping, pass `estimators.energy.ecp.wavefunction_precision=null` to reset it (see [Verify final observables in standard precision](#mixed-precision-evaluation-and-resuming)).
+
 ## See also
 
 - The ECP estimator is automatically added when `system.pp` selects an ECP for

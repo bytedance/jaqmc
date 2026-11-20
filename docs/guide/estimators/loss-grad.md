@@ -20,7 +20,9 @@ $$
 
 where $\langle \cdot \rangle$ is the Monte Carlo average over walkers. Each walker contributes its log-wavefunction gradient $\nabla_\theta \log\psi_\theta$, weighted by how far its local energy deviates from the mean. For real wavefunctions this reduces to $2 \langle (E_L - \langle E_L \rangle) \nabla_\theta \log|\psi_\theta| \rangle$.
 
-The $\langle E_L \rangle$ baseline arises from differentiating the ratio $\langle \psi|H|\psi \rangle / \langle \psi|\psi \rangle$ (quotient rule) — it accounts for the fact that neural network wavefunctions are not normalized. It also reduces the variance of the gradient estimate, since walkers near the mean energy contribute little.
+The $\langle E_L \rangle$ baseline arises from differentiating the ratio $\langle \psi|H|\psi \rangle / \langle \psi|\psi \rangle$ (quotient rule), which accounts for the fact that neural network wavefunctions are not normalized. It also reduces the variance of the gradient estimate, since walkers near the mean energy contribute little.
+
+By default, `LossAndGrad` evaluates $\log\psi$ and $\nabla_\theta \log\psi$ at the wavefunction's default precision (`wf.precision`). Set `train.grads.wavefunction_precision` (default `null`) to override the mode for gradient evaluation (see <project:../mixed-precision.md>).
 
 ## Outlier clipping
 

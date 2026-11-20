@@ -15,28 +15,15 @@
 from typing import Any
 
 import jax
-import jax.numpy as jnp
 from jax.extend.core import Primitive
 
-from ..guards import is_sparse_laptuple
-from ..types import ArrayOrLapTuple, LaplacianHandler, LapTuple
+from ..types import ArrayOrLapTuple, LaplacianHandler
 
 
 def handle_convert_element_type(
     args: tuple[ArrayOrLapTuple, ...],
     kwargs: dict[str, Any],
 ) -> ArrayOrLapTuple:
-    x = args[0]
-    if is_sparse_laptuple(x):
-        new_dtype = kwargs["new_dtype"]
-        if jax.dtypes.issubdtype(new_dtype, jnp.floating) or jax.dtypes.issubdtype(
-            new_dtype, jnp.complexfloating
-        ):
-            return LapTuple(
-                x.x.astype(new_dtype),
-                x.jacobian.astype(new_dtype),
-                x.laplacian.astype(new_dtype),
-            )
     return args[0].astype(kwargs["new_dtype"])
 
 

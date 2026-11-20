@@ -5,6 +5,7 @@
 
 from abc import ABC, abstractmethod
 
+from flax import linen as nn
 from jax import numpy as jnp
 
 from jaqmc.app.hall.data import HallData
@@ -42,14 +43,28 @@ class HallWavefunction(Wavefunction[HallData, ComplexWFOutput], ABC):
     def _logpsi_from_spinor(self, u: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
         """Evaluate log psi from a monopole spinor."""
 
+    @nn.nowrap
     def logpsi_from_spinor(
         self,
         params: Params,
         u: jnp.ndarray,
         v: jnp.ndarray,
+        *,
+        precision: str | None = None,
     ) -> jnp.ndarray:
-        """Return log psi from a local monopole spinor."""
+        """Return log psi from a local monopole spinor.
+
+        Raises:
+            ValueError: If an explicit precision mode is requested.
+        """
+        if precision is not None:
+            raise ValueError(
+                f"{type(self).__name__} does not support precision mode {precision!r}."
+            )
         return self.apply(params, u, v, method=self._logpsi_from_spinor)  # type: ignore
 
-    def logpsi(self, params: Params, data: HallData) -> jnp.ndarray:
-        return self.evaluate(params, data)["logpsi"]
+    @nn.nowrap
+    def logpsi(
+        self, params: Params, data: HallData, *, precision: str | None = None
+    ) -> jnp.ndarray:
+        return self.evaluate(params, data, precision=precision)["logpsi"]

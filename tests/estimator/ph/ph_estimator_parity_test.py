@@ -26,7 +26,7 @@ zero-order channel near the nucleus, init-time validation, and
 backend-uniform NaN propagation under non-PD ``M``.
 """
 
-from typing import Literal
+from typing import Any, Literal
 
 import jax
 import numpy as np
@@ -41,8 +41,10 @@ from jaqmc.utils.atomic.elements import from_symbol
 
 
 def _gaussian_logpsi(scale: float):
-    def logpsi(params, data):
-        del params
+    def logpsi(
+        params: Any, data: MoleculeData, *, precision: str | None = None
+    ) -> jnp.ndarray:
+        del params, precision
         return -scale * jnp.sum(data.electrons**2)
 
     return logpsi
@@ -341,8 +343,10 @@ def test_ph_pbc_minimum_image_and_complex_wavefunction_parity():
     lattice = jnp.diag(jnp.array([10.0, 10.0, 10.0]))
     k_vec = jnp.array([0.2, -0.15, 0.3])
 
-    def complex_logpsi(params, data):
-        del params
+    def complex_logpsi(
+        params: Any, data: MoleculeData, *, precision: str | None = None
+    ) -> jnp.ndarray:
+        del params, precision
         # Periodic-invariant around the minimum image at the origin, with a
         # non-trivial complex phase so grad(logpsi) has both real and imaginary
         # components.

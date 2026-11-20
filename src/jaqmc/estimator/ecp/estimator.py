@@ -11,6 +11,8 @@ in the PySCF channel convention.
    and implementation notes.
 """
 
+import itertools
+import operator
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Self
@@ -28,6 +30,46 @@ from jaqmc.wavefunction.base import WavefunctionEvaluate
 
 from .nonlocal_integral import make_nonlocal_integral
 from .quadrature import ECPQuadrature, get_quadrature
+
+
+def _parse_precision_tiers(
+    spec: str | dict[str, tuple[float, float]] | None,
+) -> tuple[tuple[str | None, float, float], ...] | None:
+    """Validate and sort percentile-range precision tiers when a mapping is supplied.
+
+    Returns:
+        Sorted ``(mode, low, high)`` tuples, or ``None`` when ``spec`` is not a
+        mapping.
+
+    Raises:
+        ValueError: If ``spec`` is empty, has invalid bounds, or contains
+            overlapping intervals.
+    """
+    if not isinstance(spec, Mapping):
+        return None
+    if not spec:
+        raise ValueError("ECPEnergy.wavefunction_precision mapping must not be empty.")
+    tiers = sorted(
+        (
+            (None if mode == "default" else mode, float(low), float(high))
+            for mode, (low, high) in spec.items()
+        ),
+        key=operator.itemgetter(1, 2),
+    )
+    for mode, low, high in tiers:
+        if not (0.0 <= low < high <= 1.0):
+            raise ValueError(
+                f"Range for mode {mode!r} must satisfy 0.0 <= low < high <= 1.0, "
+                f"got ({low}, {high})."
+            )
+    for prev, curr in itertools.pairwise(tiers):
+        if curr[1] < prev[2] - 1e-12:
+            raise ValueError(
+                "Overlapping wavefunction_precision ranges: "
+                f"{prev[0]!r} [{prev[1]}, {prev[2]}] and "
+                f"{curr[0]!r} [{curr[1]}, {curr[2]}]."
+            )
+    return tuple(tiers)
 
 
 @configurable_dataclass
@@ -49,6 +91,14 @@ class ECPEnergy(PerWalkerEstimator):
        decomposition and quadrature details.
 
     Args:
+        wavefunction_precision: Wavefunction-defined precision mode passed to
+            wavefunction evaluation. ``None`` inherits the wavefunction default. A
+            string applies that precision mode to all nonlocal evaluations. A
+            mapping of ``{mode: (low, high)}`` with ``0 <= low < high <= 1``
+            partitions the :math:`N_{\text{elec}} \times \text{max\_core}`
+            electron-core pairs sorted by descending nonlocal radial magnitude
+            :math:`\max_l |V_l(r)|` into percentile ranges (``"default"`` inherits
+            the wavefunction default); pairs outside all ranges are skipped.
         max_core: Maximum number of nearest ECP atoms to consider per
             electron when evaluating nonlocal integrals. Only the
             closest ``max_core`` ECP atoms contribute per electron;
@@ -66,7 +116,8 @@ class ECPEnergy(PerWalkerEstimator):
         twist: Twist angle for PBC (runtime dep, optional).
 
     Raises:
-        ValueError: If no atoms have ECP coefficients.
+        ValueError: If no atoms have ECP coefficients or ``wavefunction_precision``
+            ranges are invalid.
     """
 
     max_core: int = 2
@@ -74,11 +125,15 @@ class ECPEnergy(PerWalkerEstimator):
     electrons_field: str = "electrons"
     atoms_field: str = "atoms"
 
+    wavefunction_precision: str | dict[str, tuple[float, float]] | None = None
     phase_logpsi: WavefunctionEvaluate = runtime_dep()
     ecp_coefficients: dict[str, Any] = runtime_dep()
     atom_symbols: list[str] = runtime_dep()
     lattice: jnp.ndarray | None = runtime_dep(default=None)
     twist: jnp.ndarray | None = runtime_dep(default=None)
+
+    def __post_init__(self) -> None:
+        self._precision_tiers = _parse_precision_tiers(self.wavefunction_precision)
 
     def init(self, data: Data, rngs: PRNGKey) -> None:
         """Compute derived state from config + runtime deps.
@@ -145,14 +200,41 @@ class ECPEnergy(PerWalkerEstimator):
         )
 
         atom_positions = electrons[:, None, :] - r_ea_vectors
+        nonlocal_radial = radial_values[..., 1:]
 
-        integrals = self._nonlocal_integral(
-            lambda x: self.phase_logpsi(params, data.merge({self.electrons_field: x})),
-            electrons,
-            atom_positions,
-            rngs,
-        )
-        nonlocal_energy = jnp.sum(integrals * radial_values[..., 1:])
+        def phase_wf(mode: str | None):
+            return lambda x: self.phase_logpsi(
+                params, data.merge({self.electrons_field: x}), precision=mode
+            )
+
+        if self._precision_tiers is None:
+            assert not isinstance(self.wavefunction_precision, Mapping)
+            integrals = self._nonlocal_integral(
+                phase_wf(self.wavefunction_precision),
+                electrons,
+                atom_positions,
+                rngs,
+            )
+            nonlocal_energy = jnp.sum(integrals * nonlocal_radial)
+        else:
+            flat_v_nl = nonlocal_radial.reshape(-1, nonlocal_radial.shape[-1])
+            sorted_pairs = jnp.argsort(
+                -jnp.max(jnp.abs(flat_v_nl), axis=-1), stable=True
+            )
+            n_pairs = sorted_pairs.size
+            nonlocal_energy = jnp.zeros((), dtype=electrons.dtype)
+            for mode, low, high in self._precision_tiers:
+                pair_idx = sorted_pairs[round(low * n_pairs) : round(high * n_pairs)]
+                integrals = self._nonlocal_integral(
+                    phase_wf(mode),
+                    electrons,
+                    atom_positions,
+                    rngs,
+                    pair_indices=pair_idx,
+                )
+                nonlocal_energy = nonlocal_energy + jnp.sum(
+                    integrals * flat_v_nl[pair_idx]
+                )
 
         return {"energy:ecp": local_energy + nonlocal_energy}, state
 

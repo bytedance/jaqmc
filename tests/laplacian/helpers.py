@@ -111,7 +111,9 @@ def brute_force_oracle(
         )
     else:
         hessian = jax.hessian(flat_fn)(flat_primals)
-    flat_input_jacobian = jnp.concatenate(flat_jacobian_blocks, axis=0)
+    flat_input_jacobian = jnp.concatenate(flat_jacobian_blocks, axis=0).astype(
+        hessian.dtype
+    )
 
     flat_hessian_laplacian = jnp.einsum(
         "oij,ik,jk->o",

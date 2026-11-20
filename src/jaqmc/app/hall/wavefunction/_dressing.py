@@ -11,6 +11,7 @@ from typing import Literal
 
 from flax import linen as nn
 from jax import numpy as jnp
+from jax.typing import DTypeLike
 
 from jaqmc.utils.config import configurable_dataclass
 
@@ -66,6 +67,7 @@ class Dressing(nn.Module):
 
     config: DressingConfig
     ndets: int
+    dtype: DTypeLike | None = None
 
     @nn.compact
     def __call__(
@@ -100,13 +102,17 @@ class Dressing(nn.Module):
 
     def _readout(self, h_one: jnp.ndarray, shape: tuple[int, ...]) -> jnp.ndarray:
         """Return a zero-initialized complex readout with shape ``(nelec, *shape)``."""
+        h_in = h_one if self.dtype is None else h_one.astype(self.dtype)
         out = nn.DenseGeneral(
             features=(*shape, 2),
+            dtype=self.dtype,
             kernel_init=nn.initializers.lecun_normal()
             if self.config.random_init
             else nn.initializers.zeros,
             bias_init=nn.initializers.zeros,
-        )(h_one)
+        )(h_in)
+        if self.dtype is not None:
+            out = out.astype(jnp.result_type(self.dtype, jnp.float32))
         return out[..., 0] + 1j * out[..., 1]
 
     def _full(

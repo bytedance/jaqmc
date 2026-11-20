@@ -292,10 +292,10 @@ energy estimates, always run an evaluation, because training energies are
 biased while the parameters are still changing.
 :::
 
-:::{admonition} Multi-GPU training
+:::{admonition} Multi-GPU and mixed-precision training
 :class: tip
 
-Solid simulations benefit significantly from multi-GPU parallelism. See <project:/guide/multi-device.md> for setup instructions.
+Solid simulations benefit significantly from multi-GPU parallelism and reduced-precision evaluation. See <project:/guide/multi-device.md> and <project:/guide/mixed-precision.md>.
 :::
 
 ## Where To Go Next

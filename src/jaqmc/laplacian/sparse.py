@@ -38,6 +38,7 @@ Specifically, the sparse layout stores the following information:
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
+from functools import partial
 from typing import ClassVar, Self
 
 import jax
@@ -134,6 +135,9 @@ class OwnerRole:
             return NotImplemented
         return self.axis == other.axis and np.array_equal(self.values, other.values)
 
+    def __hash__(self) -> int:
+        return hash((self.axis, self.values.tobytes()))
+
 
 def canonical_axis(axis: int, ndim: int) -> int:
     """Normalize *axis* to ``[0, ndim)``.
@@ -220,6 +224,9 @@ class OwnerRoles:
         if len(self.roles) != len(other.roles):
             return False
         return all(lhs == rhs for lhs, rhs in zip(self.roles, other.roles, strict=True))
+
+    def __hash__(self) -> int:
+        return hash(self.roles)
 
     def map(self, fn: Callable[[OwnerRole], OwnerRole | None]) -> Self | None:
         """Apply ``fn`` to each slot, aborting when any slot becomes unsupported.
@@ -415,6 +422,11 @@ class _SparseJacobianBase:
         )
 
 
+@partial(
+    jax.tree_util.register_dataclass,
+    data_fields=["blocks"],
+    meta_fields=["owners", "input_shape", "input_owner_axis"],
+)
 @dataclass(frozen=True, init=False)
 class Local1Jacobian(_SparseJacobianBase):
     """Sparse Jacobian for outputs that depend on one input owner.
@@ -450,6 +462,11 @@ class Local1Jacobian(_SparseJacobianBase):
         return self._owner_rows_to_dense_basis(owner_rows)
 
 
+@partial(
+    jax.tree_util.register_dataclass,
+    data_fields=["blocks"],
+    meta_fields=["owners", "input_shape", "input_owner_axis"],
+)
 @dataclass(frozen=True, init=False)
 class Local2Jacobian(_SparseJacobianBase):
     """Sparse Jacobian for outputs that depend on two input owners.

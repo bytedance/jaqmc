@@ -3,6 +3,7 @@
 
 from .base import (
     NumericWavefunctionEvaluate,
+    SpinorWavefunctionEvaluate,
     Wavefunction,
     WavefunctionEvaluate,
     WavefunctionInit,
@@ -11,6 +12,7 @@ from .base import (
 
 __all__ = [
     "NumericWavefunctionEvaluate",
+    "SpinorWavefunctionEvaluate",
     "Wavefunction",
     "WavefunctionEvaluate",
     "WavefunctionInit",
