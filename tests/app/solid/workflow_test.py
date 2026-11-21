@@ -2,24 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from types import SimpleNamespace
-from typing import Any, cast
 
 import numpy as np
 import pytest
 
-from jaqmc.app.solid.workflow import SolidEvalWorkflow
-from jaqmc.workflow import EvaluationWorkflow
+from jaqmc.app.solid.workflow import SolidEvalWorkflow, SolidTrainWorkflow
 
 
-def test_solid_eval_restore_reference_precedes_source_reference(tmp_path, monkeypatch):
-    restore_dir = tmp_path / "restore"
-    source_dir = tmp_path / "source"
-    restore_dir.mkdir()
-    source_dir.mkdir()
-    restore_path = restore_dir / "reference.npz"
-    source_path = source_dir / "reference.npz"
-    restore_path.touch()
-    source_path.touch()
+def _build_eval_with_fake_reference(tmp_path, monkeypatch, restore_dir, source_dir):
     reference = SimpleNamespace(
         get_orbital_kpoints=lambda: np.asarray([[0.25, 0.0, 0.0]]),
         get_kpoint_occupancies=lambda: [(np.asarray([0.25, 0.0, 0.0]), 1, 0)],
@@ -30,28 +20,39 @@ def test_solid_eval_restore_reference_precedes_source_reference(tmp_path, monkey
         loaded_paths.append(path)
         return reference
 
-    monkeypatch.setattr(EvaluationWorkflow, "prepare", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        "jaqmc.app.solid.workflow.load_reference",
-        load_reference,
-    )
+    monkeypatch.setattr("jaqmc.app.solid.workflow.load_reference", load_reference)
     monkeypatch.setattr(
         "jaqmc.app.solid.workflow.auto_generate_reference",
         lambda **_: pytest.fail("an existing reference should be reused"),
     )
-    workflow = cast(Any, SolidEvalWorkflow.__new__(SolidEvalWorkflow))
-    workflow.reference = None
-    workflow.save_path = tmp_path / "evaluation"
-    workflow.restore_dir = restore_dir
-    workflow.source_dir = source_dir
-    workflow._system_config = object()
-    workflow.wf = SimpleNamespace()
-
-    SolidEvalWorkflow.prepare(workflow)
-
-    assert loaded_paths == [restore_path]
-    assert workflow.reference is reference
+    workflow = SolidEvalWorkflow.from_config(
+        {
+            "workflow": {
+                "save_path": str(tmp_path / "evaluation"),
+                "restore_path": str(restore_dir),
+                "source_path": str(source_dir),
+            },
+            "wf": {"hidden_dims_single": [2], "hidden_dims_double": [2]},
+        }
+    )
+    workflow.build_runtime()
     np.testing.assert_allclose(workflow.wf.klist, [[0.25, 0.0, 0.0]])
+    return loaded_paths
+
+
+def test_solid_eval_restore_reference_precedes_source_reference(tmp_path, monkeypatch):
+    restore_dir = tmp_path / "restore"
+    source_dir = tmp_path / "source"
+    restore_dir.mkdir()
+    source_dir.mkdir()
+    (restore_dir / "reference.npz").touch()
+    (source_dir / "reference.npz").touch()
+
+    loaded_paths = _build_eval_with_fake_reference(
+        tmp_path, monkeypatch, restore_dir, source_dir
+    )
+
+    assert loaded_paths == [restore_dir / "reference.npz"]
 
 
 def test_solid_eval_reuses_source_reference_when_restore_is_missing(
@@ -61,37 +62,29 @@ def test_solid_eval_reuses_source_reference_when_restore_is_missing(
     source_dir = tmp_path / "source"
     restore_dir.mkdir()
     source_dir.mkdir()
-    source_path = source_dir / "reference.npz"
-    source_path.touch()
-    reference = SimpleNamespace(
-        get_orbital_kpoints=lambda: np.asarray([[0.25, 0.0, 0.0]]),
-        get_kpoint_occupancies=lambda: [(np.asarray([0.25, 0.0, 0.0]), 1, 0)],
+    (source_dir / "reference.npz").touch()
+
+    loaded_paths = _build_eval_with_fake_reference(
+        tmp_path, monkeypatch, restore_dir, source_dir
     )
-    loaded_paths = []
 
-    def load_reference(path, _system):
-        loaded_paths.append(path)
-        return reference
+    assert loaded_paths == [source_dir / "reference.npz"]
 
-    monkeypatch.setattr(EvaluationWorkflow, "prepare", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        "jaqmc.app.solid.workflow.load_reference",
-        load_reference,
+
+def test_solid_workflow_enables_ecp_estimator_only_when_system_has_ecp():
+    all_electron = SolidTrainWorkflow.from_config(
+        {"system": {"module": "rock_salt", "symbol_a": "Li", "symbol_b": "H"}}
     )
-    monkeypatch.setattr(
-        "jaqmc.app.solid.workflow.auto_generate_reference",
-        lambda **_: pytest.fail("the source reference should be reused"),
+    ecp = SolidTrainWorkflow.from_config(
+        {
+            "system": {
+                "module": "rock_salt",
+                "symbol_a": "Li",
+                "symbol_b": "H",
+                "pp": {"Li": "ccecp"},
+            }
+        }
     )
-    workflow = cast(Any, SolidEvalWorkflow.__new__(SolidEvalWorkflow))
-    workflow.reference = None
-    workflow.save_path = tmp_path / "evaluation"
-    workflow.restore_dir = restore_dir
-    workflow.source_dir = source_dir
-    workflow._system_config = object()
-    workflow.wf = SimpleNamespace()
 
-    SolidEvalWorkflow.prepare(workflow)
-
-    assert loaded_paths == [source_path]
-    assert workflow.reference is reference
-    np.testing.assert_allclose(workflow.wf.klist, [[0.25, 0.0, 0.0]])
+    assert list(all_electron.estimators) == ["potential", "kinetic", "total"]
+    assert list(ecp.estimators) == ["potential", "kinetic", "ecp", "total"]

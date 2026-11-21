@@ -1,20 +1,28 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+"""Workflow configuration roots and common runtime lifecycle."""
+
 import datetime
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import field
 from pathlib import Path
 from typing import Any, ClassVar, Self
 
 import jax
+from pydantic import Field
 from upath import UPath
 
 from jaqmc.array_types import PRNGKey
 from jaqmc.data import BatchedData, Data
 from jaqmc.utils import parallel_jax
-from jaqmc.utils.config import ConfigManager, configurable_dataclass
+from jaqmc.utils.config import (
+    config_to_yaml,
+    configurable_dataclass,
+    parse_config,
+)
+from jaqmc.utils.runtime import DistributedConfig, JaxConfig, LoggingConfig
 from jaqmc.utils.signal_handler import GracefulKiller
 
 from .stage.base import RunContext
@@ -25,23 +33,8 @@ logger = logging.LoggerAdapter(
 
 
 @configurable_dataclass
-class ConfigCheck:
-    """Controls config validation behavior.
-
-    Args:
-        ignore_extra: If True, silently ignore unrecognized config keys.
-            If False, raise an error on extra keys.
-        verbose: If True, print the fully resolved config with field
-            descriptions at startup.
-    """
-
-    ignore_extra: bool = False
-    verbose: bool = False
-
-
-@configurable_dataclass
 class WorkflowConfig:
-    """Base configuration for workflows.
+    """Configuration shared by all workflows.
 
     Args:
         seed: Fixed random seed. If not provided, current time will be used.
@@ -52,98 +45,144 @@ class WorkflowConfig:
         restore_path: Path to restore checkpoints from. If ``None``,
             ``save_path`` is used. Can be a directory or a specific checkpoint
             file.
-        config: Controls config validation behavior (extra-key warnings,
-            verbose output).
     """
 
     seed: int | None = None
     batch_size: int = 4096
-    save_path: str = ""
+    save_path: str | None = None
     restore_path: str | None = None
-    config: ConfigCheck = field(default_factory=ConfigCheck)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.save_path:
             date_string = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             dirname = f"jaqmc_{date_string}"
             project_root = _cwd_in_project_root()
-            if project_root:
-                self.save_path = str(project_root / "runs" / dirname)
-            else:
-                self.save_path = str(Path("runs") / dirname)
+            self.save_path = str(
+                (project_root / "runs" / dirname)
+                if project_root
+                else Path("runs") / dirname
+            )
 
 
+@configurable_dataclass
 class Workflow:
-    """Base class for all workflows.
+    """Base class for configuration-driven workflows."""
 
-    Subclasses must override :meth:`run`.
-    """
-
-    cfg: ConfigManager
-
-    config_class: ClassVar[type[WorkflowConfig]] = WorkflowConfig
-    # Train and evaluation can write their resolved configs into the same
-    # save_path. Without a workflow-specific prefix they would both write
-    # config.yaml and overwrite each other.
-    config_namespace: ClassVar[str | None] = None
-    config: WorkflowConfig
-    save_path: UPath
-    restore_path: UPath
-    signal_handler: GracefulKiller
+    workflow_name: ClassVar[str | None] = None
+    config: WorkflowConfig = Field(default_factory=WorkflowConfig, alias="workflow")
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
+    jax: JaxConfig = field(default_factory=JaxConfig)
+    distributed: DistributedConfig = field(default_factory=DistributedConfig)
 
     @classmethod
-    def default_preset(cls) -> dict[str, Any]:
-        """Return workflow-specific default config values.
+    def from_config(
+        cls,
+        configs: Mapping[str, Any] | Sequence[Mapping[str, Any]],
+        dotlist: Sequence[str] = (),
+    ) -> Self:
+        """Create a workflow from layered configuration mappings.
 
-        These presets are merged before user YAML and CLI overrides, so they act
-        as documented workflow defaults rather than hard-coded overrides.
+        Returns:
+            An instance of the concrete workflow class.
         """
-        return {}
+        return parse_config(cls, configs, dotlist)
 
-    def __init__(self, cfg: ConfigManager):
-        cfg.use_preset(type(self).default_preset())
-        self.cfg = cfg
-        self.config = cfg.get("workflow", self.config_class)
-        self.save_path = UPath(self.config.save_path).resolve()
-        self.restore_path = (
-            UPath(self.config.restore_path).resolve()
-            if self.config.restore_path is not None
-            else self.save_path
-        )
-        self.restore_dir = (
-            self.restore_path.parent
-            if self.restore_path.is_file()
-            else self.restore_path
-        )
-        self.signal_handler = GracefulKiller()
-        self.run_context = RunContext(
-            save_path=self.save_path,
-            restore_path=self.restore_path,
-            signal_handler=self.signal_handler,
-        )
+    def to_yaml(self) -> str:
+        """Serialize the public workflow configuration.
 
-    def run(self) -> None:
-        """Execute the workflow.
-
-        Subclasses must override this method.
+        Returns:
+            Canonical YAML for this workflow.
         """
-        raise NotImplementedError
+        return config_to_yaml(self)
+
+    def initialize_runtime(self, dry_run: bool = False) -> None:
+        """Apply process-wide runtime settings.
+
+        Applies logging, then JAX global flags, then distributed runtime
+        initialization. Distributed initialization is skipped when ``dry_run``
+        is true.
+
+        Args:
+            dry_run: If true, apply logging and JAX flags but skip distributed
+                runtime initialization.
+        """
+        self.logging.apply()
+        self.jax.apply()
+        if not dry_run:
+            self.distributed.init_runtime()
+
+    @property
+    def save_path(self) -> UPath:
+        """Return the canonical directory for checkpoints and logs.
+
+        Returns:
+            The absolute save directory.
+
+        Raises:
+            RuntimeError: Configuration initialization left ``save_path`` empty.
+        """
+        save_path = self.config.save_path
+        if not save_path:
+            raise RuntimeError("Workflow save_path is unset after initialization")
+        return UPath(save_path).resolve()
+
+    @property
+    def restore_path(self) -> UPath:
+        """Return the canonical restore location, defaulting to the save path.
+
+        Both paths are resolved because :meth:`_validate_paths` compares them,
+        and a relative path would never compare equal to its absolute form.
+
+        Returns:
+            The absolute restore directory or checkpoint file.
+        """
+        if not self.config.restore_path:
+            return self.save_path
+        return UPath(self.config.restore_path).resolve()
+
+    @property
+    def restore_dir(self) -> UPath:
+        """Return the directory containing restore artifacts."""
+        restore_path = self.restore_path
+        return restore_path.parent if restore_path.is_file() else restore_path
+
+    def _make_run_context(self) -> RunContext:
+        save_path = self.save_path
+        restore_path = self.restore_path
+        return RunContext(
+            save_path=save_path,
+            restore_path=restore_path,
+            signal_handler=GracefulKiller(),
+        )
 
     def __call__(self, dry_run: bool = False) -> Self:
         self.prepare(dry_run=dry_run)
         if not dry_run:
+            self.build_runtime()
             self.run()
         return self
 
+    def build_runtime(self) -> None:
+        """Construct transient runtime dependencies from the parsed workflow."""
+        raise NotImplementedError
+
+    def run(self) -> None:
+        """Execute the workflow."""
+        raise NotImplementedError
+
     def config_path(self) -> UPath:
-        """Return the path for the resolved workflow config snapshot."""
-        filename = "config.yaml"
-        if self.config_namespace:
-            filename = f"{self.config_namespace}_config.yaml"
+        """Return the resolved configuration snapshot path.
+
+        Returns:
+            Path of the YAML snapshot for this workflow.
+        """
+        filename = (
+            f"{self.workflow_name}_config.yaml" if self.workflow_name else "config.yaml"
+        )
         return self.save_path / filename
 
     def config_backup_path(self) -> UPath:
-        """Return an unused backup path for the current config snapshot."""
+        """Return an unused backup path for the current snapshot."""
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         config_stem = self.config_path().stem
         history_dir = self.save_path / "config_history"
@@ -156,39 +195,29 @@ class Workflow:
         return backup_path
 
     def prepare(self, dry_run: bool = False) -> None:
-        """Finalize config and log startup info.
+        """Log and optionally snapshot the resolved configuration.
 
-        On the master process, validates unused config keys and writes
-        the resolved config to disk unless this is a dry run.
+        Writes the YAML snapshot under ``save_path`` unless ``dry_run`` is true.
         """
-        # Only write config and compare on the master process
         if jax.process_index() == 0:
             self._validate_paths()
             config_path = self.config_path()
             previous_yaml = config_path.read_text() if config_path.exists() else None
-            self.cfg.finalize(
-                raise_on_unused=not self.config.config.ignore_extra,
-                verbose=self.config.config.verbose,
-                compare_yaml=previous_yaml,
-            )
+            current_yaml = self.to_yaml()
+            logger.info("Resolved configurations:\n%s", current_yaml)
             if not dry_run:
-                current_yaml = self.cfg.to_yaml()
                 config_path.parent.mkdir(parents=True, exist_ok=True)
                 if previous_yaml is not None and previous_yaml != current_yaml:
-                    # A rerun may update this workflow's resolved config in
-                    # place. Move the old snapshot into config_history first so
-                    # the previous YAML is still recoverable after overwrite.
                     backup_path = self.config_backup_path()
                     backup_path.parent.mkdir(parents=True, exist_ok=True)
                     config_path.rename(backup_path)
                 config_path.write_text(current_yaml)
-        if dry_run:
-            return
-        logger.info(
-            "Starting QMC with %i local XLA devices across %i processes.",
-            jax.local_device_count(),
-            jax.process_count(),
-        )
+        if not dry_run:
+            logger.info(
+                "Starting QMC with %i local XLA devices across %i processes.",
+                jax.local_device_count(),
+                jax.process_count(),
+            )
 
     def _validate_paths(self) -> None:
         """Reject a restore path that does not exist or an unusable ``save_path``.
@@ -209,7 +238,7 @@ class Workflow:
         if save_path.exists() and not save_path.is_dir():
             raise ValueError(f"Save path is not a directory: {save_path}")
 
-        restore_dir = restore_path.parent if restore_path.is_file() else restore_path
+        restore_dir = self.restore_dir
         if save_path != restore_dir and save_path.exists() and any(save_path.iterdir()):
             raise ValueError(
                 f"Save path is not empty during cross-directory resume: {save_path}"
@@ -223,21 +252,13 @@ def init_batched_data(
     *,
     data_field: str = "electrons",
 ) -> BatchedData:
-    """Create sharded and local batched data from a data initializer.
-
-    Args:
-        data_init: Function that creates initial data given a local
-            batch size and a per-process random key.
-        batch_size: Global batch size across all processes.
-        rngs: Random key (will be folded per process).
-        data_field: Name of the batched data field. Used when
-            ``data_init`` returns a plain :class:`~jaqmc.data.Data` instance.
+    """Create process-sharded batched data from an initializer.
 
     Returns:
-        Sharded BatchedData instance.
+        The sharded batched data.
 
     Raises:
-        ValueError: If batch size is not divisible by number of processes.
+        ValueError: If the batch size is not process divisible.
     """
     rngs = jax.random.fold_in(rngs, jax.process_index())
     if batch_size % jax.process_count() != 0:
@@ -249,26 +270,23 @@ def init_batched_data(
     raw = data_init(local_batch, rngs)
     local_data = raw if isinstance(raw, BatchedData) else BatchedData(raw, [data_field])
     local_data.check()
-    sharded = jax.tree.map(
+    return jax.tree.map(
         jax.make_array_from_process_local_data,
         parallel_jax.make_sharding(local_data.partition_spec),
         local_data,
     )
-    return sharded
 
 
 def _cwd_in_project_root() -> Path | None:
-    """Returns the project root by searching for pyproject.toml from CWD upwards."""
-    path = Path.cwd()
-    # Check current directory and its parents
-    for p in [path, *path.parents]:
-        pyproject = p / "pyproject.toml"
-        if pyproject.is_file():
-            try:
-                # Check if it is the jaqmc project
-                content = pyproject.read_text(encoding="utf-8")
-                if 'name = "jaqmc"' in content or "name = 'jaqmc'" in content:
-                    return p
-            except OSError:
-                pass
+    """Return the JaQMC project root when running inside the repository."""
+    for candidate in [Path.cwd(), *Path.cwd().parents]:
+        pyproject = candidate / "pyproject.toml"
+        if not pyproject.is_file():
+            continue
+        try:
+            content = pyproject.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if 'name = "jaqmc"' in content or "name = 'jaqmc'" in content:
+            return candidate
     return None

@@ -15,33 +15,29 @@ import pytest
 from ..utils.distributed import find_free_port, redirect_stdout_stderr, setup_envs
 
 
-def init_runtime(cfg):
-    """Set up logging and distributed runtime (mirrors make_cli behavior)."""
-    from jaqmc.utils.runtime import configure_runtime
-
-    configure_runtime(cfg)
+def init_runtime(workflow):
+    """Set up typed workflow runtime settings before execution."""
+    workflow.initialize_runtime()
 
 
 def run_hydrogen_atom(distributed, save_path):
-    from jaqmc.app.hydrogen_atom import hydrogen_atom_train_workflow
-    from jaqmc.utils.config import ConfigManager
+    from jaqmc.app.hydrogen_atom import HydrogenAtomTrainWorkflow
 
-    cfg = ConfigManager(
+    workflow = HydrogenAtomTrainWorkflow.from_config(
         {
             "distributed": distributed,
             "workflow": {"save_path": save_path},
             "train": {"run": {"iterations": 1, "burn_in": 1}},
         }
     )
-    init_runtime(cfg)
-    hydrogen_atom_train_workflow(cfg)()
+    init_runtime(workflow)
+    workflow()
 
 
 def run_molecule(distributed, save_path):
-    from jaqmc.app.molecule.workflow import MoleculeTrainWorkflow
-    from jaqmc.utils.config import ConfigManager
+    from jaqmc.app.molecule import MoleculeTrainWorkflow
 
-    cfg = ConfigManager(
+    workflow = MoleculeTrainWorkflow.from_config(
         {
             "distributed": distributed,
             "system": {"module": "atom", "symbol": "H"},
@@ -54,15 +50,14 @@ def run_molecule(distributed, save_path):
             "train": {"run": {"iterations": 1, "burn_in": 1}},
         }
     )
-    init_runtime(cfg)
-    MoleculeTrainWorkflow(cfg)()
+    init_runtime(workflow)
+    workflow()
 
 
 def run_solid(distributed, save_path):
-    from jaqmc.app.solid.workflow import SolidTrainWorkflow
-    from jaqmc.utils.config import ConfigManager
+    from jaqmc.app.solid import SolidTrainWorkflow
 
-    cfg = ConfigManager(
+    workflow = SolidTrainWorkflow.from_config(
         {
             "distributed": distributed,
             "system": {"module": "two_atom_chain", "vacuum_separation": 10.0},
@@ -75,8 +70,8 @@ def run_solid(distributed, save_path):
             "train": {"run": {"iterations": 1, "burn_in": 1}},
         }
     )
-    init_runtime(cfg)
-    SolidTrainWorkflow(cfg)()
+    init_runtime(workflow)
+    workflow()
 
 
 def worker_fn(run, distributed_config, save_path, queue, env_vars):

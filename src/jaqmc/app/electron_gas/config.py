@@ -31,19 +31,15 @@ class ElectronGasConfig:
             are physically equivalent.
     """
 
-    rs: float
-    nelectrons: int
-    s_z: float
+    rs: float = 1.0
+    nelectrons: int = 2
+    s_z: float = 0.0
     twist: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.rs) or self.rs <= 0:
             raise ValueError(f"rs must be finite and positive. Got {self.rs!r}.")
-        if (
-            not isinstance(self.nelectrons, int)
-            or isinstance(self.nelectrons, bool)
-            or self.nelectrons <= 0
-        ):
+        if self.nelectrons <= 0:
             raise ValueError(
                 f"nelectrons must be a positive integer. Got {self.nelectrons!r}."
             )

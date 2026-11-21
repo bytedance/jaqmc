@@ -68,5 +68,5 @@ def test_moire_config_rejects_bad_shapes():
         MoireConfig(lattice_vectors=[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
     with pytest.raises(ValueError, match="supercell_matrix must have shape"):
         MoireConfig(supercell_matrix=[[1, 0, 0], [0, 1, 0]])
-    with pytest.raises(ValueError, match="supercell_matrix must have integer entries"):
+    with pytest.raises(ValueError, match="valid integer"):
         MoireConfig(supercell_matrix=[[2.5, 0], [0, 2]])  # type: ignore[list-item]

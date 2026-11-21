@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import field
-from typing import Literal
+from typing import Literal, Protocol, runtime_checkable
 
 import jax
 from flax import linen as nn
@@ -12,7 +12,7 @@ from jaqmc.array_types import Params
 from jaqmc.geometry.pbc import DistanceType, SymmetryType
 from jaqmc.laplacian.precision import ContractionMode, jacobian_contraction_scope
 from jaqmc.utils.wiring import runtime_dep
-from jaqmc.wavefunction import Wavefunction
+from jaqmc.wavefunction import Wavefunction, WavefunctionLike
 from jaqmc.wavefunction.backbone.ferminet import FermiLayers
 from jaqmc.wavefunction.input.atomic import SolidFeatures
 from jaqmc.wavefunction.output.envelope import Envelope, EnvelopeType
@@ -21,7 +21,30 @@ from jaqmc.wavefunction.output.orbital import OrbitalProjection
 
 from .data import SolidData
 
-__all__ = ["SolidWavefunction"]
+__all__ = ["SolidWavefunction", "SolidWavefunctionLike"]
+
+
+@runtime_checkable
+class SolidWavefunctionLike(WavefunctionLike, Protocol):
+    """Runtime interface required by periodic workflows."""
+
+    nspins: tuple[int, int]
+    klist: jnp.ndarray
+    simulation_lattice: jnp.ndarray
+    primitive_lattice: jnp.ndarray
+    full_det: bool
+
+    def logpsi(
+        self, params: Params, data: SolidData, *, precision: str | None = None
+    ) -> jnp.ndarray: ...
+
+    def phase_logpsi(
+        self, params: Params, data: SolidData, *, precision: str | None = None
+    ) -> tuple[jnp.ndarray, jnp.ndarray]: ...
+
+    def orbitals(
+        self, params: Params, data: SolidData, *, precision: str | None = None
+    ) -> jnp.ndarray: ...
 
 
 class SolidWavefunction(Wavefunction[SolidData, ComplexLogDetOutput]):

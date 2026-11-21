@@ -12,8 +12,11 @@ from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import BatchedData, Data
 from jaqmc.estimator.base import Estimator
 from jaqmc.utils import parallel_jax
+from jaqmc.utils.config import configurable_dataclass
+from jaqmc.utils.wiring import runtime_dep
 
 
+@configurable_dataclass
 class HistogramEstimator(Estimator):
     r"""Base for estimators that accumulate N-D histograms with Kahan summation.
 
@@ -55,7 +58,7 @@ class HistogramEstimator(Estimator):
         name: Key prefix for the output in the evaluation digest.
     """
 
-    name: str = "density"
+    name: str = runtime_dep(default="density")
 
     def _histogram_spec(
         self,

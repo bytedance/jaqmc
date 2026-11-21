@@ -44,13 +44,25 @@ def _cartesian(electrons):
 
 def _free(nspins, flux):
     wf = Free()
-    wire(wf, nspins=nspins, flux=flux, interaction_strength=1.0)
+    wire(
+        wf,
+        nspins=nspins,
+        flux=flux,
+        interaction_strength=1.0,
+        radius=float(jnp.sqrt(max(flux / 2, 1.0))),
+    )
     return wf
 
 
 def _laughlin(nspins, flux, excitation_lz=0, flux_per_elec=1):
     wf = Laughlin(flux_per_elec=flux_per_elec, excitation_lz=excitation_lz)
-    wire(wf, nspins=nspins, flux=flux, interaction_strength=1.0)
+    wire(
+        wf,
+        nspins=nspins,
+        flux=flux,
+        interaction_strength=1.0,
+        radius=float(jnp.sqrt(flux / 2)),
+    )
     return wf
 
 

@@ -178,7 +178,6 @@ class TestResolveObject:
         module_path = tmp_path / "plugin.py"
         missing_dependency = f"jaqmc_test_missing_{uuid.uuid4().hex}"
         module_path.write_text(f"import {missing_dependency}\n", encoding="utf-8")
-        loaded_modules = {name for name in sys.modules if name.startswith("jaqmc_")}
 
         with pytest.raises(
             ModuleResolutionError,
@@ -189,9 +188,7 @@ class TestResolveObject:
         ):
             resolve_object(f"{module_path}:Factory")
 
-        assert {name for name in sys.modules if name.startswith("jaqmc_")} == (
-            loaded_modules
-        )
+        assert str(module_path.resolve()) not in sys.modules
 
 
 class TestImportModuleOrFile:
@@ -229,6 +226,24 @@ class TestImportModuleOrFile:
         finally:
             # Cleanup
             Path(tmp_path).unlink()
+
+    def test_python_file_loads_once_and_is_named_after_its_path(
+        self, tmp_path, monkeypatch
+    ):
+        """Test every spelling of one file shares a single module object."""
+        module_path = tmp_path / "plugin.py"
+        module_path.write_text("class Factory:\n    pass\n", encoding="utf-8")
+        resolved = str(module_path.resolve())
+
+        try:
+            absolute = import_module_or_file(str(module_path))
+            monkeypatch.chdir(tmp_path)
+            relative = import_module_or_file("plugin.py")
+
+            assert absolute is relative
+            assert absolute.Factory.__module__ == resolved
+        finally:
+            sys.modules.pop(resolved, None)
 
     def test_import_nonexistent_file_raises_error(self):
         """Test importing non-existent .py file raises FileNotFoundError."""

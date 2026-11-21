@@ -1,15 +1,15 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-"""Workflows for the fractional quantum Hall effect on a Haldane sphere."""
+"""Fractional quantum Hall workflows."""
 
-import logging
+from dataclasses import field
 from functools import partial
-from typing import Any
+from typing import Annotated
 
 from jax import numpy as jnp
 
-from jaqmc.estimator import EstimatorLike
+from jaqmc.estimator import EstimatorCollection, WithToggles
 from jaqmc.estimator.angular_momentum import (
     SphericalAngularMomentum,
     SphericalAngularMomentumProjection,
@@ -20,198 +20,208 @@ from jaqmc.estimator.loss_grad import LossAndGrad
 from jaqmc.estimator.total_energy import TotalEnergy
 from jaqmc.geometry.sphere import sphere_proposal
 from jaqmc.optimizer.kfac import KFACOptimizer
+from jaqmc.optimizer.schedule import Standard
+from jaqmc.sampler import SamplerLike
 from jaqmc.sampler.mcmc import MCMCSampler
-from jaqmc.utils.config import ConfigManager, ConfigManagerLike
+from jaqmc.utils.config import ModuleConfig, configurable_dataclass
+from jaqmc.utils.wiring import wire
 from jaqmc.workflow.evaluation import EvaluationWorkflow
 from jaqmc.workflow.stage.evaluation import EvaluationWorkStage
-from jaqmc.workflow.stage.vmc import VMCWorkStage
-from jaqmc.workflow.vmc import VMCWorkflow
+from jaqmc.workflow.stage.vmc import VMCWorkStage, VMCWorkStageConfig
+from jaqmc.workflow.vmc import VMCTrainConfig, VMCWorkflow, stage_writers
 
 from .config import HallConfig
 from .data import data_init
 from .estimator import OneRDM, PairCorrelation, PenalizedLoss
 from .hamiltonian import SpherePotential
 from .wavefunction import HallWavefunction
-
-logger = logging.getLogger(__name__)
-
-
-class HallTrainWorkflow(VMCWorkflow):
-    """VMC training workflow for quantum Hall effect simulations."""
-
-    @classmethod
-    def default_preset(cls) -> dict[str, Any]:
-        console_fields = (
-            "pmove:.2f,"
-            "energy=total_energy_real:.4f,"
-            "variance=total_energy_real_var:.4f,"
-            "Lz=angular_momentum_z:+.4f,"
-            "L_square=angular_momentum_square:.4f"
-        )
-        return {
-            "train": {
-                "run": {"iterations": 200_000},
-                "writers": {"console": {"fields": console_fields}},
-                "optim": {"learning_rate": {"delay": 10000, "warmup": 1000}},
-                "grads": {"clip_scale": 100},
-            }
-        }
-
-    def __init__(self, cfg: ConfigManager) -> None:
-        super().__init__(cfg)
-        system_config, wf = configure_system(cfg)
-
-        self.data_init = partial(data_init, system_config)
-
-        has_penalties = bool(system_config.lz_penalty or system_config.l2_penalty)
-        loss_key = "penalized_loss" if has_penalties else "total_energy"
-
-        estimators = make_estimators(cfg, wf, system_config, always_enable_energy=True)
-
-        train = VMCWorkStage.builder(cfg.scoped("train"), wf)
-        sampler = cfg.get("sampler", MCMCSampler(sampling_proposal=sphere_proposal))
-        train.configure_sample_plan(wf.logpsi, {"electrons": sampler})
-        train.configure_optimizer(default=KFACOptimizer, f_log_psi=wf.logpsi)
-        train.configure_estimators(**estimators)
-        train.configure_loss_grads(
-            cfg.scoped("train").get("grads", LossAndGrad(loss_key=loss_key)),
-            f_log_psi=wf.logpsi,
-        )
-        self.train_stage = train.build()
+from .wavefunction.mhpo import MHPO
 
 
-class HallEvalWorkflow(EvaluationWorkflow):
-    """Evaluation workflow for quantum Hall effect simulations."""
+@configurable_dataclass
+class HallEnergyEstimators(EstimatorCollection):
+    """Energy component estimators on the Haldane sphere.
 
-    def __init__(self, cfg: ConfigManager) -> None:
-        super().__init__(cfg)
-        system_config, wf = configure_system(cfg)
-
-        self.data_init = partial(data_init, system_config)
-
-        evaluation = EvaluationWorkStage.builder(cfg, wf, name="evaluation")
-        sampler = cfg.get("sampler", MCMCSampler(sampling_proposal=sphere_proposal))
-        evaluation.configure_sample_plan(wf.logpsi, {"electrons": sampler})
-        eval_estimators: dict[str, EstimatorLike] = make_estimators(
-            cfg, wf, system_config
-        )
-        if cfg.get("estimators.enabled.angular_projection", False):
-            if not cfg.get("estimators.enabled.energy", True):
-                raise ValueError(
-                    "Angular-momentum projection requires "
-                    "estimators.enabled.energy=true."
-                )
-            eval_estimators["angular_projection"] = cfg.get(
-                "estimators.angular_projection",
-                SphericalAngularMomentumProjection(
-                    f_log_psi_from_spinor=wf.logpsi_from_spinor
-                ),
-            )
-        evaluation.configure_estimators(**eval_estimators)
-        self.evaluation_stage = evaluation.build()
-
-
-def configure_system(
-    cfg: ConfigManagerLike,
-) -> tuple[HallConfig, HallWavefunction]:
-    """Build the shared system objects for quantum Hall workflows.
-
-    Returns:
-        Tuple of (system_config, wavefunction).
+    Args:
+        kinetic: Covariant spherical kinetic energy.
+        potential: Pairwise chord-distance Coulomb repulsion on the sphere.
+        total: Sums enabled ``energy:``-prefixed components into
+            ``total_energy``.
     """
-    system_config: HallConfig = cfg.get_module(
-        "system", "jaqmc.app.hall.config:HallConfig"
+
+    kinetic: SphericalKinetic = field(default_factory=SphericalKinetic)
+    potential: SpherePotential = field(default_factory=SpherePotential)
+    total: TotalEnergy = field(default_factory=TotalEnergy)
+
+
+@configurable_dataclass
+class HallEstimators(EstimatorCollection):
+    r"""Observables evaluated by quantum Hall workflows.
+
+    Args:
+        energy: Energy component estimators.
+        angular_momentum: Total angular momentum (:math:`L_z`, :math:`L_z^2`,
+            and :math:`L^2`) on the sphere.
+        angular_projection: Total-angular-momentum sector projection
+            (:math:`p_L` and :math:`E_L`) from Haar-averaged rotational
+            overlaps. Requires ``estimators.energy.enabled=true``.
+        penalty: Angular-momentum penalty loss (``penalized_loss``). Enabled
+            when ``system.lz_penalty`` or ``system.l2_penalty`` is nonzero;
+            requires both ``energy`` and ``angular_momentum`` to be enabled.
+        density: Polar (and optional azimuthal) electron density histogram on
+            the sphere.
+        pair_correlation: Geodesic pair-angle histogram weighted by
+            :math:`1/\sin\theta_{ij}`.
+        one_rdm: One-body reduced density matrix in the lowest-Landau-level
+            monopole harmonic basis of dimension ``system.flux + 1``.
+    """
+
+    energy: HallEnergyEstimators = field(default_factory=HallEnergyEstimators)
+    angular_momentum: SphericalAngularMomentum = field(
+        default_factory=SphericalAngularMomentum
     )
-
-    wf = cfg.get_module("wf", "jaqmc.app.hall.wavefunction.mhpo")
-    wf.nspins = system_config.nspins
-    wf.monopole_strength = system_config.flux / 2
-    wf.flux = system_config.flux
-    wf.interaction_strength = system_config.interaction_strength
-    wf.radius = (
-        system_config.radius
-        if system_config.radius is not None
-        else float(jnp.sqrt(system_config.flux / 2))
+    angular_projection: SphericalAngularMomentumProjection = field(
+        default_factory=SphericalAngularMomentumProjection
     )
+    penalty: PenalizedLoss = field(default_factory=PenalizedLoss)
+    density: SphericalDensity = field(default_factory=SphericalDensity)
+    pair_correlation: PairCorrelation = field(default_factory=PairCorrelation)
+    one_rdm: OneRDM = field(default_factory=OneRDM)
 
-    return system_config, wf
+
+_CONSOLE_FIELDS = (
+    "pmove:.2f,"
+    "energy=total_energy_real:.4f,"
+    "variance=total_energy_real_var:.4f,"
+    "Lz=angular_momentum_z:+.4f,"
+    "L_square=angular_momentum_square:.4f"
+)
 
 
-def make_estimators(
-    cfg: ConfigManagerLike,
-    wf: HallWavefunction,
-    system_config: HallConfig,
-    always_enable_energy: bool = False,
-) -> dict[str, EstimatorLike]:
-    estimators: dict[str, EstimatorLike] = {}
-    energy_enabled = always_enable_energy or cfg.get("estimators.enabled.energy", True)
-    has_penalties = bool(system_config.lz_penalty or system_config.l2_penalty)
-    angular_momentum_enabled = cfg.get("estimators.enabled.angular_momentum", True)
-    for enabled, key in (
-        (energy_enabled, "energy"),
-        (angular_momentum_enabled, "angular_momentum"),
-    ):
-        if has_penalties and not enabled:
+def _configure(wf: HallWavefunction, system: HallConfig, sampler: SamplerLike) -> None:
+    q = system.flux / 2
+    radius = system.radius if system.radius is not None else float(jnp.sqrt(q))
+    wf.nspins = system.nspins
+    wf.flux = system.flux
+    wf.interaction_strength = system.interaction_strength
+    wf.radius = radius
+    wire(sampler, sampling_proposal=sphere_proposal)
+
+
+def _wire_estimators(
+    settings: HallEstimators, wf: HallWavefunction, system: HallConfig
+) -> None:
+    q = system.flux / 2
+    radius = system.radius if system.radius is not None else float(jnp.sqrt(q))
+    settings.energy.kinetic.monopole_strength = q
+    settings.energy.kinetic.radius = radius
+    settings.energy.kinetic.f_log_psi_from_spinor = wf.logpsi_from_spinor
+    settings.energy.potential.monopole_strength = q
+    settings.energy.potential.radius = radius
+    settings.energy.potential.interaction_strength = system.interaction_strength
+    settings.angular_momentum.f_log_psi_from_spinor = wf.logpsi_from_spinor
+    settings.angular_projection.f_log_psi_from_spinor = wf.logpsi_from_spinor
+    settings.penalty.lz_center = system.lz_center
+    settings.penalty.lz_penalty = system.lz_penalty
+    settings.penalty.l2_penalty = system.l2_penalty
+    settings.one_rdm.flux = system.flux
+    settings.one_rdm.f_log_psi = wf.logpsi
+
+
+@configurable_dataclass
+class HallWorkflowBase:
+    system: HallConfig = field(default_factory=HallConfig)
+    wf: Annotated[
+        HallWavefunction,
+        ModuleConfig(package="jaqmc.app.hall.wavefunction"),
+    ] = field(default_factory=MHPO)
+    sampler: Annotated[SamplerLike, ModuleConfig(package="jaqmc.sampler")] = field(
+        default_factory=MCMCSampler
+    )
+    estimators: Annotated[
+        HallEstimators,
+        WithToggles(
+            angular_momentum=True,
+            angular_projection=False,
+            density=False,
+            pair_correlation=False,
+            one_rdm=False,
+        ),
+    ] = field(default_factory=HallEstimators)
+
+    def __post_init__(self) -> None:
+        self.estimators.set_enabled(penalty=self._penalized)
+        if self.estimators.is_enabled("penalty"):
+            for key, label in (
+                ("total", "total energy"),
+                ("angular_momentum", "angular-momentum"),
+            ):
+                if not self.estimators.is_enabled(key):
+                    raise ValueError(
+                        f"Angular-momentum penalties require the {label} estimator."
+                    )
+        if self.estimators.is_enabled(
+            "angular_projection"
+        ) and not self.estimators.is_enabled("total"):
             raise ValueError(
-                f"Angular-momentum penalties require estimators.enabled.{key}=true."
+                "Angular-momentum projection requires the total energy estimator."
             )
-    Q = system_config.flux / 2
-    if energy_enabled:
-        radius = (
-            system_config.radius
-            if system_config.radius is not None
-            else float(jnp.sqrt(Q))
-        )
 
-        estimators["kinetic"] = cfg.get(
-            "estimators.energy.kinetic",
-            SphericalKinetic(
-                monopole_strength=Q,
-                radius=radius,
-                f_log_psi_from_spinor=wf.logpsi_from_spinor,
-            ),
-        )
-        estimators["potential"] = cfg.get(
-            "estimators.energy.potential",
-            SpherePotential(
-                monopole_strength=Q,
-                radius=radius,
-                interaction_strength=system_config.interaction_strength,
-            ),
-        )
-        estimators["total"] = TotalEnergy()
+    @property
+    def _penalized(self) -> bool:
+        return bool(self.system.lz_penalty or self.system.l2_penalty)
 
-    if angular_momentum_enabled:
-        estimators["angular_momentum"] = cfg.get(
-            "estimators.angular_momentum",
-            SphericalAngularMomentum(
-                f_log_psi_from_spinor=wf.logpsi_from_spinor,
-            ),
-        )
 
-    if has_penalties:
-        estimators["penalty"] = PenalizedLoss(
-            lz_center=system_config.lz_center,
-            lz_penalty=system_config.lz_penalty,
-            l2_penalty=system_config.l2_penalty,
+@configurable_dataclass
+class HallTrainWorkflow(HallWorkflowBase, VMCWorkflow):
+    train: VMCTrainConfig = field(
+        default_factory=lambda: VMCTrainConfig(
+            run=VMCWorkStageConfig(iterations=200_000),
+            optim=KFACOptimizer(learning_rate=Standard(delay=10_000, warmup=1_000)),
+            grads=LossAndGrad(clip_scale=100),
+            writers=stage_writers(_CONSOLE_FIELDS),
         )
+    )
 
-    if cfg.get("estimators.enabled.density", False):
-        estimators["density"] = cfg.get(
-            "estimators.density",
-            SphericalDensity(),
+    def build_runtime(self) -> None:
+        _configure(self.wf, self.system, self.sampler)
+        train = VMCWorkStage.builder(self.train.run, self.wf, name="train")
+        train.configure_sample_plan(self.wf.logpsi, {"electrons": self.sampler})
+        train.configure_optimizer(self.train.optim, f_log_psi=self.wf.logpsi)
+        _wire_estimators(self.estimators, self.wf, self.system)
+        train.configure_estimators(self.estimators)
+        train.configure_loss_grads(
+            self.train.grads,
+            f_log_psi=self.wf.logpsi,
+            loss_key="penalized_loss" if self._penalized else None,
         )
+        train.configure_writers(self.train.writers)
+        self.train_stage = train.build()
+        self.data_init = partial(data_init, self.system)
 
-    if cfg.get("estimators.enabled.pair_correlation", False):
-        estimators["pair_correlation"] = cfg.get(
-            "estimators.pair_correlation",
-            PairCorrelation(),
+
+@configurable_dataclass
+class HallEvalWorkflow(HallWorkflowBase, EvaluationWorkflow):
+    estimators: Annotated[
+        HallEstimators,
+        WithToggles(
+            energy=True,
+            angular_momentum=True,
+            angular_projection=False,
+            density=False,
+            pair_correlation=False,
+            one_rdm=False,
+        ),
+    ] = field(default_factory=HallEstimators)
+
+    def build_runtime(self) -> None:
+        _configure(self.wf, self.system, self.sampler)
+        evaluation = EvaluationWorkStage.builder(
+            self.run_config, self.wf, name="evaluation"
         )
-
-    if cfg.get("estimators.enabled.one_rdm", False):
-        estimators["one_rdm"] = cfg.get(
-            "estimators.one_rdm",
-            OneRDM(flux=system_config.flux, f_log_psi=wf.logpsi),
-        )
-
-    return estimators
+        evaluation.configure_sample_plan(self.wf.logpsi, {"electrons": self.sampler})
+        _wire_estimators(self.estimators, self.wf, self.system)
+        evaluation.configure_estimators(self.estimators)
+        evaluation.configure_writers(self.writers)
+        self.evaluation_stage = evaluation.build()
+        self.data_init = partial(data_init, self.system)

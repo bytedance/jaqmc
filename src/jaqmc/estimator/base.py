@@ -2,11 +2,20 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
-from typing import Any
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, fields
+from functools import reduce
+from typing import Any, cast
 
 import jax
 from jax import numpy as jnp
+from pydantic import (
+    Field,
+    GetCoreSchemaHandler,
+    SerializerFunctionWrapHandler,
+    TypeAdapter,
+)
+from pydantic_core import CoreSchema, core_schema
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import BatchedData, Data
@@ -14,14 +23,141 @@ from jaqmc.utils import parallel_jax
 from jaqmc.utils.chunked_vmap import chunked_vmap
 from jaqmc.utils.config import configurable_dataclass
 
-type EstimateFn = Callable[
-    [Params, Data, Mapping[str, Any], Any, PRNGKey],
-    tuple[dict[str, Any], Any],
-]
-"""Signature for a plain function usable as ``evaluate_single_walker``."""
 
-type EstimatorLike = Estimator | EstimateFn
-"""Anything accepted where an :class:`Estimator` is expected."""
+@configurable_dataclass
+class EstimatorCollection(Mapping):
+    """Nested group of estimators that can be flattened for runtime use.
+
+    The mapping view contains only estimators that are enabled (along with
+    their enclosing groups). Workflows and parent collections configure which
+    child fields expose a user-togglable ``enabled`` key via
+    :func:`WithToggles`, and can toggle children programmatically via
+    :meth:`set_enabled`.
+    """
+
+    def __post_init__(self) -> None:
+        self._enabled: dict[str, bool] = {}
+        self._key_map: dict[str, list[str]] = {}
+
+        def visit(group: EstimatorCollection, prefix: Sequence[str] = ()) -> None:
+            for f in fields(cast(Any, group)):
+                value = getattr(group, f.name)
+                if isinstance(value, EstimatorCollection):
+                    visit(value, [*prefix, f.name])
+                elif isinstance(value, Estimator):
+                    if f.name in self._key_map:
+                        raise ValueError(
+                            f"Duplicate estimator name {f.name!r} in "
+                            f"{type(self).__name__}."
+                        )
+                    self._key_map[f.name] = [*prefix, f.name]
+                else:
+                    raise TypeError(
+                        f"{type(group).__name__}.{f.name} must be an "
+                        f"Estimator or EstimatorCollection; got {type(value)}."
+                    )
+
+        visit(self)
+
+    def set_enabled(self, **kwargs: bool) -> None:
+        """Set the runtime enabled state for direct child estimators or subgroups.
+
+        Raises:
+            AttributeError: If any keyword does not match a field on this
+                collection.
+        """
+        if unknown := set(kwargs) - {f.name for f in fields(cast(Any, self))}:
+            raise AttributeError(
+                f"{type(self).__name__} has no estimator field(s) {sorted(unknown)}."
+            )
+        self._enabled.update(kwargs)
+
+    def is_enabled(self, key: str) -> bool:
+        """Return whether the named estimator and its parent groups are enabled."""
+        node: Any = self
+        for name in self._key_map[key]:
+            if not node._enabled.get(name, True):
+                return False
+            node = getattr(node, name)
+        return True
+
+    def __getitem__(self, key: str) -> "Estimator":
+        if key not in self._key_map or not self.is_enabled(key):
+            raise KeyError(key)
+        return reduce(getattr, self._key_map[key], self)  # type: ignore
+
+    def __iter__(self):
+        return (key for key in self._key_map if self.is_enabled(key))
+
+    def __len__(self):
+        return sum(1 for _ in self)
+
+
+@dataclass(frozen=True)
+class _WithToggles:
+    enabled: Mapping[str, bool]
+
+    def __get_pydantic_core_schema__(
+        self, source_type: Any, handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
+        known = {f.name for f in fields(source_type)}
+        if unknown := set(self.enabled) - known:
+            raise ValueError(
+                f"{source_type.__name__} enabled keys {sorted(unknown)} "
+                "do not match any field."
+            )
+        defaults = dict(self.enabled)
+
+        def validate(raw: Any, nxt: Any) -> Any:
+            overrides: dict[str, bool] = {}
+            if isinstance(raw, dict):
+                raw = {
+                    k: dict(v) if k in defaults and isinstance(v, dict) else v
+                    for k, v in raw.items()
+                }
+                if en_raw := {
+                    k: raw[k].pop("enabled")
+                    for k in defaults
+                    if isinstance(raw.get(k), dict) and "enabled" in raw[k]
+                }:
+                    validator = TypeAdapter(dict[str, bool]).validator
+                    overrides = validator.validate_python(en_raw)
+            instance = nxt(raw)
+            instance._enabled = {**defaults, **overrides}
+            return instance
+
+        def serialize(value: Any, nxt: SerializerFunctionWrapHandler) -> Any:
+            d = nxt(value)
+            for k, default in defaults.items():
+                d[k] = {"enabled": value._enabled.get(k, default), **d[k]}
+            return d
+
+        return core_schema.no_info_wrap_validator_function(
+            validate,
+            handler(source_type),
+            serialization=core_schema.wrap_serializer_function_ser_schema(
+                serialize, info_arg=False
+            ),
+        )
+
+
+def WithToggles(**enabled: bool) -> Any:
+    """Configure user-togglable estimators on an :class:`EstimatorCollection` field.
+
+    Use with :data:`typing.Annotated` on an :class:`EstimatorCollection` field
+    to declare which child estimators or subgroups expose an inline ``enabled``
+    boolean configuration key and what their default state is.
+
+    Args:
+        **enabled: Mapping from child estimator or subgroup field name to its
+            default ``enabled`` boolean state.
+
+    Returns:
+        A Pydantic field annotation attaching the toggle schema.
+    """
+    f = Field(validate_default=True)
+    f.metadata.append(_WithToggles(enabled))
+    return f
 
 
 def mean_reduce(
@@ -270,20 +406,6 @@ class PerWalkerEstimator[DataT: Data](Estimator[DataT], ABC):
         )(params, batched_data.data, prev_walker_stats, state, rngs)
 
 
-class FunctionEstimator(PerWalkerEstimator):
-    """Wraps a plain function as an :class:`Estimator`.
-
-    The function is called as ``evaluate_single_walker``; ``init``, ``reduce``,
-    ``finalize_stats``, and ``finalize_state`` use the base-class defaults.
-    """
-
-    def __init__(self, fn: EstimateFn) -> None:
-        self._fn = fn
-
-    def evaluate_single_walker(self, params, data, prev_walker_stats, state, rngs):
-        return self._fn(params, data, prev_walker_stats, state, rngs)
-
-
 class EstimatorPipeline:
     """Chains named estimators into an evaluate → reduce → finalize pipeline.
 
@@ -293,25 +415,18 @@ class EstimatorPipeline:
     subset of statistics to the correct estimator.
 
     Args:
-        estimators: Mapping from estimator name to either an
-            :class:`Estimator` instance or a plain estimator function.
-            Plain functions are wrapped in :class:`FunctionEstimator`.
+        estimators: Mapping from estimator name to :class:`Estimator` instances.
     """
 
-    def __init__(self, estimators: Mapping[str, EstimatorLike]) -> None:
-        self.estimators = {
-            name: est if isinstance(est, Estimator) else FunctionEstimator(est)
-            for name, est in estimators.items()
-        }
+    def __init__(
+        self, estimators: EstimatorCollection | Mapping[str, Estimator]
+    ) -> None:
+        if not all(
+            isinstance(estimator, Estimator) for estimator in estimators.values()
+        ):
+            raise TypeError("EstimatorPipeline accepts Estimator instances only.")
+        self.estimators = dict(estimators.items())
         self._reduce_keys: dict[str, frozenset[str]] = {}
-
-    def __setitem__(self, name: str, est: EstimatorLike) -> None:
-        self.estimators[name] = (
-            est if isinstance(est, Estimator) else FunctionEstimator(est)
-        )
-
-    def __contains__(self, name: str) -> bool:
-        return name in self.estimators
 
     def init(self, batched_data: BatchedData, rngs: PRNGKey) -> dict[str, Any]:
         """Initialize per-estimator state.

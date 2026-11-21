@@ -1,13 +1,11 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import click
-import yaml
 
-from jaqmc.utils.config import ConfigError, ConfigManager
-from jaqmc.utils.runtime import configure_runtime
+from jaqmc.utils import yaml_format
 
 
 def make_cli(workflow=None, **kwargs):
@@ -35,16 +33,14 @@ def make_cli(workflow=None, **kwargs):
         dotlist: tuple[str, ...], yml: Sequence[str], dry_run: bool = False
     ) -> None:
         try:
-            cfg = ConfigManager([load_yaml(f) for f in yml], list(dotlist))
-            configure_runtime(cfg, dry_run=dry_run)
-            workflow(cfg, dry_run=dry_run)
-        except ConfigError as e:
+            workflow([load_yaml(f) for f in yml], dotlist, dry_run=dry_run)
+        except ValueError as e:
             raise click.ClickException(str(e)) from None
 
     return command
 
 
-def load_yaml(f):
+def load_yaml(f) -> Mapping[str, object]:
     """Load YAML file and check if it's a dictionary.
 
     Args:
@@ -54,13 +50,13 @@ def load_yaml(f):
         Plain dictionary config.
 
     Raises:
-        ConfigError: YAML root is not a mapping.
+        ValueError: YAML root is not a mapping.
     """
     source = getattr(f, "name", "<stream>")
-    config = yaml.safe_load(f)
+    config = yaml_format.load_yaml(f)
     if not isinstance(config, dict):
         got = "empty document" if config is None else type(config).__name__
-        raise ConfigError(
+        raise ValueError(
             f"Invalid YAML config in '{source}': expected a mapping at the "
             f"document root, got {got}."
         )

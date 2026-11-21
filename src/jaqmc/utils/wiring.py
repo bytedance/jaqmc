@@ -13,14 +13,15 @@ Components have two kinds of fields:
 
 Runtime deps can be set in two ways:
 1. **Programmatically**: Pass directly in the constructor.
-2. **From context**: Use ``wire(component, **context)`` to inject keyword args.
+2. **After parsing**: Use ``wire(component, **deps)`` on a component built
+   from configuration.
 
 Example:
     Programmatic use::
 
         estimator = KineticEnergy(f_log_psi=wf.evaluate)
 
-    Context-driven use (e.g., from config engine)::
+    Wiring a parsed component::
 
         estimator = KineticEnergy()  # only config fields set
         wire(estimator, f_log_psi=wf.evaluate)
@@ -29,47 +30,24 @@ Example:
 from dataclasses import field, fields, is_dataclass
 from typing import Any
 
-__all__ = ["check_wired", "runtime_dep", "wire"]
-
-_UNSET = object()
+__all__ = ["UNSET", "check_wired", "runtime_dep", "wire"]
 
 
-class LateInit[ValueT]:
-    """Descriptor for required runtime deps — raises on access before assignment."""
-
-    def __set_name__(self, owner, name):
-        self._name = f"_{name}"
-        self._public_name = name
-
-    def __get__(self, obj, tp=None) -> ValueT:
-        if obj is None:
-            return self  # type: ignore[return-value]
-        if not hasattr(obj, self._name):
-            cls_name = type(obj).__name__
-            raise AttributeError(
-                f"{cls_name}.{self._public_name} is a runtime dependency that was "
-                f"not set. Wire it after construction: "
-                f"`instance.{self._public_name} = ...` "
-                f"or use wire(instance, {self._public_name}=...)"
-            )
-        return getattr(obj, self._name)
-
-    def __set__(self, obj, val: ValueT):
-        if not isinstance(val, LateInit):
-            setattr(obj, self._name, val)
+class _UnsetType:
+    """Sentinel type for unset runtime dependencies."""
 
     def __repr__(self) -> str:
-        return "LateInit()"
+        return "<UNSET>"
 
 
-def runtime_dep(*, default: Any = _UNSET) -> Any:
+UNSET: Any = _UnsetType()
+
+
+def runtime_dep(*, default: Any = UNSET) -> Any:
     """Declare a runtime dependency field on a dataclass.
 
-    Required deps (no default) use the LateInit descriptor, which raises
-    a clear :class:`AttributeError` if accessed before being set. Optional deps
-    use a regular field with the given default.
-
-    Both kinds are invisible to serde and marked for :func:`wire`
+    Both required (no default) and optional deps are excluded from
+    configuration parsing and serialization, and marked for :func:`wire`
     discovery via ``metadata["runtime"]``.
 
     Args:
@@ -85,27 +63,28 @@ def runtime_dep(*, default: Any = _UNSET) -> Any:
         ...     mode: str = "fast"
         ...     f_eval: object = runtime_dep()
         >>> est = Estimator()
-        >>> est.f_eval  # raises before wiring
-        Traceback (most recent call last):
-            ...
-        AttributeError: Estimator.f_eval is a runtime dependency ...
+        >>> wire(est, f_eval=lambda x: x**2)  # doctest: +ELLIPSIS
+        Estimator(...)
     """
     return field(
-        default=default if default is not _UNSET else LateInit(),
+        default=default,
         repr=False,
-        metadata={"runtime": True, "serde_skip": True},
+        compare=False,
+        kw_only=True,
+        metadata={"runtime": True, "exclude": True, "validation_alias": ""},
     )
 
 
 def wire[ComponentT](component: ComponentT, **kwargs: Any) -> ComponentT:
     """Wire runtime dependencies into a dataclass component.
 
-    Sets ``runtime_dep`` fields from context/kwargs and validates that all
-    required deps are satisfied.
+    Sets ``runtime_dep`` fields whose names match keyword arguments, recursing
+    into nested dataclass fields, and validates that all required deps are
+    satisfied.
 
     Args:
         component: A dataclass instance with ``runtime_dep`` fields.
-        **kwargs: Additional deps (override context).
+        **kwargs: Runtime deps keyed by field name.
 
     Returns:
         The wired component (for chaining).
@@ -139,7 +118,7 @@ def wire[ComponentT](component: ComponentT, **kwargs: Any) -> ComponentT:
             continue
         if f.name in kwargs:
             setattr(component, f.name, kwargs[f.name])
-        elif isinstance(f.default, LateInit):
+        elif getattr(component, f.name, UNSET) is UNSET:
             missing.append(f.name)
     if missing:
         raise ValueError(
@@ -153,8 +132,8 @@ def wire[ComponentT](component: ComponentT, **kwargs: Any) -> ComponentT:
 def check_wired(component: object, *, label: str = "") -> None:
     """Verify all required runtime deps on a dataclass have been set.
 
-    Use this to catch missing wiring early — at configure time rather than
-    mid-execution when a ``_LateInit`` descriptor would raise.
+    Use this to catch missing wiring early at configure time rather than
+    mid-execution.
 
     Args:
         component: A dataclass instance to validate.
@@ -166,12 +145,11 @@ def check_wired(component: object, *, label: str = "") -> None:
     if not is_dataclass(component) or isinstance(component, type):
         return
 
-    missing = []
-    for f in fields(component):
-        if not f.metadata.get("runtime"):
-            continue
-        if isinstance(f.default, LateInit) and not hasattr(component, f"_{f.name}"):
-            missing.append(f.name)
+    missing = [
+        f.name
+        for f in fields(component)
+        if f.metadata.get("runtime") and getattr(component, f.name, UNSET) is UNSET
+    ]
 
     if missing:
         cls_name = type(component).__name__

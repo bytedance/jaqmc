@@ -82,6 +82,9 @@ system:
       frac_coords: [0.0, 0.0, 0.0]
 ```
 
+`LatticeParameters` is the default, so a layer can also adjust individual cell
+lengths or angles without repeating the remaining parameters.
+
 This LiH example is neutral and all-electron, so JaQMC resolves four explicit
 electrons in the primitive cell and assigns two spin-up and two spin-down
 electrons from `s_z: 0`. With an ECP, `system.pp` changes the resolved
@@ -252,7 +255,7 @@ finite-sampling artifact whose expectation value vanishes.
 
 ## Production Settings
 
-The workflow presets default to 2,000 pretraining iterations and 200,000
+The default training configuration uses 2,000 pretraining iterations and 200,000
 training iterations so that a bare `jaqmc solid train ...` command is closer
 to a real calculation than a smoke test. If that budget fits your cell size and
 hardware, you can usually keep the defaults. Primitive cells and toy systems
@@ -279,7 +282,7 @@ and [Multi-Device](../../guide/multi-device.md) for how walkers are distributed
 across GPUs.
 
 For authoritative key definitions and effective defaults, see the
-[training configuration](train.md) and use `--dry-run workflow.config.verbose=true`
+[training configuration](train.md) and use `--dry-run`
 to inspect the fully resolved config for your run. For checkpointing and
 resuming longer jobs, see <project:../../guide/running-workflows.md>.
 

@@ -45,7 +45,7 @@ class FermiNetWavefunction(MoleculeWavefunctionModule):
         orbitals_spin_split: If True, use separate orbital layer and envelope
             parameters for each spin channel. Only effective when both spin
             channels are occupied.
-
+        full_det: Whether to use full determinants (must be ``True``).
     """
 
     precision: Literal["standard", "fp16_jac", "fp16_mixed"] = "standard"

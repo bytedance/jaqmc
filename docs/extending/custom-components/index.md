@@ -13,7 +13,10 @@ A typical component has two kinds of fields:
 
 ## `@configurable_dataclass`
 
-The {deco}`~jaqmc.utils.config.configurable_dataclass` decorator prepares a class for the config system. It applies `@dataclass` and sets up serialization so that {meth}`~jaqmc.utils.config.ConfigManager.get`, {meth}`~jaqmc.utils.config.ConfigManager.get_module`, and {meth}`~jaqmc.utils.config.ConfigManager.get_collection` can construct instances from YAML.
+The {deco}`~jaqmc.utils.config.configurable_dataclass` decorator prepares a
+class for typed configuration parsing. A concrete workflow's `from_config`
+method or {func}`~jaqmc.utils.config.parse_config` constructs instances from
+YAML.
 
 ```python
 from jaqmc.estimator import PerWalkerEstimator
@@ -43,14 +46,8 @@ class MyEstimator(PerWalkerEstimator):
 
 Two forms:
 
-- **`runtime_dep()`** — Required. If accessed before being set, raises a clear error:
-  ```
-  AttributeError: MyEstimator.f_log_psi is a runtime dependency that was
-  not set. Wire it after construction: `instance.f_log_psi = ...`
-  or use wire(instance, f_log_psi=...)
-  ```
-
-- **`runtime_dep(default=...)`** — Optional. Uses the default if not explicitly wired.
+- **`runtime_dep()`**: Required. Must be provided in the constructor or set via `wire()` (validated by `wire()` and `check_wired()`).
+- **`runtime_dep(default=...)`**: Optional. Uses the default if not explicitly wired.
 
 ## `wire()`
 
@@ -70,7 +67,7 @@ est = MyEstimator()
 est.f_log_psi = wf.evaluate
 ```
 
-`wire()` is most useful when you have a context dict with many dependencies and want to inject them all at once — which is exactly what the stage builder does for the sampler, optimizer, and writers it creates.
+`wire()` is most useful when you want to inject several dependencies at once and have missing required ones reported immediately.
 
 `wire()` also recurses into nested dataclass fields, so nested components get wired automatically.
 
@@ -110,39 +107,39 @@ Construct it directly — you provide the dependency yourself:
 kinetic = EuclideanKinetic(f_log_psi=wf.evaluate)
 ```
 
-Or make it user-configurable via `cfg.get()`, then wire the runtime deps separately:
+Or wire the runtime dependency into a typed estimator field on the workflow:
 
 ```python
-kinetic = cfg.get("energy.kinetic", EuclideanKinetic())
-wire(kinetic, f_log_psi=wf.evaluate)
+wire(workflow.estimators.energy.kinetic, f_log_psi=workflow.wf.evaluate)
 ```
 
 The user can tune `mode` in YAML. Runtime deps like `f_log_psi` stay invisible in config:
 
 ```yaml
-train:
+estimators:
   energy:
     kinetic:
       mode: fori_loop
 ```
 
-## How the Builder Uses Wiring
+## Wiring a VMC Stage
 
-When you call `VMCWorkStage.builder(cfg, wavefunction)`, it stores a context dict containing runtime objects. When you call `configure_optimizer()`, the builder resolves the optimizer from config and calls `wire()` on it:
-
-```
-optimizer = cfg.get_module("optim", ...)    # config creates the instance
-wire(optimizer, f_log_psi=wf.logpsi)        # builder wires runtime deps
-```
-
-For sampling, workflows construct or resolve the sampler and pass it to `configure_sample_plan(...)`:
+When `VMCWorkStage.builder(run_config, wavefunction, name="train")` runs,
+the workflow passes already-parsed components into the builder's configuration
+methods. The builder wires `f_log_psi` into the optimizer and loss-gradient
+estimator:
 
 ```
-sampler = cfg.get("sampler", MCMCSampler)
-builder.configure_sample_plan(wf.logpsi, {"electrons": sampler})
+builder.configure_optimizer(train_config.optim, f_log_psi=wf.evaluate)
+builder.configure_loss_grads(train_config.grads, f_log_psi=wf.evaluate)
 ```
 
-This is why the [Wiring Principles](#wiring-principles) section says "the builder wires what it creates" — it wires components it resolves from config (such as optimizer and writers). You wire estimators yourself, either in the constructor or via `wire()`.
+The workflow wires sampler and estimator runtime dependencies, then passes
+those objects in:
+
+```
+builder.configure_sample_plan(wf.evaluate, {"electrons": workflow.sampler})
+```
 
 ## Writing Custom Components
 
@@ -190,4 +187,5 @@ Record per-step statistics.
 
 :::::
 
-For how the config system itself works (`cfg.get()`, `cfg.get_module()`, `cfg.get_collection()`), see <project:../configuration.md>.
+For how the fixed configuration schema and module fields work, see
+<project:../configuration.md>.

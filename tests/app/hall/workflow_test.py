@@ -6,6 +6,7 @@
 import jax
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
 from jaqmc.app.hall import HallEvalWorkflow, HallTrainWorkflow
 from jaqmc.estimator.angular_momentum import (
@@ -13,16 +14,17 @@ from jaqmc.estimator.angular_momentum import (
     SphericalAngularMomentumProjection,
 )
 from jaqmc.estimator.loss_grad import LossAndGrad
-from jaqmc.utils.config import ConfigManager
 
 
 def _train_estimators(config):
-    workflow = HallTrainWorkflow(ConfigManager(config))
+    workflow = HallTrainWorkflow.from_config(config)
+    workflow.build_runtime()
     return workflow.train_stage.estimators.estimators
 
 
 def _eval_estimators(config):
-    workflow = HallEvalWorkflow(ConfigManager(config))
+    workflow = HallEvalWorkflow.from_config(config)
+    workflow.build_runtime()
     return workflow.evaluation_stage.estimators.estimators
 
 
@@ -33,12 +35,12 @@ def test_angular_momentum_enabled_by_default():
 
 
 def test_angular_momentum_can_be_disabled_without_penalty():
-    config = {"estimators": {"enabled": {"angular_momentum": False}}}
+    config = {"estimators": {"angular_momentum": {"enabled": False}}}
     assert "angular_momentum" not in _train_estimators(config)
 
 
 def test_eval_angular_momentum_without_energy():
-    estimators = _eval_estimators({"estimators": {"enabled": {"energy": False}}})
+    estimators = _eval_estimators({"estimators": {"energy": {"enabled": False}}})
     assert "kinetic" not in estimators
     assert isinstance(estimators["angular_momentum"], SphericalAngularMomentum)
 
@@ -49,9 +51,33 @@ def test_penalty_switches_loss_key():
     assert grads.loss_key == "penalized_loss"
 
 
-def test_angular_projection_is_eval_only_and_opt_in():
-    config = {"estimators": {"enabled": {"angular_projection": True}}}
-    assert "angular_projection" not in _train_estimators(config)
+def test_default_loss_grads():
+    grads = _train_estimators({})["grads"]
+    assert isinstance(grads, LossAndGrad)
+    assert grads.loss_key == "total_energy"
+    assert grads.clip_method == "mad"
+    assert grads.clip_scale == 100
+
+
+def test_train_grads_override():
+    grads = _train_estimators(
+        {
+            "train": {
+                "grads": {
+                    "clip_method": "none",
+                    "clip_scale": 7.0,
+                }
+            }
+        }
+    )["grads"]
+    assert isinstance(grads, LossAndGrad)
+    assert grads.clip_method == "none"
+    np.testing.assert_allclose(grads.clip_scale, 7.0)
+
+
+def test_angular_projection_is_opt_in():
+    assert "angular_projection" not in _eval_estimators({})
+    config = {"estimators": {"angular_projection": {"enabled": True}}}
     assert isinstance(
         _eval_estimators(config)["angular_projection"],
         SphericalAngularMomentumProjection,
@@ -63,36 +89,43 @@ def test_angular_projection_is_eval_only_and_opt_in():
     [
         pytest.param(
             HallEvalWorkflow,
-            {"system": {penalty: 1.0}, "estimators": {"enabled": {"energy": False}}},
-            r"penalties require estimators\.enabled\.energy=true",
-            id=f"{penalty}-without-energy",
-        )
-        for penalty in ("lz_penalty", "l2_penalty")
-    ]
-    + [
-        pytest.param(
-            HallTrainWorkflow,
             {
-                "system": {penalty: 1.0},
-                "estimators": {"enabled": {"angular_momentum": False}},
+                "system": {"lz_penalty": 1.0},
+                "estimators": {
+                    "energy": {"enabled": False},
+                },
             },
-            r"penalties require estimators\.enabled\.angular_momentum=true",
-            id=f"{penalty}-without-angular-momentum",
-        )
-        for penalty in ("lz_penalty", "l2_penalty")
-    ]
-    + [
+            r"penalties require the total energy estimator",
+            id="penalty-without-energy",
+        ),
+        *[
+            pytest.param(
+                HallTrainWorkflow,
+                {
+                    "system": {penalty: 1.0},
+                    "estimators": {"angular_momentum": {"enabled": False}},
+                },
+                r"penalties require the angular-momentum estimator",
+                id=f"{penalty}-without-angular-momentum",
+            )
+            for penalty in ("lz_penalty", "l2_penalty")
+        ],
         pytest.param(
             HallEvalWorkflow,
-            {"estimators": {"enabled": {"energy": False, "angular_projection": True}}},
-            r"projection requires estimators\.enabled\.energy=true",
+            {
+                "estimators": {
+                    "energy": {"enabled": False},
+                    "angular_projection": {"enabled": True},
+                }
+            },
+            r"projection requires the total energy estimator",
             id="projection-without-energy",
-        )
+        ),
     ],
 )
 def test_rejects_inconsistent_estimator_config(workflow_cls, config, match):
-    with pytest.raises(ValueError, match=match):
-        workflow_cls(ConfigManager(config))
+    with pytest.raises(ValidationError, match=match):
+        workflow_cls.from_config(config)
 
 
 def _run_config(tmp_path, *, wf_module: str, save_name: str):
@@ -122,7 +155,7 @@ def test_train_rejects_parameter_free_wavefunction(tmp_path, wf_module):
     config["train"] = {"run": {"iterations": 1}}
 
     with pytest.raises(ValueError, match="no trainable parameters"):
-        HallTrainWorkflow(ConfigManager(config))()
+        HallTrainWorkflow.from_config(config)()
 
     assert not list((tmp_path / "train").glob("train_ckpt_*.npz"))
 
@@ -130,7 +163,7 @@ def test_train_rejects_parameter_free_wavefunction(tmp_path, wf_module):
 def test_laughlin_eval_keeps_local_energy_variance_bounded(tmp_path):
     config = _run_config(tmp_path, wf_module="laughlin", save_name="eval")
     config["run"] = _evaluation_run_config()
-    HallEvalWorkflow(ConfigManager(config))()
+    HallEvalWorkflow.from_config(config)()
 
     digest = np.load(tmp_path / "eval" / "evaluation_digest.npz")
     assert digest["energy:potential"] > 0
@@ -141,7 +174,7 @@ def test_free_eval_is_non_interacting(tmp_path):
     config = _run_config(tmp_path, wf_module="free", save_name="eval")
     config["system"]["interaction_strength"] = 0.0
     config["run"] = _evaluation_run_config()
-    HallEvalWorkflow(ConfigManager(config))()
+    HallEvalWorkflow.from_config(config)()
 
     digest = np.load(tmp_path / "eval" / "evaluation_digest.npz")
     np.testing.assert_allclose(digest["energy:potential"], 0.0, atol=1e-6)

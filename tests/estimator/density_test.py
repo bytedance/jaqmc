@@ -163,6 +163,15 @@ class TestSphericalDensity:
         }
         assert SphericalDensity().finalize_stats({}, state) == {}
 
+    def test_finalize_state_keys(self):
+        state = {
+            "histogram": jnp.ones(4),
+            "compensation": jnp.zeros(4),
+        }
+        out = SphericalDensity(bins_theta=4).finalize_state(state, n_steps=10)
+        assert set(out) == {"density", "density:n_steps"}
+        assert out["density:n_steps"] == 10
+
     def test_custom_data_field(self):
         est = SphericalDensity(bins_theta=4, data_field="positions")
         positions = jnp.array([[[math.pi / 8, 0.0], [5 * math.pi / 8, 0.0]]])

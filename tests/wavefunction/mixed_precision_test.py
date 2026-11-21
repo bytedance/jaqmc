@@ -19,6 +19,7 @@ from jaqmc.app.molecule.data import MoleculeData
 from jaqmc.app.molecule.wavefunction.ferminet import FermiNetWavefunction
 from jaqmc.app.molecule.wavefunction.lapnet import LapNetWavefunction
 from jaqmc.app.molecule.wavefunction.psiformer import PsiformerWavefunction
+from jaqmc.app.molecule.workflow import MoleculeTrainWorkflow
 from jaqmc.app.solid.data import SolidData
 from jaqmc.app.solid.wavefunction import SolidWavefunction
 from jaqmc.geometry.sphere import (
@@ -27,7 +28,6 @@ from jaqmc.geometry.sphere import (
 )
 from jaqmc.laplacian import forward_laplacian, make_laplacian_input
 from jaqmc.laplacian.precision import ContractionMode, jacobian_contraction_scope
-from jaqmc.utils.config import ConfigManager
 from jaqmc.wavefunction.backbone.lapnet import lapnet_sparse_attention
 from jaqmc.wavefunction.backbone.layernorm import LayerNorm
 from jaqmc.wavefunction.output.logdet import LogDet
@@ -177,13 +177,14 @@ class TestWavefunctionPrecisionContract:
         with pytest.raises(ValueError, match="does not support precision mode"):
             h_wf.evaluate(h_params, h_data, precision="fp16_mixed")
 
-    def test_config_manager_resolves_precision_override(self) -> None:
-        """ConfigManager resolves wf.precision CLI overrides on wavefunction modules."""
-        cfg = ConfigManager(
+    def test_config_resolves_precision_override(self) -> None:
+        """from_config resolves wf.precision CLI overrides on wavefunction modules."""
+        workflow = MoleculeTrainWorkflow.from_config(
             {"wf": {"module": LapNetWavefunction.__module__}},
             ["wf.precision=fp16_mixed"],
         )
-        assert cfg.get_module("wf").precision == "fp16_mixed"
+        assert isinstance(workflow.wf, LapNetWavefunction)
+        assert workflow.wf.precision == "fp16_mixed"
 
     def test_runtime_precision_override_clones_subclass_with_shared_params(
         self,
@@ -411,7 +412,6 @@ class TestWavefunctionPrecisionEvaluation:
     def test_mhpo_wavefunction(self) -> None:
         mhpo_wf = MHPO(
             nspins=(1, 1),
-            monopole_strength=1.0,
             flux=2,
             interaction_strength=1.0,
             radius=1.0,

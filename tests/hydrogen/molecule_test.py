@@ -3,12 +3,11 @@
 
 import numpy as np
 
-from jaqmc.app.molecule.workflow import MoleculeTrainWorkflow
-from jaqmc.utils.config import ConfigManager
+from jaqmc.app.molecule import MoleculeTrainWorkflow
 
 
 def test_molecule_run(tmp_path):
-    cfg = ConfigManager(
+    workflow = MoleculeTrainWorkflow.from_config(
         {
             "workflow": {"seed": 42, "save_path": str(tmp_path), "batch_size": 256},
             "wf": {"hidden_dims_single": [64, 64], "hidden_dims_double": [8, 8]},
@@ -25,7 +24,7 @@ def test_molecule_run(tmp_path):
             },
         },
     )
-    MoleculeTrainWorkflow(cfg)()
+    workflow()
 
     # Check that at least one checkpoint was created in the temp directory
     ckpts = list(tmp_path.glob("train_ckpt_*.npz"))
@@ -40,7 +39,7 @@ def test_molecule_run(tmp_path):
 
 
 def test_without_pretrain(tmp_path):
-    cfg = ConfigManager(
+    workflow = MoleculeTrainWorkflow.from_config(
         {
             "workflow": {"seed": 42, "save_path": str(tmp_path), "batch_size": 4},
             "wf": {"hidden_dims_single": [8, 8], "hidden_dims_double": [4, 4]},
@@ -52,8 +51,29 @@ def test_without_pretrain(tmp_path):
             "train": {"run": {"burn_in": 0, "iterations": 1}},
         },
     )
-    MoleculeTrainWorkflow(cfg)()
+    workflow()
 
     # Smoke test the run without pretrain will work
     ckpts = list(tmp_path.glob("train_ckpt_*.npz"))
     assert ckpts, "No checkpoints were created in the temporary directory"
+
+    # Construct a fresh workflow (without calling `restored_workflow()`) to verify
+    # standalone checkpoint loading builds runtime dependencies on demand.
+    restored_workflow = MoleculeTrainWorkflow.from_config(
+        {
+            "workflow": {"batch_size": 4},
+            "wf": {"hidden_dims_single": [8, 8], "hidden_dims_double": [4, 4]},
+            "system": {
+                "s_z": 0.5,
+                "atoms": [{"symbol": "H", "coords": [0, 0, 0]}],
+            },
+            "pretrain": {"run": {"iterations": 0}},
+        },
+    )
+    restored_workflow.initialize_runtime()
+    restored_state = restored_workflow.restore_checkpoint(ckpts[-1])
+    with np.load(ckpts[-1]) as archive:
+        np.testing.assert_allclose(
+            restored_state.batched_data.data.electrons,
+            archive["batched_data/data/electrons"],
+        )

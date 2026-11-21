@@ -29,10 +29,6 @@ def version() -> None:
 
 @cli.command(help="Print a short description of this contribution.")
 def info() -> None:
-    from jaqmc.utils.config import ConfigManager
-
-    config = ConfigManager({"package_name": "jaqmc-contrib-example"})
     click.echo("jaqmc-contrib-example: reference workspace contribution")
     click.echo("CLI entry point: example-contrib")
-    click.echo(f"configured package: {config.get('package_name', '')}")
     _show_jaqmc_version()

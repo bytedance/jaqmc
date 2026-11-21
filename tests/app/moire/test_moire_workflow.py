@@ -6,16 +6,16 @@ from pathlib import Path
 import jax
 import numpy as np
 import pytest
+import yaml
 from jax import numpy as jnp
+from pydantic import ValidationError
 
+from jaqmc.app.moire.data import data_init
 from jaqmc.app.moire.workflow import (
+    MoireEvalWorkflow,
     MoireJointMCMCSampler,
     MoireTrainWorkflow,
-    configure_system,
 )
-from jaqmc.estimator.total_energy import TotalEnergy
-from jaqmc.utils.config import ConfigManager
-from jaqmc.writer.console import FieldSpec
 
 
 def _base_config(tmp_path: Path) -> dict:
@@ -32,35 +32,96 @@ def _base_config(tmp_path: Path) -> dict:
 
 def test_saved_config_excludes_runtime_klist_arrays(tmp_path: Path):
     cfg = _base_config(tmp_path)
-    manager = ConfigManager(cfg)
-    configure_system(manager)
+    workflow = MoireTrainWorkflow.from_config(cfg)
+    yaml = workflow.to_yaml()
 
-    yaml = manager.to_yaml()
-
-    runtime_fields = {
-        "nspins",
-        "primitive_lattice",
-        "simulation_lattice",
-        "twist",
-        "phase_mode",
-        "singlephase_klists",
-        "multiphase_klist",
-        "translation_vectors",
-    }
-    assert runtime_fields.isdisjoint(manager.resolved_config["wf"])
     assert "singlephase_klists" not in yaml
     assert "multiphase_klist" not in yaml
     assert "translation_vectors" not in yaml
 
 
-def test_singlephase_requires_spin_channels_divisible_by_kmesh(tmp_path: Path):
+def test_runtime_owned_energy_fields_are_wired_not_serialized(tmp_path: Path):
+    workflow = MoireTrainWorkflow.from_config(_base_config(tmp_path))
+    energy_config = yaml.safe_load(workflow.to_yaml())["estimators"]["energy"]
+
+    assert "prefactor" not in energy_config["kinetic"]
+
+    workflow.build_runtime()
+
+    expected_prefactor = (
+        workflow.system.kinetic_prefactor_mev / workflow.system.effective_mass
+    )
+    energy = workflow.estimators.energy
+    assert energy.kinetic.prefactor == pytest.approx(expected_prefactor)
+    assert energy.soc.prefactor == pytest.approx(expected_prefactor)
+
+
+def test_total_energy_sums_only_enabled_energy_components(tmp_path: Path):
+    cfg = _base_config(tmp_path)
+    cfg["wf"]["nlayers"] = 3
+    cfg["estimators"] = {
+        "energy": {
+            "moire_potential": {"enabled": False},
+            "soc": {"enabled": False},
+        }
+    }
+    workflow = MoireEvalWorkflow.from_config(cfg)
+    workflow.build_runtime()
+
+    rng = jax.random.key(0)
+    batched_data = data_init(workflow.system, 1, rng)
+    params = workflow.wf.init_params(batched_data.unbatched_example(), rng)
+    est_pipeline = workflow.evaluation_stage.estimators
+    state = est_pipeline.init(batched_data, rng)
+    step_stats, _ = est_pipeline.evaluate(params, batched_data, state, rng)
+
+    assert "energy:moire_potential" not in step_stats
+    assert "energy:soc" not in step_stats
+    assert step_stats["total_energy"] == pytest.approx(
+        step_stats["energy:kinetic"] + step_stats["energy:coulomb"]
+    )
+
+
+@pytest.mark.parametrize("workflow_cls", [MoireTrainWorkflow, MoireEvalWorkflow])
+def test_singlephase_requires_spin_channels_divisible_by_kmesh(
+    tmp_path: Path, workflow_cls
+):
     cfg = _base_config(tmp_path)
     cfg["system"]["electron_spins"] = [5, 4]
     cfg["system"]["nelec"] = 9
     cfg["system"]["supercell_matrix"] = [[3, 0], [0, 3]]
 
-    with pytest.raises(ValueError, match="divisible by nk=9"):
-        configure_system(ConfigManager(cfg))
+    with pytest.raises(ValidationError, match="divisible by nk=9"):
+        workflow_cls.from_config(cfg)
+
+
+@pytest.mark.parametrize("workflow_cls", [MoireTrainWorkflow, MoireEvalWorkflow])
+def test_singlephase_rejects_k_com_during_parsing(tmp_path: Path, workflow_cls):
+    cfg = _base_config(tmp_path)
+    cfg["wf"]["k_com"] = [0.0, 0.0]
+
+    with pytest.raises(
+        ValidationError, match="k_com must be None when phase_mode='singlephase'"
+    ):
+        workflow_cls.from_config(cfg)
+
+
+@pytest.mark.parametrize("workflow_cls", [MoireTrainWorkflow, MoireEvalWorkflow])
+def test_bilayer_estimators_reject_non_bilayer_wavefunction_during_parsing(
+    tmp_path: Path, workflow_cls
+):
+    cfg = _base_config(tmp_path)
+    cfg["wf"]["nlayers"] = 3
+
+    with pytest.raises(ValidationError, match="exactly two layers"):
+        workflow_cls.from_config(cfg)
+
+    cfg["estimators"] = {"energy": {"moire_potential": {"enabled": False}}}
+    with pytest.raises(ValidationError, match="MoireSOC supports exactly two layers"):
+        workflow_cls.from_config(cfg)
+
+    cfg["estimators"]["energy"]["soc"] = {"enabled": False}
+    workflow_cls.from_config(cfg)
 
 
 def test_joint_proposal_moves_positions_and_spin_coords_together():
@@ -85,27 +146,4 @@ def test_joint_proposal_moves_positions_and_spin_coords_together():
         np.std(spin_step),
         2.0 * np.pi * 0.2 / 2.0,
         rtol=0.25,
-    )
-
-
-def test_default_console_fields_exist_in_complex_total_energy_reduce():
-    # Moire energies are complex (the SOC term carries a 1j factor), so
-    # TotalEnergy.reduce takes the complex branch and only produces
-    # ``total_energy_real`` / ``total_energy_real_var`` (never ``total_energy_var``).
-    # Guard the default console preset against referencing a missing key.
-    preset = MoireTrainWorkflow.default_preset()
-    console_fields = preset["train"]["writers"]["console"]["fields"]
-    referenced_keys = {
-        FieldSpec.parse(field.strip()).key for field in console_fields.split(",")
-    }
-
-    total = TotalEnergy(components=["energy:kinetic"])
-    walker_stats = {"total_energy": jnp.asarray([1.0 + 0.5j, 2.0 - 0.3j, 1.5 + 0.1j])}
-    reduced = total.reduce(walker_stats)
-
-    energy_keys = referenced_keys - {"pmove"}
-    missing = energy_keys - set(reduced)
-    assert not missing, (
-        f"console preset references stat keys absent from reduce(): {missing}. "
-        f"Available: {sorted(reduced)}"
     )

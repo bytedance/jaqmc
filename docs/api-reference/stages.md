@@ -2,7 +2,7 @@
 
 Work stages are the execution units within a <project:workflows.md>. Each stage encapsulates its own loop with, for example, optimizer, sampler, estimators, writers, etc.
 
-Stages are created through the **builder pattern**. For example, call ``VMCWorkStage.builder(cfg, wf)`` for training, or ``EvaluationWorkStage.builder(cfg, wf)`` for evaluation, then configure with ``configure_*`` methods and call ``build()``.
+Stages are created through the **builder pattern**. ``VMCWorkStage.builder(run_config, wf, name="train")`` creates a training stage builder, and ``EvaluationWorkStage.builder(run_config, wf, name="evaluation")`` creates an evaluation stage builder. Calling the ``configure_*`` methods and ``build()`` produces the configured stage.
 
 ## VMC stage
 

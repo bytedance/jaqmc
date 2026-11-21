@@ -1,8 +1,10 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+from collections.abc import Callable
+from dataclasses import field
 from functools import partial
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import optax
 
@@ -10,7 +12,7 @@ from jaqmc.array_types import Params
 from jaqmc.data import BatchedData
 from jaqmc.optimizer.schedule import Standard
 from jaqmc.utils import parallel_jax
-from jaqmc.utils.config import configurable_dataclass, module_config
+from jaqmc.utils.config import ModuleConfig, configurable_dataclass
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
 
@@ -74,27 +76,31 @@ class SROptimizer:
             inverting the Gram matrix (``"F64"``, ``"F32_PCG"``, or ``"F32"``).
     """
 
-    learning_rate: Any = module_config(Standard, direct_value_type=float)
-    max_norm: Any = module_config(
-        "fixed",
-        direct_value_type=float | Literal["fixed"] | None,
-        module_import_base="jaqmc.optimizer",
-    )
-    damping: Any = module_config(
-        1e-3, direct_value_type=float, module_import_base="jaqmc.optimizer"
-    )
+    learning_rate: Annotated[
+        float | Callable[..., Any],
+        ModuleConfig(package="jaqmc.optimizer"),
+    ] = field(default_factory=Standard)
+    max_norm: Annotated[
+        float | Literal["fixed"] | Callable[..., Any] | None,
+        ModuleConfig(package="jaqmc.optimizer"),
+    ] = "fixed"
+    damping: Annotated[
+        float | Callable[..., Any],
+        ModuleConfig(package="jaqmc.optimizer"),
+    ] = 1e-3
     max_cond_num: float | None = 1e7
-    robust_gamma: Any = module_config(
-        "sqrt",
-        direct_value_type=float | Literal["sqrt"] | None,
-        module_import_base="jaqmc.optimizer",
-    )
-    spring_mu: Any = module_config(
-        0.9, direct_value_type=float | None, module_import_base="jaqmc.optimizer"
-    )
-    march_beta: Any = module_config(
-        0.995, direct_value_type=float | None, module_import_base="jaqmc.optimizer"
-    )
+    robust_gamma: Annotated[
+        float | Literal["sqrt"] | Callable[..., Any] | None,
+        ModuleConfig(package="jaqmc.optimizer"),
+    ] = "sqrt"
+    spring_mu: Annotated[
+        float | Callable[..., Any] | None,
+        ModuleConfig(package="jaqmc.optimizer"),
+    ] = 0.9
+    march_beta: Annotated[
+        float | Callable[..., Any] | None,
+        ModuleConfig(package="jaqmc.optimizer"),
+    ] = 0.995
     march_mode: Literal["var", "diff"] = "var"
     eps: float = 1e-8
     score_chunk_size: int | None = 128

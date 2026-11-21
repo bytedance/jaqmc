@@ -103,25 +103,6 @@ class WorkStage[StateT: StageState](ABC):
             extra={"category": self.name},
         )
 
-    def _resolve_paths(
-        self, context: RunContext
-    ) -> tuple[UPath, str, NumPyCheckpointManager]:
-        """Resolve checkpoint save/restore paths for this stage.
-
-        Returns:
-            Tuple of (save_dir, prefix, checkpoint_manager).
-        """
-        save_dir = UPath(context.save_path)
-        restore_path = (
-            UPath(context.restore_path) if context.restore_path is not None else None
-        )
-        prefix = self.name
-        return (
-            save_dir,
-            prefix,
-            NumPyCheckpointManager(save_dir, restore_path, prefix=prefix),
-        )
-
     def run(self, state: StateT, context: RunContext, rngs: PRNGKey) -> StateT:
         """Execute the full run loop.
 
@@ -141,7 +122,12 @@ class WorkStage[StateT: StageState](ABC):
             StageAbort: Caught internally; not propagated to caller.
         """
         is_master = jax.process_index() == 0
-        save_dir, prefix, ckpt = self._resolve_paths(context)
+        save_dir = UPath(context.save_path)
+        restore_path = (
+            UPath(context.restore_path) if context.restore_path is not None else None
+        )
+        prefix = self.name
+        ckpt = NumPyCheckpointManager(save_dir, restore_path, prefix=prefix)
 
         partition = state.partition()
         if context.restore_path is None:

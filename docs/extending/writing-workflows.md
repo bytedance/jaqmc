@@ -52,17 +52,20 @@ The {class}`~jaqmc.wavefunction.Wavefunction` base class is a Flax/Linen [`nn.Mo
 
 ## Step 3: Create the Potential Energy Estimator
 
-The simplest estimator is a plain function with signature `(params, data, stats, state, rngs) -> (dict, state)`:
+An estimator subclasses `PerWalkerEstimator` and implements
+`evaluate_single_walker`:
 
 ```{literalinclude} ../../src/jaqmc/app/hydrogen_atom.py
-:pyobject: potential_energy
+:pyobject: PotentialEnergy
 ```
 
-The signature ``(params, data, stats, state, rngs)`` is the standard estimator interface. ``stats`` (called ``prev_walker_stats`` in the {class}`~jaqmc.estimator.base.Estimator` class interface) contains values from other estimators in the current step (for derived quantities like total energy), and ``state`` carries mutable state across iterations. Simple estimators like this one can ignore most parameters — ``del`` marks them as intentionally unused.
+`evaluate_single_walker` receives the wavefunction parameters, one walker,
+values from earlier estimators, the estimator state, and a random key. Values
+from earlier estimators support derived quantities such as total energy, while
+the state carries data across iterations. A simple estimator can ignore inputs
+it does not need.
 
 The ``energy:`` prefix is a naming convention: any estimator that returns a key starting with ``energy:`` contributes to the total energy, which becomes the VMC optimization target. A {class}`~jaqmc.estimator.total_energy.TotalEnergy` estimator auto-sums all ``energy:``-prefixed keys into a ``total_energy`` value — you'll use it in Step 5.
-
-Pass the function directly in the estimators dict — JaQMC wraps it automatically. For estimators that need configuration fields, subclass {class}`~jaqmc.estimator.base.PerWalkerEstimator` (or {class}`~jaqmc.estimator.base.Estimator` for full-batch estimators) instead — see <project:custom-components/index.md>.
 
 ## Step 4: Initialize Walker Data
 
@@ -92,29 +95,29 @@ The default batching strategy is:
 
 ## Step 5: Build the Training Workflow
 
-With the individual pieces ready, the workflow function assembles them into a training stage — this is the configure phase from the <project:index.md>:
+With the individual pieces ready, the workflow dataclass defines the available
+options and builds its runtime stage when it is invoked:
 
 ```{literalinclude} ../../src/jaqmc/app/hydrogen_atom.py
-:pyobject: hydrogen_atom_train_workflow
+:pyobject: HydrogenAtomTrainWorkflow
 ```
 
-The function creates a {class}`~jaqmc.workflow.vmc.VMCWorkflow`, configures a training stage, and returns the assembled workflow. ``VMCWorkflow`` handles output directory creation, configuration saving, and stage execution. Three patterns in this function deserve explanation:
-
-- ``cfg.use_preset(...)`` sets default config values that the user's YAML can override. Here it configures the console writer to show acceptance rate, energy, and variance.
-- ``cfg.get("energy.kinetic", EuclideanKinetic(...))`` provides a default estimator that users can replace via config. This is how JaQMC makes components swappable — see <project:custom-components/index.md>.
-- ``cfg.scoped("train")`` gives the builder a config view restricted to the ``train`` section, so config reads like ``sampler.steps`` resolve to ``train.sampler.steps`` in the full config.
-
-Estimators can be plain functions (like ``potential_energy``) or class instances. Use a class when the estimator needs configurable parameters or a wavefunction reference — ``EuclideanKinetic`` takes ``wf.evaluate`` so it can differentiate the wavefunction for the Laplacian.
+The class extends {class}`~jaqmc.workflow.vmc.VMCWorkflow`. Configuration is
+loaded before the workflow wires its selected components and builds the stage.
+``VMCWorkflow`` handles output directory creation, configuration saving, and
+stage execution. Field defaults define the command defaults, and YAML or
+dotlist values override them. `HydrogenEstimators` groups the workflow's
+estimators in declaration order, and `EstimatorPipeline` runs only the enabled
+ones (see <project:custom-components/estimators.md>).
 
 ``wf.evaluate`` is the connection point between the wavefunction and everything else. The workflow passes it to ``configure_sample_plan`` (along with an explicit sampler mapping such as ``{"electrons": sampler}``), ``configure_optimizer`` uses it for curvature estimation, and ``configure_loss_grads`` uses it for parameter updates. ``build()`` produces a fully-wired {class}`~jaqmc.workflow.stage.vmc.VMCWorkStage`.
 
 Here ``wf.evaluate`` works as the log-amplitude function because this wavefunction's ``__call__`` returns $\log|\psi|$ directly. Production wavefunctions expose dedicated methods like ``logpsi`` and ``phase_logpsi`` for different consumers — see <project:wavefunctions.md>.
 
-(wiring-principles)=
 :::{admonition} Wiring rule
 :class: note
 
-**The builder wires what it creates; you wire everything else.** Components loaded from config by builder methods (optimizer, writers) receive runtime deps through ``configure_*`` methods. For sampling, resolve or construct a sampler in the workflow and pass it via ``configure_sample_plan(wf.evaluate, {"electrons": sampler})``. Components you construct yourself (like estimators) receive dependencies through their constructor arguments. <project:custom-components/index.md> covers the wiring mechanism in detail.
+**The builder wires the optimizer and loss gradients. The workflow wires everything else.** The hydrogen workflow calls ``wire(self.estimators.energy.kinetic, f_log_psi=self.wf.evaluate)`` before ``configure_estimators(self.estimators)``. <project:custom-components/index.md> covers the mechanism.
 :::
 
 ``data_init`` is set on the workflow rather than on individual stages, since the initial electron configurations are shared across all stages (pretrain, train, evaluation).
@@ -124,10 +127,12 @@ Here ``wf.evaluate`` works as the log-amplitude function because this wavefuncti
 Evaluation uses {class}`~jaqmc.workflow.evaluation.EvaluationWorkflow` instead of ``VMCWorkflow``. The stage needs no optimizer or loss gradients — it only samples and evaluates:
 
 ```{literalinclude} ../../src/jaqmc/app/hydrogen_atom.py
-:pyobject: hydrogen_atom_eval_workflow
+:pyobject: HydrogenAtomEvalWorkflow
 ```
 
-The structure mirrors the training workflow but without ``configure_optimizer`` and ``configure_loss_grads``. The conditional block at the end adds an optional density estimator when enabled via config — ``cfg.get("estimators.enabled.density", False)`` reads a boolean flag, and the ``CartesianDensity`` default defines the histogram grid.
+The structure mirrors the training workflow but without optimizer and loss
+gradient configuration. The optional density estimator defaults to
+`estimators.density.enabled=false`, and `estimators.density.enabled=true` turns it on.
 
 ``EvaluationWorkflow`` creates fresh state before deciding how to initialize
 the run. When ``workflow.source_path`` is set, it loads ``params``,
@@ -144,13 +149,21 @@ workflow:
 
 ## Step 7: Add CLI Support
 
-Wrap your workflow function with ``make_cli`` to get a CLI with YAML config files (``--yml``), dotlist overrides, and dry-run mode (``--dry-run``):
+``make_cli`` provides a CLI with YAML configuration files (``--yml``),
+dotlist overrides, and dry-run mode (``--dry-run``):
 
 ```python
+from jaqmc.app.hydrogen_atom import HydrogenAtomTrainWorkflow
 from jaqmc.utils.cli import make_cli
 
+@make_cli
+def main(configs, dotlist, dry_run):
+    workflow = HydrogenAtomTrainWorkflow.from_config(configs, dotlist)
+    workflow.initialize_runtime(dry_run=dry_run)
+    return workflow(dry_run=dry_run)
+
 if __name__ == "__main__":
-    make_cli(hydrogen_atom_train_workflow)()
+    main()
 ```
 
 Run with ``python my_workflow.py``, or ``jaqmc hydrogen-atom train`` for the built-in example. See <project:../guide/running-workflows.md> for CLI options and YAML configuration.
@@ -170,15 +183,19 @@ def cli():
 
 @cli.add_command
 @make_cli(name="train", help="Train the model.")
-def train(cfg, dry_run):
-    from my_module import my_train_workflow
-    my_train_workflow(cfg, dry_run=dry_run)
+def train(configs, dotlist, dry_run):
+    from my_module import MyTrainWorkflow
+    workflow = MyTrainWorkflow.from_config(configs, dotlist)
+    workflow.initialize_runtime(dry_run=dry_run)
+    return workflow(dry_run=dry_run)
 
 @cli.add_command
 @make_cli(name="evaluate", help="Evaluate a trained model.")
-def evaluate(cfg, dry_run):
-    from my_module import my_eval_workflow
-    my_eval_workflow(cfg, dry_run=dry_run)
+def evaluate(configs, dotlist, dry_run):
+    from my_module import MyEvalWorkflow
+    workflow = MyEvalWorkflow.from_config(configs, dotlist)
+    workflow.initialize_runtime(dry_run=dry_run)
+    return workflow(dry_run=dry_run)
 
 if __name__ == "__main__":
     cli()
@@ -187,10 +204,13 @@ if __name__ == "__main__":
 
 ## Programmatic Usage
 
-Workflow functions return a {class}`~jaqmc.workflow.base.Workflow` instance. Call it to execute, or pass ``dry_run=True`` to validate the configuration without running:
+``from_config`` constructs a {class}`~jaqmc.workflow.base.Workflow` instance,
+and calling the workflow executes it. Passing ``dry_run=True`` to
+``initialize_runtime`` and the workflow call prepares the configuration without
+initializing the distributed runtime or running the stages:
 
 ```python
-from jaqmc.utils.config import ConfigManager
+from jaqmc.app.hydrogen_atom import HydrogenAtomTrainWorkflow
 
 config_dict = {
     "workflow": {"seed": 42, "save_path": "./output"},
@@ -200,40 +220,24 @@ config_dict = {
     },
 }
 
-cfg = ConfigManager(config_dict)
-wf = hydrogen_atom_train_workflow(cfg)
+wf = HydrogenAtomTrainWorkflow.from_config(config_dict)
+wf.initialize_runtime()
 wf()
 
 # dry_run=True configures without executing (useful for inspecting resolved config)
-wf = hydrogen_atom_train_workflow(cfg)
+wf = HydrogenAtomTrainWorkflow.from_config(config_dict)
+wf.initialize_runtime(dry_run=True)
 wf(dry_run=True)
 ```
 
-## Class-Based Workflows
+## Production Workflows
 
-Production workflows (see {ghsrc}`src/jaqmc/app/molecule/` and {ghsrc}`src/jaqmc/app/solid/`) subclass ``VMCWorkflow`` directly. This gives you control over the execution lifecycle — you can override ``run()`` to separate cheap configuration from expensive pre-computation (like SCF calculations):
-
-```python
-class MyWorkflow(VMCWorkflow):
-    def __init__(self, cfg):
-        super().__init__(cfg)
-        self.scf = MySCF(...)  # cheap: just builds the object
-        wf = MyWavefunction(...)
-        sampler = cfg.get("sampler", MCMCSampler)
-        train = VMCWorkStage.builder(cfg.scoped("train"), wf)
-        train.configure_sample_plan(wf.evaluate, {"electrons": sampler})
-        train.configure_optimizer(default="jaqmc.optimizer.kfac", f_log_psi=wf.evaluate)
-        train.configure_estimators(...)
-        train.configure_loss_grads(f_log_psi=wf.evaluate)
-        self.train_stage = train.build()
-        self.data_init = data_init
-
-    def run(self):
-        self.scf.run()  # expensive: only runs during actual execution
-        super().run()
-```
-
-This ensures ``--dry-run`` skips expensive computations while still resolving the full config. The function pattern from Step 5 is simpler when you don't need to override ``run()``.
+Production workflows (see {ghsrc}`src/jaqmc/app/molecule/` and
+{ghsrc}`src/jaqmc/app/solid/`) follow the same structure as the hydrogen
+workflow, with options declared as dataclass fields and stages constructed in
+``build_runtime()``. Placing runtime-only work such as SCF calculations in
+``build_runtime()`` ensures that dry runs inspect the configuration without
+performing it.
 
 ## Next Steps
 

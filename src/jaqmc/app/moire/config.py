@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
+import math
 from dataclasses import field
 from math import sqrt
 
@@ -77,6 +78,15 @@ class MoireConfig:
         if self.moire_lattice_vectors is None:
             self.moire_lattice_vectors = self.lattice_vectors
 
+        if self.is_integer_filling and any(
+            nspin % self.scale != 0 for nspin in self.electron_spins
+        ):
+            raise ValueError(
+                "singlephase integer filling requires each spin channel to be "
+                f"divisible by nk={self.scale}, got "
+                f"electron_spins={self.electron_spins}."
+            )
+
     def _validate_electron_counts(self) -> None:
         if len(self.electron_spins) != 2:
             raise ValueError(
@@ -118,8 +128,7 @@ class MoireConfig:
             raise ValueError(
                 f"supercell_matrix must have shape (2, 2), got {supercell.shape}."
             )
-        if not np.array_equal(supercell, np.round(supercell)):
-            raise ValueError("supercell_matrix must have integer entries.")
+
         det = round(abs(np.linalg.det(supercell)))
         if det <= 0:
             raise ValueError("supercell_matrix must have non-zero determinant.")
@@ -133,6 +142,24 @@ class MoireConfig:
     def scale(self) -> int:
         """Number of primitive computational cells in the simulation cell."""
         return abs(round(np.linalg.det(np.asarray(self.supercell_matrix))))
+
+    @property
+    def filling(self) -> float:
+        """Number of electrons per physical moire unit cell."""
+        lattice_area = abs(np.linalg.det(np.asarray(self.lattice_vectors)))
+        moire_lattice = (
+            self.lattice_vectors
+            if self.moire_lattice_vectors is None
+            else self.moire_lattice_vectors
+        )
+        moire_area = abs(np.linalg.det(np.asarray(moire_lattice)))
+        return float(self.nelec / (self.scale * lattice_area / moire_area))
+
+    @property
+    def is_integer_filling(self) -> bool:
+        """Whether the system filling is an integer."""
+        filling = self.filling
+        return math.isclose(filling, round(filling))
 
     @property
     def supercell_lattice(self) -> np.ndarray:

@@ -201,16 +201,14 @@ def test_ph_forward_laplacian_total_energy_matches_standard_backend(
 
 
 def test_ph_energy_rejects_unknown_kinetic_backend_at_init():
-    """Unknown ``kinetic_backend`` raises at ``init()`` rather than at evaluate."""
-    data = _make_simple_ph_data(jnp.array([0.7, 0.1, -0.2]), jnp.array([0.0, 0.0, 0.0]))
-    ph = PHEnergy(
-        f_log_psi=_gaussian_logpsi(0.3),
-        atom_symbols=["Fe"],
-        ph=["Fe"],
-        kinetic_backend="definitely_not_a_backend",  # type: ignore[arg-type]
-    )
+    """Unknown ``kinetic_backend`` raises at construction rather than at evaluate."""
     with pytest.raises(ValueError, match="kinetic_backend"):
-        ph.init(data, jax.random.key(0))
+        PHEnergy(
+            f_log_psi=_gaussian_logpsi(0.3),
+            atom_symbols=["Fe"],
+            ph=["Fe"],
+            kinetic_backend="definitely_not_a_backend",  # type: ignore[arg-type]
+        )
 
 
 def test_ph_energy_rejects_ph_request_with_no_matching_atom_at_init():

@@ -6,7 +6,6 @@
 import click
 
 from jaqmc.utils.cli import make_cli
-from jaqmc.utils.config import ConfigManager
 
 
 @click.group(help="Electric-dipole Lorentz integral transform workflows.")
@@ -16,15 +15,19 @@ def lit() -> None:
 
 @lit.add_command
 @make_cli(name="run", help="Compute a molecular electric-dipole LIT spectrum.")
-def run_lit(cfg: ConfigManager, dry_run: bool) -> None:
+def run_lit(configs, dotlist, dry_run: bool) -> None:
     from jaqmc_contrib_lit.workflow import LITWorkflow
 
-    LITWorkflow(cfg)(dry_run)
+    workflow = LITWorkflow.from_config(configs, dotlist)
+    workflow.initialize_runtime(dry_run)
+    workflow(dry_run)
 
 
 @lit.add_command
 @make_cli(name="invert", help="Fit saved raw LIT archives on the CPU.")
-def invert_lit(cfg: ConfigManager, dry_run: bool) -> None:
+def invert_lit(configs, dotlist, dry_run: bool) -> None:
     from jaqmc_contrib_lit.postprocess import LITInversionPostprocessor
 
-    LITInversionPostprocessor(cfg)(dry_run)
+    postprocessor = LITInversionPostprocessor.from_config(configs, dotlist)
+    postprocessor.logging.apply()
+    postprocessor(dry_run)

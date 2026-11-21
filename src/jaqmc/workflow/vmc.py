@@ -1,99 +1,102 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+"""Common VMC workflow runtime."""
+
 import time
 from collections.abc import Callable
+from dataclasses import field
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import Annotated, Literal
 
 import jax
 from jax.experimental import multihost_utils
 
 from jaqmc.array_types import PRNGKey
 from jaqmc.data import BatchedData, Data
+from jaqmc.estimator.loss_grad import LossAndGrad
+from jaqmc.optimizer.base import OptimizerLike
+from jaqmc.optimizer.kfac import KFACOptimizer
+from jaqmc.optimizer.optax import adam
+from jaqmc.optimizer.schedule import Constant
+from jaqmc.utils.config import ModuleConfig, configurable_dataclass
+from jaqmc.utils.wiring import UNSET, check_wired, runtime_dep
+from jaqmc.writer import Writer
+from jaqmc.writer.console import ConsoleWriter
+from jaqmc.writer.csv import CSVWriter
+from jaqmc.writer.npy import NPYWriter
 
 from .base import Workflow, init_batched_data
-from .stage import VMCWorkStage
 from .stage.base import WorkStage
+from .stage.vmc import VMCWorkStage, VMCWorkStageConfig
+
+type WriterMap = dict[
+    str, Annotated[Writer | None, ModuleConfig(package="jaqmc.writer")]
+]
+
+
+def stage_writers(console_fields: str | None = None) -> WriterMap:
+    """Return the default console, NPY, and CSV writers for a stage.
+
+    Args:
+        console_fields: Console field spec. ``None`` keeps the console default.
+
+    Returns:
+        Writer instances keyed by ``console``, ``npy``, and ``csv``.
+    """
+    console = (
+        ConsoleWriter()
+        if console_fields is None
+        else ConsoleWriter(fields=console_fields)
+    )
+    return {"console": console, "npy": NPYWriter(), "csv": CSVWriter()}
+
+
+@configurable_dataclass
+class VMCTrainConfig:
+    """Configuration for a VMC training stage."""
+
+    run: VMCWorkStageConfig = field(default_factory=VMCWorkStageConfig)
+    optim: Annotated[OptimizerLike, ModuleConfig(package="jaqmc.optimizer")] = field(
+        default_factory=KFACOptimizer
+    )
+    grads: Annotated[LossAndGrad, ModuleConfig(package="jaqmc.estimator")] = field(
+        default_factory=LossAndGrad
+    )
+    writers: WriterMap = field(default_factory=stage_writers)
+
+
+@configurable_dataclass
+class VMCPretrainConfig:
+    """Configuration for a VMC pretraining stage."""
+
+    run: VMCWorkStageConfig = field(default_factory=VMCWorkStageConfig)
+    optim: Annotated[OptimizerLike, ModuleConfig(package="jaqmc.optimizer")] = field(
+        default_factory=lambda: adam(learning_rate=Constant(rate=3e-4))
+    )
+    writers: WriterMap = field(default_factory=stage_writers)
 
 
 def _samplers_compatible(from_stage: VMCWorkStage, to_stage: VMCWorkStage) -> bool:
-    """Check if sampler state can be transferred between two stages.
-
-    Sampler state can be transferred if both stages use the same sampler
-    types for each data field.
-
-    Args:
-        from_stage: Source stage with existing sampler state.
-        to_stage: Target stage that may reuse the sampler state.
-
-    Returns:
-        True if sampler states are compatible between the stages.
-    """
+    """Return whether sampler state can be transferred between stages."""
     from_samplers = from_stage.sample_plan.samplers
     to_samplers = to_stage.sample_plan.samplers
-    if from_samplers.keys() != to_samplers.keys():
-        return False
-    return all(type(from_samplers[k]) is type(to_samplers[k]) for k in from_samplers)
+    return from_samplers.keys() == to_samplers.keys() and all(
+        type(from_samplers[name]) is type(to_samplers[name]) for name in from_samplers
+    )
 
 
+@configurable_dataclass
 class VMCWorkflow(Workflow):
-    """VMC workflow with pretrain -> train pipeline.
+    """VMC workflow with optional pretraining and a training stage."""
 
-    Subclass and set stages in ``__init__``::
-
-        class MyWorkflow(VMCWorkflow):
-            def __init__(self, cfg):
-                super().__init__(cfg)
-                train = VMCWorkStage.builder(cfg.scoped("train"), wf)
-                sampler = cfg.get("sampler", MCMCSampler)
-                train.configure_sample_plan(wf.logpsi, {"electrons": sampler})
-                train.configure_optimizer(
-                    default="jaqmc.optimizer.kfac", f_log_psi=wf.logpsi
-                )
-                train.configure_estimators(...)
-                train.configure_loss_grads(f_log_psi=wf.logpsi)
-                self.train_stage = train.build()
-                self.data_init = data_init
-
-        MyWorkflow(cfg)()
-
-    Attributes:
-        train_stage: The main training stage.
-        pretrain_stage: Optional pretraining stage.
-        data_init: Function to initialize electron configurations.
-    """
-
-    config_namespace: ClassVar[str] = "train"
-    data_init: Callable[[int, PRNGKey], Data | BatchedData]
-    pretrain_stage: VMCWorkStage | None = None
-    train_stage: VMCWorkStage
-
-    def prepare(self, dry_run: bool = False) -> None:
-        super().prepare(dry_run)
-        if not hasattr(self, "data_init") or not callable(self.data_init):
-            raise ValueError(f"{type(self).__name__}.data_init is not configured")
-        if not hasattr(self, "train_stage"):
-            raise ValueError(f"{type(self).__name__}.train_stage is not configured")
-        if not isinstance(self.train_stage, VMCWorkStage):
-            raise ValueError(
-                f"{type(self).__name__}.train_stage must be a VMCWorkStage. "
-                f"Got {type(self.train_stage)}."
-            )
-        if self.pretrain_stage is not None and not isinstance(
-            self.pretrain_stage, VMCWorkStage
-        ):
-            raise ValueError(
-                f"{type(self).__name__}.pretrain_stage must be a VMCWorkStage. "
-                f"Got {type(self.pretrain_stage)}."
-            )
+    workflow_name = "train"
+    data_init: Callable[[int, PRNGKey], Data | BatchedData] = runtime_dep()
+    pretrain_stage: VMCWorkStage | None = runtime_dep(default=None)
+    train_stage: VMCWorkStage = runtime_dep()
 
     def run(self) -> None:
-        """Execute the pretrain -> train pipeline.
-
-        Override in subclasses to inject pre-run logic (e.g. SCF),
-        then call ``super().run()``.
-        """
+        """Execute the pretrain then training pipeline."""
         # We must use the same seed across all processes to ensure that replicated
         # parameters are initialized identically. Generation of different keys on
         # different devices (across processes) happens later. So no fold_in here.
@@ -103,7 +106,7 @@ class VMCWorkflow(Workflow):
             )
         )
         rngs = jax.random.key(seed)
-        context = self.run_context
+        context = self._make_run_context()
 
         rngs, data_rngs = jax.random.split(rngs)
         batched_data = init_batched_data(
@@ -116,21 +119,22 @@ class VMCWorkflow(Workflow):
                 state_rngs, batched_data=batched_data
             )
             pretrain_state = self.pretrain_stage.run(pretrain_state, context, run_rngs)
-            train_inherited_state = {
+            inherited_state = {
                 "params": pretrain_state.params,
                 "batched_data": pretrain_state.batched_data,
-                "sampler_state": pretrain_state.sampler_state
-                if _samplers_compatible(self.pretrain_stage, self.train_stage)
-                else None,
+                "sampler_state": (
+                    pretrain_state.sampler_state
+                    if _samplers_compatible(self.pretrain_stage, self.train_stage)
+                    else None
+                ),
             }
             # Train stage should not attempt to restore any more after we done pretrain.
             context.restore_path = None
         else:
-            train_inherited_state = {"batched_data": batched_data}
-
+            inherited_state = {"batched_data": batched_data}
         rngs, state_rngs, run_rngs = jax.random.split(rngs, 3)
-        train_state = self.train_stage.create_state(state_rngs, **train_inherited_state)
-        train_state = self.train_stage.run(train_state, context, run_rngs)
+        train_state = self.train_stage.create_state(state_rngs, **inherited_state)
+        self.train_stage.run(train_state, context, run_rngs)
 
     def stage_to_run_first(self) -> Literal["train", "pretrain"]:
         restore_path = self.restore_path
@@ -145,25 +149,22 @@ class VMCWorkflow(Workflow):
         stage: Literal["pretrain", "train"] = "train",
         rngs: PRNGKey | None = None,
     ):
-        """Restore state from a checkpoint.
+        """Restore state for a configured VMC stage.
 
-        Args:
-            checkpoint_path: Path to checkpoint file or directory.
-            stage: Name of the stage to restore (``"train"`` or
-                ``"pretrain"``).
-            rngs: Random key for ``create_state``. Defaults to ``jax.random.key(0)``.
+        Builds the workflow runtime first if it has not been initialized yet.
 
         Returns:
-            Restored state
+            The restored stage state.
 
         Raises:
-            ValueError: Invalid stage name passed.
+            ValueError: If the requested stage is not configured.
         """
-        if rngs is None:
-            rngs = jax.random.key(0)
-        stage_obj: WorkStage
+        if self.train_stage is UNSET or self.data_init is UNSET:
+            self.build_runtime()
+        check_wired(self)
+        rngs = jax.random.key(0) if rngs is None else rngs
         if stage == "pretrain" and self.pretrain_stage is not None:
-            stage_obj = self.pretrain_stage
+            stage_obj: WorkStage = self.pretrain_stage
         elif stage == "train":
             stage_obj = self.train_stage
         else:

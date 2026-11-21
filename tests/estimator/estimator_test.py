@@ -1,25 +1,26 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+from dataclasses import dataclass, field
 from operator import itemgetter
+from typing import Annotated, Any, cast
 
 import jax
 import numpy as np
 import pytest
 from jax import numpy as jnp
+from pydantic import ValidationError
 
 from jaqmc.data import BatchedData, Data
 from jaqmc.estimator import (
     Estimator,
+    EstimatorCollection,
     EstimatorPipeline,
-    FunctionEstimator,
     PerWalkerEstimator,
+    WithToggles,
 )
 from jaqmc.estimator.base import mean_reduce
-
-
-def _dummy_evaluate(params, data, stats, state, rngs):
-    return {"value": 1.0}, state
+from jaqmc.utils.config import config_to_dict, configurable_dataclass, parse_config
 
 
 class _BatchEstimator(Estimator):
@@ -54,11 +55,131 @@ class _LocalValueEstimator(PerWalkerEstimator):
         return {"value": data.x * data.scale + prev_walker_stats["bias"]}, state
 
 
-def test_function_estimator_delegates_to_fn():
-    est = FunctionEstimator(_dummy_evaluate)
-    result, state = est.evaluate_single_walker(None, None, {}, "s", None)
-    assert result == {"value": 1.0}
-    assert state == "s"
+@dataclass
+class _NestedEstimatorCollection(EstimatorCollection):
+    first: Estimator
+    second: Estimator
+
+
+@dataclass
+class _EstimatorCollection(EstimatorCollection):
+    before: Estimator
+    nested: _NestedEstimatorCollection
+    after: Estimator
+
+
+def test_estimator_collection_flattens_nested_estimators_in_order():
+    before = _BatchEstimator("before", 1.0)
+    first = _BatchEstimator("first", 2.0)
+    second = _BatchEstimator("second", 3.0)
+    after = _BatchEstimator("after", 4.0)
+
+    flattened = dict(
+        _EstimatorCollection(
+            before=before,
+            nested=_NestedEstimatorCollection(first=first, second=second),
+            after=after,
+        )
+    )
+
+    assert list(flattened) == ["before", "first", "second", "after"]
+    assert flattened == {
+        "before": before,
+        "first": first,
+        "second": second,
+        "after": after,
+    }
+
+
+def test_estimator_collection_skips_estimators_disabled_after_construction():
+    collection = _EstimatorCollection(
+        before=_BatchEstimator("before", 1.0),
+        nested=_NestedEstimatorCollection(
+            first=_BatchEstimator("first", 2.0),
+            second=_BatchEstimator("second", 3.0),
+        ),
+        after=_BatchEstimator("after", 4.0),
+    )
+
+    collection.nested.set_enabled(second=False)
+    assert not collection.is_enabled("second")
+    assert collection.is_enabled("first")
+    assert list(collection) == ["before", "first", "after"]
+    assert "second" not in collection
+
+    collection.set_enabled(nested=False)
+    assert not collection.is_enabled("first")
+    assert list(collection) == ["before", "after"]
+    assert list(EstimatorPipeline(collection).estimators) == ["before", "after"]
+
+    with pytest.raises(AttributeError):
+        collection.set_enabled(second=False)
+
+
+def test_with_toggles_rejects_unknown_enabled_keys():
+    @configurable_dataclass
+    class _Collection(EstimatorCollection):
+        first: _LocalValueEstimator = field(default_factory=_LocalValueEstimator)
+
+    with pytest.raises(ValueError, match="do not match any field"):
+
+        @configurable_dataclass
+        class _BadSchema:
+            estimators: Annotated[_Collection, WithToggles(typo=True)] = field(
+                default_factory=_Collection
+            )
+
+
+def test_with_toggles_customizes_workflow_togglable_estimators():
+    @configurable_dataclass
+    class _SharedEstimators(EstimatorCollection):
+        required: _LocalValueEstimator = field(default_factory=_LocalValueEstimator)
+        optional: _LocalValueEstimator = field(default_factory=_LocalValueEstimator)
+
+    @configurable_dataclass
+    class _TrainSchema:
+        estimators: Annotated[_SharedEstimators, WithToggles(optional=False)] = field(
+            default_factory=_SharedEstimators
+        )
+
+    @configurable_dataclass
+    class _EvalSchema:
+        estimators: Annotated[
+            _SharedEstimators, WithToggles(required=True, optional=False)
+        ] = field(default_factory=_SharedEstimators)
+
+    assert config_to_dict(_TrainSchema()) == {
+        "estimators": {
+            "required": {"vmap_chunk_size": None},
+            "optional": {"enabled": False, "vmap_chunk_size": None},
+        }
+    }
+    assert config_to_dict(_EvalSchema()) == {
+        "estimators": {
+            "required": {"enabled": True, "vmap_chunk_size": None},
+            "optional": {"enabled": False, "vmap_chunk_size": None},
+        }
+    }
+
+    with pytest.raises(ValidationError, match="Unexpected keyword argument"):
+        parse_config(_TrainSchema, {}, ["estimators.required.enabled=false"])
+
+    parsed_eval = parse_config(
+        _EvalSchema,
+        {},
+        ["estimators.required.enabled=false", "estimators.optional.enabled=true"],
+    )
+    assert list(parsed_eval.estimators) == ["optional"]
+    assert config_to_dict(parsed_eval)["estimators"]["required"]["enabled"] is False
+    assert config_to_dict(parsed_eval)["estimators"]["optional"]["enabled"] is True
+
+
+def test_pipeline_rejects_plain_estimator_functions():
+    def evaluate(params, data, stats, state, rngs):
+        return {"value": 1.0}, state
+
+    with pytest.raises(TypeError, match="Estimator instances only"):
+        EstimatorPipeline(cast(Any, {"value": evaluate}))
 
 
 def test_local_estimator_chunks_default_vmap():

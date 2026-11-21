@@ -64,6 +64,7 @@ class LapNetWavefunction(MoleculeWavefunctionModule):
         use_orbital_bias: Whether to use bias in the orbital projection layer.
         rescale: If True, use log-scaled atom-electron input features.
         jastrow_alpha_init: Initial value for Jastrow alpha parameters.
+        full_det: Whether to use full determinants (must be ``True``).
     """
 
     precision: Literal["standard", "fp16_jac", "fp16_mixed"] = "standard"
@@ -129,11 +130,6 @@ class LapNetWavefunction(MoleculeWavefunctionModule):
                 )
             case JastrowType.NONE:
                 self.jastrow_layer = None
-            case _:
-                raise ValueError(
-                    f"Invalid jastrow: {self.jastrow!r}. "
-                    f"Must be one of: {[e.value for e in JastrowType]}"
-                )
 
     @property
     def contraction_mode(self) -> ContractionMode:

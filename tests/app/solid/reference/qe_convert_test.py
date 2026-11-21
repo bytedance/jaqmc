@@ -9,7 +9,7 @@ import pytest
 from jax import numpy as jnp
 
 from jaqmc.app.solid.config import SolidAtomConfig, SolidConfig
-from jaqmc.app.solid.config.base import LatticeParams
+from jaqmc.app.solid.config.base import LatticeParameters
 from jaqmc.app.solid.reference import (
     PlaneWaveSolidReference,
     SolidReference,
@@ -426,8 +426,8 @@ def test_qe_convert_reads_real_qe_output(
     output_path = tmp_path / "reference.npz"
     reference = qe.convert_save_directory(save_dir, output_path)
     system = SolidConfig(
-        lattice=LatticeParams(a=4.0, b=4.0, c=4.0),
-        atom_configs=[
+        lattice=LatticeParameters(a=4.0, b=4.0, c=4.0),
+        atoms=[
             SolidAtomConfig(symbol="H", frac_coords=[0.0, 0.0, 0.0]),
             SolidAtomConfig(symbol="H", frac_coords=[0.35, 0.0, 0.0]),
         ],

@@ -61,7 +61,6 @@ import numpy as np
 import pandas as pd
 
 from jaqmc.app.molecule import MoleculeTrainWorkflow
-from jaqmc.utils.config import ConfigManager
 ```
 
 We'll use a temporary directory for this tutorial. Any previous runs in the
@@ -83,12 +82,14 @@ First, let's run a short VMC training on a hydrogen atom. We'll use a small netw
 jaqmc molecule train --yml tutorial-train.yml
 ```
 
-Here, `tutorial-train.yml` stands for a YAML config with the same settings as the Python `ConfigManager(...)` configuration shown below. Here we use the Python API which is more convenient in notebooks.
+Here, `tutorial-train.yml` stands for a YAML config with the same settings as
+the typed workflow configuration shown below. The Python API keeps this notebook
+self-contained.
 
 ```{code-cell} ipython3
 :tags: [remove-output]
 
-cfg = ConfigManager(
+workflow = MoleculeTrainWorkflow.from_config(
     {
         "system": {
             "atoms": [{"symbol": "H", "coords": [0.0, 0.0, 0.0]}],
@@ -100,8 +101,7 @@ cfg = ConfigManager(
         "train": {"run": {"iterations": 100}},
     }
 )
-
-workflow = MoleculeTrainWorkflow(cfg)
+workflow.initialize_runtime()
 workflow()  # Run the workflow
 ```
 

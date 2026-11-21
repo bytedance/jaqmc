@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from jaqmc.utils.wiring import check_wired, runtime_dep, wire
+from jaqmc.utils.wiring import UNSET, check_wired, runtime_dep, wire
 
 
 @dataclass
@@ -18,25 +18,6 @@ class _Component:
 @dataclass
 class _NoDeps:
     value: int = 0
-
-
-# --- _LateInit error messages ---
-
-
-class TestLateInitErrorMessage:
-    def test_unwired_access_shows_class_name(self):
-        comp = _Component.__new__(_Component)
-        object.__setattr__(comp, "config_field", "x")
-        object.__setattr__(comp, "optional_dep", "y")
-        with pytest.raises(AttributeError, match=r"_Component\.required_dep"):
-            _ = comp.required_dep
-
-    def test_unwired_access_suggests_fix(self):
-        comp = _Component.__new__(_Component)
-        object.__setattr__(comp, "config_field", "x")
-        object.__setattr__(comp, "optional_dep", "y")
-        with pytest.raises(AttributeError, match=r"wire\(instance"):
-            _ = comp.required_dep
 
 
 # --- wire() ---
@@ -99,3 +80,8 @@ class TestCheckWired:
     def test_non_dataclass_is_noop(self):
         check_wired("not a dataclass")  # should not raise
         check_wired(42)  # should not raise
+
+    def test_unset_sentinel_repr(self):
+        comp = _Component()
+        assert comp.required_dep is UNSET
+        assert repr(UNSET) == "<UNSET>"

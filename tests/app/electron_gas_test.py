@@ -9,13 +9,16 @@ import jax
 import numpy as np
 import pytest
 from jax import numpy as jnp
+from pydantic import ValidationError
 
 from jaqmc.app.electron_gas.config import ElectronGasConfig
 from jaqmc.app.electron_gas.data import data_init
 from jaqmc.app.electron_gas.reference import FreeElectronReference
-from jaqmc.app.electron_gas.workflow import configure_system
+from jaqmc.app.electron_gas.workflow import (
+    ElectronGasEvalWorkflow,
+    ElectronGasTrainWorkflow,
+)
 from jaqmc.estimator.kinetic import EuclideanKinetic, LaplacianMode
-from jaqmc.utils.config import ConfigManager
 from tests.jax_version import requires_forward_laplacian
 
 
@@ -36,7 +39,7 @@ def test_config_defines_wigner_seitz_volume() -> None:
     with pytest.raises(ValueError, match="Impossible"):
         ElectronGasConfig(rs=1.0, nelectrons=2, s_z=0.5)
 
-    with pytest.raises(ValueError, match="positive integer"):
+    with pytest.raises(ValidationError, match="valid integer"):
         ElectronGasConfig(rs=1.0, nelectrons=14.5, s_z=0)  # type: ignore[arg-type]
 
 
@@ -93,7 +96,7 @@ def test_free_electron_reference_obeys_twisted_boundary() -> None:
 
 
 def test_uniform_data_and_solid_wavefunction_reuse() -> None:
-    manager = ConfigManager(
+    workflow = ElectronGasTrainWorkflow.from_config(
         {
             "system": {
                 "rs": 1.5,
@@ -108,7 +111,8 @@ def test_uniform_data_and_solid_wavefunction_reuse() -> None:
             },
         }
     )
-    config, wavefunction, _, _ = configure_system(manager)
+    workflow.build_runtime()
+    config, wavefunction = workflow.system, workflow.wf
     batched = data_init(config, size=4, rngs=jax.random.key(0))
 
     assert batched.data.electrons.shape == (4, 2, 3)
@@ -132,21 +136,38 @@ def test_uniform_data_and_solid_wavefunction_reuse() -> None:
     assert jnp.allclose(phase_ratio, expected_phase, atol=1e-6)
 
 
-def test_electron_gas_rejects_block_determinants() -> None:
-    manager = ConfigManager(
-        {
-            "system": {"rs": 1.0, "nelectrons": 2, "s_z": 0},
-            "wf": {"full_det": False},
-        }
-    )
-
-    with pytest.raises(ValueError, match="full_det=True"):
-        configure_system(manager)
+@pytest.mark.parametrize(
+    ("workflow_cls", "wf_config", "message"),
+    [
+        (ElectronGasTrainWorkflow, {"full_det": False}, "full_det=True"),
+        (ElectronGasEvalWorkflow, {"full_det": False}, "full_det=True"),
+        (
+            ElectronGasTrainWorkflow,
+            {"envelope_type": "abs_isotropic"},
+            "envelope_type='null'",
+        ),
+        (
+            ElectronGasEvalWorkflow,
+            {"envelope_type": "abs_isotropic"},
+            "envelope_type='null'",
+        ),
+    ],
+)
+def test_electron_gas_rejects_incompatible_wavefunctions_during_parsing(
+    workflow_cls, wf_config, message
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        workflow_cls.from_config(
+            {
+                "system": {"rs": 1.0, "nelectrons": 2, "s_z": 0},
+                "wf": wf_config,
+            }
+        )
 
 
 @requires_forward_laplacian
 def test_sparse_forward_laplacian_matches_dense_and_scan() -> None:
-    manager = ConfigManager(
+    workflow = ElectronGasTrainWorkflow.from_config(
         {
             "system": {
                 "rs": 1.0,
@@ -161,7 +182,8 @@ def test_sparse_forward_laplacian_matches_dense_and_scan() -> None:
             },
         }
     )
-    config, wavefunction, _, _ = configure_system(manager)
+    workflow.build_runtime()
+    config, wavefunction = workflow.system, workflow.wf
     batched = data_init(config, size=1, rngs=jax.random.key(0))
     one_walker = dataclasses.replace(batched.data, electrons=batched.data.electrons[0])
     params = wavefunction.init_params(one_walker, jax.random.key(1))

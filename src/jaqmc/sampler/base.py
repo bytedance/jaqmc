@@ -4,7 +4,7 @@
 from collections.abc import Mapping
 from dataclasses import replace
 from functools import partial
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 import jax
 from jax import numpy as jnp
@@ -63,6 +63,7 @@ class SamplerStep[StateT: ArrayLikeTree](Protocol):
         """
 
 
+@runtime_checkable
 class SamplerLike[StateT: ArrayLikeTree](Protocol):
     """Protocol for samplers.
 
@@ -73,8 +74,11 @@ class SamplerLike[StateT: ArrayLikeTree](Protocol):
         StateT: Sampler state type threaded through ``init`` and ``step``.
     """
 
-    init: SamplerInit[StateT]
-    step: SamplerStep[StateT]
+    @property
+    def init(self) -> SamplerInit[StateT]: ...
+
+    @property
+    def step(self) -> SamplerStep[StateT]: ...
 
 
 class SamplePlan:

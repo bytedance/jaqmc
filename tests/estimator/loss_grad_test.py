@@ -1,6 +1,7 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+from dataclasses import field
 from operator import itemgetter
 
 import jax
@@ -11,7 +12,7 @@ from jax import numpy as jnp
 
 from jaqmc.estimator.loss_grad import LossAndGrad
 from jaqmc.utils.clip import clip_observable
-from jaqmc.utils.config import ConfigManager
+from jaqmc.utils.config import config_to_yaml, configurable_dataclass, parse_config
 
 
 def _mock_all_gather_identity(monkeypatch):
@@ -92,15 +93,20 @@ def test_loss_and_grad_complex_gradient():
 
 
 def test_loss_and_grad_config_roundtrip_preserves_clip_method():
-    cfg = ConfigManager({"grads": {"clip_method": "mad", "clip_scale": 7.0}})
-    grads = cfg.get("grads", LossAndGrad())
+    @configurable_dataclass
+    class GradsConfig:
+        grads: LossAndGrad = field(default_factory=LossAndGrad)
+
+    grads = parse_config(
+        GradsConfig, {"grads": {"clip_method": "mad", "clip_scale": 7.0}}
+    ).grads
 
     assert grads.clip_method == "mad"
     np.testing.assert_allclose(grads.clip_scale, 7.0)
 
-    cfg2 = ConfigManager(yaml.safe_load(cfg.to_yaml()))
-    grads2 = cfg2.get("grads", LossAndGrad())
+    grads2 = parse_config(
+        GradsConfig, yaml.safe_load(config_to_yaml(GradsConfig(grads=grads)))
+    ).grads
 
     assert grads2.clip_method == "mad"
     np.testing.assert_allclose(grads2.clip_scale, 7.0)
-    cfg2.finalize()

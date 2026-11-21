@@ -65,11 +65,10 @@ import matplotlib.pyplot as plt
 from jax import numpy as jnp
 
 from jaqmc.app.molecule import MoleculeTrainWorkflow
-from jaqmc.app.molecule.hamiltonian import potential_energy
+from jaqmc.app.molecule.hamiltonian import PotentialEnergy
 from jaqmc.estimator import EstimatorPipeline
 from jaqmc.estimator.kinetic import EuclideanKinetic
 from jaqmc.utils import parallel_jax
-from jaqmc.utils.config import ConfigManager
 ```
 
 We'll use a temporary directory for this tutorial. Any previous runs in the
@@ -91,12 +90,14 @@ First, let's run a short VMC training to generate checkpoints we can load. If yo
 jaqmc molecule train --yml tutorial-train.yml
 ```
 
-Here, `tutorial-train.yml` stands for a YAML config with the same settings as the Python `ConfigManager(...)` configuration shown below. In this notebook we use the Python API so the training run and the later analysis stay in one executable document.
+Here, `tutorial-train.yml` stands for a YAML config with the same settings as
+the typed workflow configuration shown below. The Python API keeps the training
+run and later analysis in one executable document.
 
 ```{code-cell} ipython3
 :tags: [remove-output]
 
-cfg = ConfigManager(
+workflow = MoleculeTrainWorkflow.from_config(
     {
         "system": {
             "atoms": [{"symbol": "H", "coords": [0.0, 0.0, 0.0]}],
@@ -109,7 +110,7 @@ cfg = ConfigManager(
     }
 )
 
-workflow = MoleculeTrainWorkflow(cfg)
+workflow.initialize_runtime()
 workflow()  # Run the workflow
 ```
 
@@ -181,14 +182,15 @@ print(f"  electron position: {single_data.electrons}")
 
 JaQMC provides built-in estimators for computing physical observables. Each estimator implements `evaluate_single_walker` for a single walker, and `evaluate_batch_walkers` automatically vmaps it over the batch of walkers.
 
-We'll use the built-in {class}`~jaqmc.estimator.kinetic.EuclideanKinetic` estimator and the `potential_energy` function. {class}`~jaqmc.estimator.base.EstimatorPipeline` accepts both {class}`~jaqmc.estimator.base.Estimator` subclass instances and plain functions with the estimator signature:
+We'll use the built-in {class}`~jaqmc.estimator.kinetic.EuclideanKinetic` estimator and the molecular {class}`~jaqmc.app.molecule.hamiltonian.PotentialEnergy` estimator. {class}`~jaqmc.estimator.base.EstimatorPipeline` takes a mapping of names to estimator instances. `EuclideanKinetic` is constructed with the wavefunction's `f_log_psi`, while `PotentialEnergy` has no runtime dependencies:
 
 ```{code-cell} ipython3
 kinetic_est = EuclideanKinetic(f_log_psi=wf.logpsi, data_field="electrons")
+potential_est = PotentialEnergy()
 
 estimators = {
     "kinetic": kinetic_est,
-    "potential": potential_energy,
+    "potential": potential_est,
 }
 
 pipeline = EstimatorPipeline(estimators)
@@ -199,7 +201,7 @@ estimator_state = pipeline.init(batched_data, jax.random.key(0))
 
 Internally, `evaluate_batch_walkers` uses `jax.vmap` to map `evaluate_single_walker` over all walkers. However, the restored checkpoint data carries [named sharding](inv:jax:*:doc#notebooks/shard_map) metadata (e.g. `qmc_batch_axis`) from training, while freshly created arrays like random keys do not. Mixing these inside a single `vmap` triggers a JAX error about inconsistent axis specs.
 
-The solution is the same one the training loop uses: wrap the call in `jit_sharded`, which combines `jax.jit` with [`shard_map`](inv:jax:*:doc#notebooks/shard_map). Inside a `shard_map`, each device only sees its own **local shard** — plain arrays with no global sharding metadata — so the `vmap` inside `evaluate_batch` works without conflict.
+The solution is the same one the training loop uses: wrap the call in `jit_sharded`, which combines `jax.jit` with [`shard_map`](inv:jax:*:doc#notebooks/shard_map). Inside a `shard_map`, each device only sees its own **local shard** — plain arrays with no global sharding metadata — so the `vmap` inside `evaluate_batch_walkers` works without conflict.
 
 This approach works on both **single-device** (CPU, single GPU) and **multi-device** (multi-GPU) setups. On a single device the mesh is trivial (one shard = the whole array), so there is no overhead.
 
@@ -271,7 +273,9 @@ def compute_local_energy(params, data):
     kinetic_stats, _ = kinetic_est.evaluate_single_walker(
         params, data, {}, None, jax.random.key(0)
     )
-    potential_stats, _ = potential_energy(params, data, {}, None, jax.random.key(0))
+    potential_stats, _ = potential_est.evaluate_single_walker(
+        params, data, {}, None, jax.random.key(0)
+    )
     return kinetic_stats["energy:kinetic"] + potential_stats["energy:potential"]
 
 compute_local_energies = parallel_jax.jit_sharded(

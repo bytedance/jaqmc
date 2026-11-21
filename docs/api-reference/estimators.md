@@ -11,15 +11,14 @@ API reference for built-in estimators. For background, formulas, and configurati
 .. autoclass:: jaqmc.estimator.PerWalkerEstimator
    :members: evaluate_single_walker, evaluate_batch_walkers
 
-.. autoclass:: jaqmc.estimator.FunctionEstimator
-   :members:
+.. autoclass:: jaqmc.estimator.EstimatorCollection
+   :members: is_enabled, set_enabled
+
+.. autofunction:: jaqmc.estimator.WithToggles
 
 .. autoclass:: jaqmc.estimator.EstimatorPipeline
    :members: init, evaluate, finalize_stats, digest
 
-.. autotype:: jaqmc.estimator.EstimatorLike
-
-.. autotype:: jaqmc.estimator.EstimateFn
 ```
 
 ## Built-in estimators
@@ -53,6 +52,7 @@ API reference for built-in estimators. For background, formulas, and configurati
 
 .. autoclass:: jaqmc.estimator.ecp.quadrature.ECPQuadrature
    :members:
+   :undoc-members:
 ```
 
 | `ECPQuadrature` value | Integration points |

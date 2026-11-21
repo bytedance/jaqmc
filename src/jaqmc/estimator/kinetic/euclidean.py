@@ -67,8 +67,8 @@ class EuclideanKinetic(PerWalkerEstimator):
     """
 
     mode: LaplacianMode = default_laplacian_mode()
-    prefactor: float | list[float] = 1.0
     wavefunction_precision: str | None = None
+    prefactor: float | list[float] = runtime_dep(default=1.0)
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
     data_field: str = runtime_dep(default="electrons")
     sparse: bool = True

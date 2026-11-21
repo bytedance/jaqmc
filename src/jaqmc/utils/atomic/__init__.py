@@ -9,7 +9,7 @@ from .pp import (
     SUPPORTED_PH_ELEMENTS,
     core_electrons_by_pp,
 )
-from .pretrain import make_pretrain_loss
+from .pretrain import PretrainLossEstimator, make_pretrain_loss
 
 __all__ = [
     "PP_PH",
@@ -17,6 +17,7 @@ __all__ = [
     "Atom",
     "AtomInitialization",
     "AtomicSystemConfig",
+    "PretrainLossEstimator",
     "core_electrons_by_pp",
     "distribute_spins",
     "initialize_electrons_gaussian",

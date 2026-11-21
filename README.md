@@ -31,8 +31,8 @@ for you.
   that extends naturally to other quantum systems.
 - **Ready to use, ready to modify.** Ships with FermiNet, LapNet, and Psiformer
   architectures, KFAC, SR, and Optax-based optimizers (for example Adam), and
-  preset configurations for common systems. Everything is configurable from the
-  CLI — or from code if you want deeper control.
+  typed configuration for common systems. Everything is configurable from the
+  CLI or from code when you need deeper control.
 - **Built on JAX.** Automatic differentiation, JIT compilation, and multi-device
   parallelism come for free.
 

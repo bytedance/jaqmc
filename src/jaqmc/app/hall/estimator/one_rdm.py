@@ -104,15 +104,15 @@ class OneRDM(PerWalkerEstimator):
     and the trace should equal the number of electrons.
 
     Args:
-        flux: Magnetic flux :math:`2Q` (positive integer).
         wavefunction_precision: Wavefunction-defined precision mode for 1-RDM
             evaluation. ``None`` inherits the wavefunction default.
+        flux: Magnetic flux :math:`2Q` (runtime dep).
         f_log_psi: Complex log-psi function (runtime dep).
         data_field: Name of the data field (runtime dep, default ``"electrons"``).
     """
 
-    flux: int = 2
     wavefunction_precision: str | None = None
+    flux: int = runtime_dep()
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
     data_field: str = runtime_dep(default="electrons")
 

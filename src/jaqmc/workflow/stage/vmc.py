@@ -13,8 +13,7 @@ from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import BatchedData
-from jaqmc.estimator.base import Estimator
-from jaqmc.estimator.loss_grad import LossAndGrad
+from jaqmc.estimator.base import Estimator, EstimatorPipeline
 from jaqmc.optimizer.base import OptimizerLike
 from jaqmc.optimizer.kfac import KFACOptimizer
 from jaqmc.utils import parallel_jax
@@ -57,16 +56,19 @@ class VMCStageBuilder(SamplingStageBuilder):
     :class:`VMCWorkStage`.
     """
 
-    config_class: ClassVar[type[VMCWorkStageConfig]] = VMCWorkStageConfig
     config: VMCWorkStageConfig
 
     def configure_optimizer(
-        self, *, default: str | type, f_log_psi: NumericWavefunctionEvaluate, **kwargs
+        self,
+        optimizer: OptimizerLike,
+        *,
+        f_log_psi: NumericWavefunctionEvaluate,
+        **kwargs,
     ) -> None:
         """Configure the optimizer.
 
         Args:
-            default: Object or its module path for the default optimizer.
+            optimizer: Resolved optimizer instance.
             f_log_psi: Log wavefunction for optimizer wiring.
             **kwargs: Additional keyword arguments for optimizer wiring.
 
@@ -74,25 +76,25 @@ class VMCStageBuilder(SamplingStageBuilder):
             TypeError: If configured optimizer is not an
                 :class:`~jaqmc.optimizer.base.OptimizerLike`.
         """
-        opt = self.cfg.get_module("optim", default)
-        if not isinstance(opt, OptimizerLike):
+        if not isinstance(optimizer, OptimizerLike):
             raise TypeError(f"{self.name}: optimizer must be an OptimizerLike.")
-        wire(opt, f_log_psi=f_log_psi, **kwargs)
-        self.optimizer = opt
+        wire(optimizer, f_log_psi=f_log_psi, **kwargs)
+        self.optimizer = optimizer
 
     def configure_loss_grads(
         self,
-        loss_grads: type[Estimator] | Estimator | None = LossAndGrad,
+        loss_grads: Estimator | None,
         *,
         f_log_psi: NumericWavefunctionEvaluate,
+        loss_key: str | None = None,
     ) -> None:
         """Configure loss gradient estimator and add to estimator dict.
 
         Args:
             f_log_psi: Log wavefunction for loss gradient wiring.
-            loss_grads: A class (resolved from config and wired), an
-                already-wired instance, or None (no loss grads).
-                Defaults to :class:`~jaqmc.estimator.loss_grad.LossAndGrad`.
+            loss_grads: Resolved loss-gradient estimator, or None.
+            loss_key: Walker statistic to use as the loss. ``None`` keeps the
+                estimator's default.
 
         Raises:
             ValueError: If :meth:`configure_estimators` was not called
@@ -105,17 +107,15 @@ class VMCStageBuilder(SamplingStageBuilder):
             )
         if loss_grads is None:
             return
-        if isinstance(loss_grads, type):
-            est = self.cfg.get("grads", loss_grads)
-            wire(est, f_log_psi=f_log_psi)
-            self.estimators["grads"] = est
-        else:
+        if loss_key is None:
             wire(loss_grads, f_log_psi=f_log_psi)
-            check_wired(loss_grads, label="loss_grads")
-            self.estimators["grads"] = loss_grads
+        else:
+            wire(loss_grads, f_log_psi=f_log_psi, loss_key=loss_key)
+        check_wired(loss_grads, label="loss_grads")
+        self.estimators["grads"] = loss_grads
 
     def ensure_configured(self) -> None:
-        """Auto-resolve defaults and validate.
+        """Validate that every required configure method was called.
 
         Raises:
             ValueError: If required configure methods were not called.
@@ -143,7 +143,7 @@ class VMCStageBuilder(SamplingStageBuilder):
             name=self.name,
             wavefunction=self.wavefunction,
             sample_plan=self.sample_plan,
-            estimators=self.estimators,
+            estimators=EstimatorPipeline(self.estimators),
             writers=self.writers,
             optimizer=self.optimizer,
         )
@@ -159,12 +159,12 @@ class VMCWorkStage(SamplingWorkStage):
 
     Usage::
 
-        builder = VMCWorkStage.builder(cfg.scoped("train"), wf)
-        sampler = cfg.get("sampler", MCMCSampler)
+        builder = VMCWorkStage.builder(run_config, wf, name="train")
         builder.configure_sample_plan(wf.logpsi, {"electrons": sampler})
-        builder.configure_optimizer(default="jaqmc.optimizer.kfac", f_log_psi=wf.logpsi)
-        builder.configure_estimators(kinetic=..., potential=..., total=...)
-        builder.configure_loss_grads(f_log_psi=wf.logpsi)
+        builder.configure_optimizer(optimizer, f_log_psi=wf.logpsi)
+        builder.configure_estimators({"kinetic": ..., "potential": ..., "total": ...})
+        builder.configure_loss_grads(loss_grads, f_log_psi=wf.logpsi)
+        builder.configure_writers(writers)
         train = builder.build()
     """
 

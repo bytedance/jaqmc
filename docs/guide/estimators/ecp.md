@@ -66,8 +66,8 @@ Each nonlocal channel evaluates the wavefunction at every quadrature point for e
 
 ## See also
 
-- The ECP estimator is automatically added when `system.pp` selects an ECP for
-  at least one atom.
+- In the molecule and solid workflows, `estimators.energy.ecp` is enabled
+  automatically when `system.pp` selects an ECP for at least one atom.
 - Because `system.pp` also changes the explicit electron count, arbitrary
   molecule and solid configs should set `system.s_z` and optional
   `system.total_charge` and let JaQMC derive the spin-up and spin-down counts.

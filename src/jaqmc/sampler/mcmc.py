@@ -1,7 +1,7 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import Any, NamedTuple, Protocol
+from typing import Any, NamedTuple, Protocol, runtime_checkable
 
 import jax
 from jax import lax
@@ -19,6 +19,7 @@ __all__ = ["MCMCSampler"]  # Keep it as the "default export"
 __all__ += ["MCMCState", "SamplingProposal"]
 
 
+@runtime_checkable
 class SamplingProposal[StateT: PyTree](Protocol):
     def __call__(self, rngs: PRNGKey, x: StateT, stddev: float | jnp.ndarray) -> StateT:
         """Propose a new sample from the current state.

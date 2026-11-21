@@ -2,12 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-import math
 from dataclasses import field
-from typing import Literal
+from typing import Literal, Protocol, runtime_checkable
 
 import jax
-import numpy as np
 from flax import linen as nn
 from jax import numpy as jnp
 
@@ -19,7 +17,7 @@ from jaqmc.utils.supercell import (
     get_supercell_kpts_in_first_bz,
 )
 from jaqmc.utils.wiring import runtime_dep
-from jaqmc.wavefunction import Wavefunction
+from jaqmc.wavefunction import Wavefunction, WavefunctionLike
 from jaqmc.wavefunction.backbone.ferminet import FermiLayers
 from jaqmc.wavefunction.input.atomic import SolidFeatures
 from jaqmc.wavefunction.output.logdet import ComplexLogDetOutput, LogDet
@@ -28,7 +26,27 @@ from jaqmc.wavefunction.output.orbital import SplitChannelDense
 from .config import MoireConfig
 from .data import MoireData
 
-__all__ = ["MoireWavefunction"]
+__all__ = ["MoireWavefunction", "MoireWavefunctionLike"]
+
+
+@runtime_checkable
+class MoireWavefunctionLike(WavefunctionLike, Protocol):
+    """Runtime interface required by moire workflows."""
+
+    nspins: tuple[int, int]
+    primitive_lattice: jnp.ndarray
+    simulation_lattice: jnp.ndarray
+    twist: jnp.ndarray | None
+    k_com: tuple[float, float] | None
+    nlayers: int
+
+    def configure_phase_inputs(self, system_config: MoireConfig) -> None: ...
+
+    def layer_components(
+        self, params: Params, data: MoireData
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]: ...
+
+    def logpsi(self, params: Params, data: MoireData) -> jnp.ndarray: ...
 
 
 def _pseudospin_phase_exponents(nlayers: int) -> tuple[int, ...]:
@@ -273,13 +291,8 @@ class MoireWavefunction(Wavefunction[MoireData, ComplexLogDetOutput]):
             ValueError: If singlephase integer filling is incompatible with the
                 configured spin channels.
         """
-        lattice_area = abs(np.linalg.det(np.asarray(system_config.lattice_vectors)))
-        moire_area = abs(np.linalg.det(np.asarray(system_config.moire_lattice_vectors)))
-        filling = system_config.nelec / (
-            system_config.scale * lattice_area / moire_area
-        )
         self.phase_mode = (
-            "singlephase" if math.isclose(filling, round(filling)) else "multiphase"
+            "singlephase" if system_config.is_integer_filling else "multiphase"
         )
 
         S = jnp.asarray(system_config.supercell_matrix)

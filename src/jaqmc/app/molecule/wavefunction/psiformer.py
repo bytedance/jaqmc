@@ -55,14 +55,9 @@ class PsiformerWavefunction(MoleculeWavefunctionModule):
         num_heads: Number of attention heads.
         heads_dim: Dimension of each attention head.
         mlp_hidden_dims: Hidden dimensions for MLP blocks.
-        layer_norm_mode: LayerNorm application mode. Options:
-
-            - :attr:`LayerNormMode.pre`: Apply LayerNorm before attention/MLP
-              blocks (Pre-LN, matches internal_ferminet). Default.
-            - :attr:`LayerNormMode.post`: Apply LayerNorm after attention/MLP
-              blocks (Post-LN, matches public FermiNet).
-            - :attr:`LayerNormMode.null`: No LayerNorm applied.
-
+        layer_norm_mode: LayerNorm application mode (:attr:`LayerNormMode.pre`
+            before attention/MLP blocks, :attr:`LayerNormMode.post` after, or
+            :attr:`LayerNormMode.null` to disable).
         jastrow: Jastrow factor type.
         with_bias: Whether to use bias in attention QKV projections.
         input_bias: Whether to use bias in the input projection layer.
@@ -75,7 +70,7 @@ class PsiformerWavefunction(MoleculeWavefunctionModule):
         rescale: If True, use log-scaled input features (log(1+r)) instead of
             linear features. Log-scaling provides better numerical stability
             for large distances.
-
+        full_det: Whether to use full determinants (must be ``True``).
     """
 
     precision: Literal["standard", "fp16_jac", "fp16_mixed"] = "standard"
@@ -145,11 +140,6 @@ class PsiformerWavefunction(MoleculeWavefunctionModule):
                 )
             case JastrowType.NONE:
                 self.jastrow_layer = None
-            case _:
-                raise ValueError(
-                    f"Invalid jastrow: {self.jastrow!r}. "
-                    f"Must be one of: {[e.value for e in JastrowType]}"
-                )
 
     @property
     def contraction_mode(self) -> ContractionMode:

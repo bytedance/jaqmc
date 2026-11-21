@@ -23,7 +23,6 @@ from jaqmc.app.molecule.wavefunction.psiformer import (
 )
 from jaqmc.app.molecule.wavefunction.psiformer import PsiformerWavefunction
 from jaqmc.app.molecule.workflow import MoleculeTrainWorkflow
-from jaqmc.utils.config import ConfigManager
 from jaqmc.wavefunction.backbone.lapnet import lapnet_sparse_attention
 from jaqmc.wavefunction.output.envelope import EnvelopeType
 from tests.utils.reference_fixtures import write_molecule_pyscf_reference
@@ -124,23 +123,17 @@ class TestInvalidJastrowType:
 
     def test_psiformer_invalid_jastrow_type(self):
         """Test that PsiformerWavefunction raises error for invalid jastrow type."""
-        wf = PsiformerWavefunction(
-            nspins=(2, 1), ndets=4, jastrow=cast(Any, "invalid_jastrow")
-        )
-        data = make_test_data((2, 1))
-
-        with pytest.raises(ValueError, match="Invalid jastrow"):
-            wf.init_params(data, TEST_KEY)
+        with pytest.raises(ValueError, match="jastrow"):
+            PsiformerWavefunction(
+                nspins=(2, 1), ndets=4, jastrow=cast(Any, "invalid_jastrow")
+            )
 
     def test_lapnet_invalid_jastrow_type(self):
         """Test that LapNetWavefunction raises error for invalid jastrow type."""
-        wf = LapNetWavefunction(
-            nspins=(2, 1), ndets=4, jastrow=cast(Any, "invalid_jastrow")
-        )
-        data = make_test_data((2, 1))
-
-        with pytest.raises(ValueError, match="Invalid jastrow"):
-            wf.init_params(data, TEST_KEY)
+        with pytest.raises(ValueError, match="jastrow"):
+            LapNetWavefunction(
+                nspins=(2, 1), ndets=4, jastrow=cast(Any, "invalid_jastrow")
+            )
 
 
 class TestEdgeCases:
@@ -309,17 +302,29 @@ class TestGradientFlow:
             np.testing.assert_allclose(actual, manual, rtol=1e-3, atol=1e-3)
 
 
-def make_workflow_config(tmp_path, wf_config: dict) -> ConfigManager:
+# H2 at a 2 bohr bond length has an exact ground-state energy near -1.14 Ha.
+# Sixty VMC iterations are enough for every backbone below to settle into that
+# region; ten are not, which made the previous "loss went down" comparison hinge
+# on where the random starting point happened to land.
+TRAIN_ITERATIONS = 60
+
+# Loosest bound that all backbones clear with margin once converged. Observed
+# tail means span -1.14 to -1.00, so this tolerates ordinary VMC noise while
+# still failing if optimization stops descending.
+CONVERGED_ENERGY_UPPER_BOUND = -0.8
+
+
+def make_workflow_config(tmp_path, wf_config: dict) -> MoleculeTrainWorkflow:
     """Create a minimal workflow config for testing.
 
     Returns:
-        ConfigManager with H2 molecule system and minimal iteration counts.
+        Parsed workflow with H2 system and minimal iteration counts.
     """
     reference = tmp_path / "reference.npz"
     write_molecule_pyscf_reference(
         reference, atom="H 1 0 0; H -1 0 0", spin=0, method="RHF"
     )
-    return ConfigManager(
+    return MoleculeTrainWorkflow.from_config(
         {
             "workflow": {"seed": 42, "save_path": str(tmp_path), "batch_size": 64},
             "wf": wf_config,
@@ -332,7 +337,7 @@ def make_workflow_config(tmp_path, wf_config: dict) -> ConfigManager:
             "reference": str(reference),
             "pretrain": {"run": {"iterations": 2, "burn_in": 0}},
             "train": {
-                "run": {"iterations": 10, "burn_in": 10},
+                "run": {"iterations": TRAIN_ITERATIONS, "burn_in": 10},
                 "optim": {"learning_rate": {"rate": 0.01}},
             },
         }
@@ -369,18 +374,27 @@ class TestWorkflowIntegration:
     def test_workflow_runs(self, tmp_path, wf_config):
         """Test molecule workflow completes without error."""
         cfg = make_workflow_config(tmp_path, wf_config)
-        MoleculeTrainWorkflow(cfg)()
+        cfg()
 
-        # Verify training stats file was created with finite, improving losses
+        # Verify training completed with finite losses in the expected energy region.
         stats_file = tmp_path / "train_stats.npy"
         assert stats_file.exists(), "Training stats file was not created"
         f = np.load(stats_file)
         losses = f["loss"][:]
         assert np.all(np.isfinite(losses)), "Training produced non-finite loss values"
-        last_3_mean = np.mean(losses[-3:])
-        assert last_3_mean < -1 or last_3_mean < np.mean(losses[:3]), (
-            f"Training loss did not decrease: first 3 mean={np.mean(losses[:3]):.4f}, "
-            f"last 3 mean={np.mean(losses[-3:]):.4f}"
+
+        # Judge the converged tail against a physical target rather than
+        # comparing against the first few iterations. Early losses are dominated
+        # by initialization noise, so a start-vs-end comparison measures the
+        # random seed as much as it measures optimization.
+        tail = losses[-TRAIN_ITERATIONS // 5 :]
+        tail_mean = np.mean(tail)
+        assert tail_mean < CONVERGED_ENERGY_UPPER_BOUND, (
+            f"Training did not reach the expected energy region: "
+            f"tail mean={tail_mean:.4f}, expected < "
+            f"{CONVERGED_ENERGY_UPPER_BOUND} (exact H2 is near -1.14 Ha). "
+            f"First {TRAIN_ITERATIONS // 5} mean="
+            f"{np.mean(losses[: TRAIN_ITERATIONS // 5]):.4f}"
         )
 
 

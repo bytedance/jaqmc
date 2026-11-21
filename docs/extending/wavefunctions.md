@@ -171,7 +171,7 @@ class MyWavefunction(Wavefunction[MoleculeData, RealLogDetOutput]):
         return self.logdet(orbs)
 ```
 
-`runtime_dep()` marks fields whose values come from the workflow rather than from user config — `nspins` is determined by the molecular system, so the workflow sets it at startup. Accessing a `runtime_dep()` field before the workflow sets it raises `AttributeError` with a descriptive message. See [Making it YAML-configurable](#making-it-yaml-configurable) for more.
+`runtime_dep()` marks fields whose values come from the workflow rather than from user config. Here `nspins` is determined by the molecular system, so the workflow sets it at startup. See [Making it YAML-configurable](#making-it-yaml-configurable) for more.
 
 ## Extraction Methods
 
@@ -226,26 +226,27 @@ To let users select your wavefunction from the CLI, the class must be importable
 - **{func}`~jaqmc.utils.wiring.runtime_dep`** — set by the workflow from the system config (e.g., `nspins` from the molecular geometry). Not user-configurable.
 - **Regular fields with defaults** (e.g., `ndets: int = 8`) — configurable via YAML or CLI overrides.
 
-Unlike estimators/optimizers/samplers, wavefunction classes do **not** need
-{deco}`~jaqmc.utils.config.configurable_dataclass`: the {class}`~jaqmc.wavefunction.Wavefunction` base class automatically handles
-configuration serialization for subclasses and excludes Flax internal fields
-(`parent`, `name`). For non-wavefunction components, see
+Unlike estimators, optimizers, and samplers, wavefunction classes do **not** need
+{deco}`~jaqmc.utils.config.configurable_dataclass`, because the
+{class}`~jaqmc.wavefunction.Wavefunction` base class handles configuration
+serialization and excludes Flax internal fields (`parent`, `name`). For
+non-wavefunction components, see
 <project:custom-components/index.md>, which uses
 {deco}`~jaqmc.utils.config.configurable_dataclass`,
 {func}`~jaqmc.utils.wiring.runtime_dep`, and
 {func}`~jaqmc.utils.wiring.wire`.
 
-On the workflow side, {meth}`~jaqmc.utils.config.ConfigManager.get_module`
-resolves the class from config and instantiates it with the user's field
-overrides. The workflow then sets runtime dependencies before passing the
+On the workflow, {class}`~jaqmc.utils.config.ModuleConfig` declares the
+wavefunction field. Parsing constructs the selected class with the user's field
+overrides, and the workflow sets runtime dependencies before passing the
 wavefunction to the builder:
 
 ```python
-wf = cfg.get_module("wf", "jaqmc.app.molecule.wavefunction.ferminet")
+wf = workflow.wf
 wf.nspins = system_config.electron_spins  # set runtime_dep before use
 
-train = VMCWorkStage.builder(cfg.scoped("train"), wf)
-sampler = cfg.get("sampler", MCMCSampler)
+train = VMCWorkStage.builder(workflow.train.run, wf, name="train")
+sampler = workflow.sampler
 train.configure_sample_plan(wf.logpsi, {"electrons": sampler})
 # ... rest of wiring as in the workflows tutorial
 ```

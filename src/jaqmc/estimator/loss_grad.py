@@ -45,13 +45,13 @@ class LossAndGrad(PerWalkerEstimator):
     The computation proceeds in three stages across the estimator
     lifecycle:
 
-    1. ``evaluate_single_walker`` — evaluates :math:`\log\psi` and its
+    1. ``evaluate_single_walker`` evaluates :math:`\log\psi` and its
        parameter gradient for each walker, and reads the loss value.
-    2. ``reduce`` — optionally clips the local energies for outlier
+    2. ``reduce`` optionally clips the local energies for outlier
        robustness, then forms the per-walker product
        :math:`\operatorname{Re}[(\nabla\log\psi)^*
        E_L^{\text{clipped}}]`.
-    3. ``finalize_stats`` — averages over walkers and subtracts the baseline
+    3. ``finalize_stats`` averages over walkers and subtracts the baseline
        :math:`\operatorname{Re}[(\langle\nabla\log\psi\rangle)^*
        \langle E_L^{\text{clipped}} \rangle]` to assemble the final
        gradient.
@@ -59,7 +59,6 @@ class LossAndGrad(PerWalkerEstimator):
     Args:
         wavefunction_precision: Wavefunction-defined precision mode passed to
             wavefunction evaluation. ``None`` inherits the wavefunction default.
-        loss_key: Key in prev_walker_stats to use as the loss.
         clip_method: Outlier clipping rule used for gradient weighting.
             ``"iqr"`` clips to :math:`[Q_1 - s \cdot \text{IQR},\;
             Q_3 + s \cdot \text{IQR}]`. ``"mad"`` clips to
@@ -70,13 +69,15 @@ class LossAndGrad(PerWalkerEstimator):
             Smaller values clip more aggressively, which stabilises
             gradients but biases the estimator. Ignored when
             ``clip_method="none"``.
+        loss_key: Key in ``prev_walker_stats`` to use as the loss (runtime dep,
+            default ``"total_energy"``).
         f_log_psi: Log-psi function to differentiate (runtime dep).
     """
 
-    loss_key: str = "total_energy"
     clip_method: Literal["iqr", "mad", "none"] = "mad"
     clip_scale: float = 5.0
     wavefunction_precision: str | None = None
+    loss_key: str = runtime_dep(default="total_energy")
     f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
 
     def evaluate_single_walker(

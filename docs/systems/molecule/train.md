@@ -1,28 +1,23 @@
 # Molecule Training
 
 Configuration reference for `jaqmc molecule train`.
-This page shows the effective defaults for the train workflow preset. Use
-`--dry-run` to see the resolved config for your run, or add
-`workflow.config.verbose=true` to include field descriptions. Keys use the same
-dot notation as CLI overrides, such as `train.run.iterations=5000`. Defaults
-are resolved in this order: schema defaults, workflow preset, YAML config, then
-CLI overrides. For evaluation config, see <project:eval.md>.
+This page shows the train workflow defaults. `--dry-run` prints the
+resolved config for a specific run. Keys use the same dot notation as CLI overrides,
+such as `train.run.iterations=5000`. Defaults are resolved in this order:
+schema defaults, YAML config, then CLI overrides. For evaluation config, see
+<project:eval.md>.
 
 Root-level runtime keys such as `logging.*`, `jax.*`, and `distributed.*` are
 shared by all commands. See <project:../../guide/runtime-configuration.md>.
-
-```{eval-rst}
-.. config-context::
-   :preset: jaqmc.app.molecule.workflow.MoleculeTrainWorkflow.default_preset
-```
 
 ## Workflow (`workflow.*`)
 
 These keys control workflow-level settings shared across all stages.
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.workflow.base.WorkflowConfig
+.. config-defaults::
    :prefix: workflow
+   :defaults-from: jaqmc.app.molecule.workflow.MoleculeTrainWorkflow
 ```
 
 (molecule-train-system)=
@@ -31,24 +26,26 @@ These keys control workflow-level settings shared across all stages.
 Defines the molecular system to simulate. The implementation is selected by
 `system.module`.
 
-- Default module selection: unset, so `system.*` is read directly as an arbitrary
-  molecule config. Built-in choices are:
-  - unset: arbitrary molecule config
+- Default module selection: `base:MoleculeConfig`, so `system.*` is read
+  directly as an arbitrary molecule config when `system.module` is omitted.
+  Built-in choices are:
+  - `base:MoleculeConfig` (or omitted): arbitrary molecule config
   - `atom`: single-atom generator
   - `diatomic`: diatomic generator
 
 ### Arbitrary molecules (default)
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.app.molecule.config.base.MoleculeConfig
+.. config-defaults::
    :prefix: system
+   :defaults-from: jaqmc.app.molecule.workflow.MoleculeTrainWorkflow
    :scope: Molecule
 ```
 
 ### Single atoms (`system.module=atom`)
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.app.molecule.config.atom.atom_config
+.. config-defaults:: jaqmc.app.molecule.config.atom.AtomBuilder
    :prefix: system
    :scope: atom
 ```
@@ -56,7 +53,7 @@ Defines the molecular system to simulate. The implementation is selected by
 ### Diatomic molecules (`system.module=diatomic`)
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.app.molecule.config.diatomic.diatomic_config
+.. config-defaults:: jaqmc.app.molecule.config.diatomic.DiatomicBuilder
    :prefix: system
    :scope: diatomic
 ```
@@ -75,8 +72,9 @@ Selects and configures the neural-network ansatz.
 ### FermiNet options (`wf.*`)
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.app.molecule.wavefunction.ferminet.FermiNetWavefunction
+.. config-defaults::
    :prefix: wf
+   :defaults-from: jaqmc.app.molecule.workflow.MoleculeTrainWorkflow
    :scope: FermiNet
 ```
 
@@ -85,6 +83,7 @@ Selects and configures the neural-network ansatz.
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.molecule.wavefunction.lapnet.LapNetWavefunction
    :prefix: wf
+   :scope: LapNet
 ```
 
 ### Psiformer options (`wf.*`)
@@ -102,8 +101,9 @@ The molecule workflow uses adaptive Metropolis-Hastings sampling with an
 all-electron Gaussian proposal. Pretraining and training share these settings.
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.sampler.mcmc.MCMCSampler
+.. config-defaults::
    :prefix: sampler
+   :defaults-from: jaqmc.app.molecule.workflow.MoleculeTrainWorkflow
 ```
 
 ---
@@ -120,8 +120,8 @@ In YAML:
 reference: ./runs/water/hf/reference.npz
 ```
 
-The combination `pretrain.run.iterations=0` with no `reference` disables
-pretraining and reference resolution.
+Setting `pretrain.run.iterations=0` disables pretraining and reference
+resolution, even when `reference` is set.
 
 ---
 
@@ -135,8 +135,9 @@ updates wavefunction parameters.
 ### Run options (`train.run.*`)
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.workflow.stage.vmc.VMCWorkStageConfig
+.. config-defaults::
    :prefix: train.run
+   :defaults-from: jaqmc.app.molecule.workflow.MoleculeTrainWorkflow
 ```
 
 (train-optim)=
@@ -148,8 +149,9 @@ updates wavefunction parameters.
 #### KFAC options
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.optimizer.kfac.kfac.KFACOptimizer
+.. config-defaults::
    :prefix: train.optim
+   :defaults-from: jaqmc.app.molecule.workflow.MoleculeTrainWorkflow
    :scope: KFAC
 ```
 
@@ -181,26 +183,16 @@ updates wavefunction parameters.
 ### Writers (`train.writers.*`)
 
 The train stage enables `console`, `csv`, and `npy` writers by default.
+`csv` and `npy` write `train_stats.csv` and `train_stats.npy` in
+`workflow.save_path` and take no extra configuration keys; set
+`train.writers.csv=null` or `train.writers.npy=null` to disable them.
 
 #### Console writer (`train.writers.console.*`)
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.writer.console.ConsoleWriter
+.. config-defaults::
    :prefix: train.writers.console
-```
-
-#### CSV writer (`train.writers.csv.*`)
-
-```{eval-rst}
-.. config-defaults:: jaqmc.writer.csv.CSVWriter
-   :prefix: train.writers.csv
-```
-
-#### NPY writer (`train.writers.npy.*`)
-
-```{eval-rst}
-.. config-defaults:: jaqmc.writer.npy.NPYWriter
-   :prefix: train.writers.npy
+   :defaults-from: jaqmc.app.molecule.workflow.MoleculeTrainWorkflow
 ```
 
 (train-grads)=
@@ -209,8 +201,9 @@ The train stage enables `console`, `csv`, and `npy` writers by default.
 Loss and gradient estimator. Computes the VMC loss and parameter gradients.
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.estimator.loss_grad.LossAndGrad
+.. config-defaults::
    :prefix: train.grads
+   :defaults-from: jaqmc.app.molecule.workflow.MoleculeTrainWorkflow
 ```
 
 ---
@@ -230,8 +223,9 @@ pretrain sampling. `0.0` is pure neural, `1.0` (the default) is pure reference.
 ### Run options (`pretrain.run.*`)
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.workflow.stage.vmc.VMCWorkStageConfig
+.. config-defaults::
    :prefix: pretrain.run
+   :defaults-from: jaqmc.app.molecule.workflow.MoleculeTrainWorkflow
 ```
 
 ### Optimizer (`pretrain.optim.*`)
@@ -242,34 +236,25 @@ pretrain sampling. `0.0` is pure neural, `1.0` (the default) is pure reference.
 #### Effective Adam defaults
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.optimizer.optax.adam
+.. config-defaults::
    :prefix: pretrain.optim
+   :defaults-from: jaqmc.app.molecule.workflow.MoleculeTrainWorkflow
    :scope: Adam
 ```
 
 ### Writers (`pretrain.writers.*`)
 
 The pretrain stage enables `console`, `csv`, and `npy` writers by default.
+`csv` and `npy` write `pretrain_stats.csv` and `pretrain_stats.npy` in
+`workflow.save_path` and take no extra configuration keys; set
+`pretrain.writers.csv=null` or `pretrain.writers.npy=null` to disable them.
 
 #### Console writer (`pretrain.writers.console.*`)
 
 ```{eval-rst}
-.. config-defaults:: jaqmc.writer.console.ConsoleWriter
+.. config-defaults::
    :prefix: pretrain.writers.console
-```
-
-#### CSV writer (`pretrain.writers.csv.*`)
-
-```{eval-rst}
-.. config-defaults:: jaqmc.writer.csv.CSVWriter
-   :prefix: pretrain.writers.csv
-```
-
-#### NPY writer (`pretrain.writers.npy.*`)
-
-```{eval-rst}
-.. config-defaults:: jaqmc.writer.npy.NPYWriter
-   :prefix: pretrain.writers.npy
+   :defaults-from: jaqmc.app.molecule.workflow.MoleculeTrainWorkflow
 ```
 
 ### Loss gradients
@@ -281,40 +266,6 @@ wires a supervised orbital-matching loss against the loaded reference.
 
 ## Estimators (`estimators.*`)
 
-Energy estimators are configured programmatically by the workflow and are not
-typically overridden via config. The same definitions are used by <project:eval.md>.
-
-- `estimators.enabled.spin` defaults to `false`.
-
-### Kinetic energy (`estimators.energy.kinetic.*`)
-
-Used when no atom in `system.pp` uses PH (`"ph"`). When any atom uses PH, the
-standalone Euclidean kinetic estimator is replaced by `PHEnergy` and kinetic
-evaluation is controlled by `estimators.energy.ph.kinetic_backend` (setting
-`estimators.energy.kinetic.*` on a PH run fails the unused-config check).
-
-```{eval-rst}
-.. config-defaults:: jaqmc.estimator.kinetic.EuclideanKinetic
-   :prefix: estimators.energy.kinetic
-```
-
-### ECP energy (`estimators.energy.ecp.*`)
-
-Added automatically when `system.pp` selects an ECP for at least one atom.
-
-```{eval-rst}
-.. config-defaults:: jaqmc.estimator.ecp.estimator.ECPEnergy
-   :prefix: estimators.energy.ecp
-```
-
-### PH energy (`estimators.energy.ph.*`)
-
-Added automatically when `system.pp` selects PH (`"ph"`) for at least one
-atom. PH is the local pseudopotential family, parallel to the semi-local ECP
-family, in this workflow: a mixed system may use PH atoms, ECP atoms, and
-all-electron atoms together in the same run.
-
-```{eval-rst}
-.. config-defaults:: jaqmc.estimator.ph.PHEnergy
-   :prefix: estimators.energy.ph
-```
+Training and evaluation share the same estimator schema and defaults; see the
+[evaluation estimator config](#molecule-estimators). During training, the
+total-energy estimator is always enabled and cannot be toggled off.

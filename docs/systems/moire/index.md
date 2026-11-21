@@ -325,7 +325,7 @@ For the physics and derivations behind each estimator, see
 
 ## Recommended Hyperparameters
 
-The train preset is production-oriented: 200,000 iterations with a gradient
+The default training configuration is production-oriented: 200,000 iterations with a gradient
 clipping window of 20, KFAC with learning rate $3\times10^{-3}$ and damping
 $3\times10^{-4}$, and a joint MCMC sampler tuned for moire units (20 steps
 between iterations, initial move width 0.02). A single determinant is used

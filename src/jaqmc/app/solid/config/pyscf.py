@@ -4,9 +4,7 @@
 """PySCF solver configuration for solid orbital references."""
 
 from dataclasses import field
-from typing import Any, Literal
-
-import serde
+from typing import Literal
 
 from jaqmc.utils.config import configurable_dataclass
 
@@ -38,8 +36,15 @@ class SolidPySCFSolverConfig:
         checkpoint: Checkpoint filename written inside the generated job
             directory.
         verbose: PySCF verbosity level.
-        extra: Extra solver keys flattened onto ``solver.*`` and forwarded to
-            the selected PySCF mean-field object.
+        conv_tol: SCF energy convergence threshold in Hartree.
+        conv_tol_grad: SCF orbital-gradient convergence threshold. ``None`` uses
+            PySCF's default (``sqrt(conv_tol)``).
+        max_cycle: Maximum number of SCF iterations.
+        diis_space: Number of Fock matrices retained in the DIIS subspace.
+        level_shift: Level shift (in Hartree) applied to virtual orbitals.
+        damp: Fock-matrix damping factor between 0 and 1.
+        init_guess: Initial SCF density-matrix guess method (for example
+            ``"minao"``, ``"atom"``, or ``"1e"``).
     """
 
     basis: str | dict[str, str] | None = None
@@ -48,4 +53,10 @@ class SolidPySCFSolverConfig:
     xc: str = "pbe"
     checkpoint: str = "pyscf.chk"
     verbose: int = 4
-    extra: dict[str, Any] = serde.field(flatten=True, default_factory=dict)
+    conv_tol: float = 1e-7
+    conv_tol_grad: float | None = None
+    max_cycle: int = 50
+    diis_space: int = 8
+    level_shift: float = 0.0
+    damp: float = 0.0
+    init_guess: str = "minao"

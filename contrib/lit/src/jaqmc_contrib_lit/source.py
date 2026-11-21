@@ -4,8 +4,6 @@
 
 """Source construction and distillation for the molecular LIT workflow."""
 
-from __future__ import annotations
-
 import logging
 from dataclasses import replace
 

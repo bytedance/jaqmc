@@ -12,8 +12,6 @@ source density ``pi_Phi``; the optimizer can then reuse one source pool across
 all response energies.
 """
 
-from __future__ import annotations
-
 import operator
 from collections.abc import Callable, Mapping
 from pathlib import Path

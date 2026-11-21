@@ -39,7 +39,7 @@ class PairCorrelation(HistogramEstimator):
 
     bins: int = 200
     data_field: str = runtime_dep(default="electrons")
-    name: str = "pair_correlation"
+    name: str = runtime_dep(default="pair_correlation")
 
     def _histogram_spec(
         self,

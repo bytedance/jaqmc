@@ -12,7 +12,6 @@ import numpy as np
 import pytest
 
 from jaqmc.app.electron_gas.workflow import ElectronGasTrainWorkflow
-from jaqmc.utils.config import ConfigManager
 
 
 def _config(
@@ -21,11 +20,11 @@ def _config(
     restore_path=None,
     pretrain_iterations: int = 2,
     train_iterations: int = 3,
-) -> ConfigManager:
+) -> ElectronGasTrainWorkflow:
     workflow = {"seed": 0, "save_path": str(save_path), "batch_size": 16}
     if restore_path is not None:
         workflow["restore_path"] = str(restore_path)
-    return ConfigManager(
+    return ElectronGasTrainWorkflow.from_config(
         {
             "workflow": workflow,
             "system": {"rs": 1.0, "nelectrons": 2, "s_z": 0},
@@ -43,7 +42,7 @@ def _stats_length(path) -> int:
 
 def _run_source(source) -> None:
     """Run a fresh workflow leaving pretrain (steps 0-1) and train (0-2)."""
-    ElectronGasTrainWorkflow(_config(source))()
+    _config(source)()
     assert list(source.glob("pretrain_ckpt_*.npz"))
     assert list(source.glob("train_ckpt_*.npz"))
 
@@ -54,7 +53,7 @@ def test_train_checkpoint_restore_skips_pretrain(tmp_path):
     _run_source(source)
 
     target = tmp_path / "target"
-    ElectronGasTrainWorkflow(_config(target, restore_path=source, train_iterations=5))()
+    _config(target, restore_path=source, train_iterations=5)()
 
     # Pretrain never ran: no pretrain checkpoints or stats in the target.
     assert not list(target.glob("pretrain_ckpt_*.npz"))
@@ -73,9 +72,7 @@ def test_pretrain_only_restore_resumes_pretrain_and_trains_fresh(tmp_path):
         ckpt.unlink()
 
     target = tmp_path / "target"
-    ElectronGasTrainWorkflow(
-        _config(target, restore_path=source, pretrain_iterations=3)
-    )()
+    _config(target, restore_path=source, pretrain_iterations=3)()
 
     # Pretrain ran first, resuming at step 2: it inherited the source pretrain
     # stats (2 entries) and appended one more.

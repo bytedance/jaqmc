@@ -4,7 +4,7 @@
 import pytest
 
 from jaqmc.app.solid.config import SolidAtomConfig, SolidConfig, SolidQESolverConfig
-from jaqmc.app.solid.config.base import LatticeParams
+from jaqmc.app.solid.config.base import LatticeParameters
 from jaqmc.app.solid.reference import qe
 from jaqmc.app.solid.reference.qe import job, validate_upf_header
 from jaqmc.utils.atomic import AtomInitialization
@@ -13,8 +13,8 @@ from tests.app.solid.reference.helpers import _solid_system
 
 def _charged_fe_system() -> SolidConfig:
     return SolidConfig(
-        lattice=LatticeParams(a=4, b=4, c=4),
-        atom_configs=[
+        lattice=LatticeParameters(a=4, b=4, c=4),
+        atoms=[
             SolidAtomConfig(
                 symbol="Fe",
                 frac_coords=[0, 0, 0],

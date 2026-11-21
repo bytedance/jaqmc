@@ -11,6 +11,7 @@ from jax import numpy as jnp
 from jaqmc.app.hall.data import HallData
 from jaqmc.array_types import Params
 from jaqmc.geometry.sphere import spinor_coordinates_from_angles
+from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import ComplexWFOutput, Wavefunction
 
 __all__ = ["HallWavefunction", "lll_monopole_harmonics"]
@@ -33,7 +34,18 @@ class HallWavefunction(Wavefunction[HallData, ComplexWFOutput], ABC):
 
     Subclasses implement :meth:`_logpsi_from_spinor`. ``__call__`` converts
     sampled ``(theta, phi)`` to ``(u, v)``.
+
+    Args:
+        nspins: ``(n_up, n_down)`` electron counts (runtime dep).
+        flux: Magnetic flux :math:`2Q` (runtime dep).
+        interaction_strength: Coulomb interaction scaling factor (runtime dep).
+        radius: Sphere radius (runtime dep).
     """
+
+    nspins: tuple[int, int] = runtime_dep()
+    flux: int = runtime_dep()
+    interaction_strength: float = runtime_dep()
+    radius: float = runtime_dep()
 
     def __call__(self, data: HallData) -> ComplexWFOutput:
         u, v = spinor_coordinates_from_angles(data.electrons)

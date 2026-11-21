@@ -20,8 +20,8 @@ jaqmc hall train system.nspins='[3,0]' system.flux=6
 jaqmc hall train ... train.run.iterations=10000
 ```
 
-The default train preset is production-oriented. For a short sanity-check
-run, see {ref}`recipe-fast-debug-run`.
+The default training configuration is production-oriented. For a short
+sanity-check run, see {ref}`recipe-fast-debug-run`.
 
 The sphere radius defaults to `sqrt(Q)` where `Q = flux / 2`. Override it with
 `system.radius`. For the contextual defaults used by training, see the
@@ -97,7 +97,7 @@ penalties from the start. See {ref}`recipe-resume-evaluate`.
 
 ## Recommended Hyperparameters
 
-The workflow preset uses 200,000 training iterations and MHPO
+The default training configuration uses 200,000 iterations and MHPO
 `wf.num_layers=2`. For walkers, {cfgkey}`workflow.batch_size <systems-hall-train-cfg-workflow-batch-size>` controls the
 variance of each VMC step. The default of 4,096 is usually a good production starting
 point; increase it only if the step-to-step statistics are too noisy, and lower it for
@@ -116,7 +116,7 @@ analytic `laughlin` and `free` benchmarks, use the
 [evaluation](eval.md) reference.
 
 For authoritative key definitions and effective defaults, see the [training configuration
-reference](train.md) and use `--dry-run workflow.config.verbose=true` to inspect
+reference](train.md) and use `--dry-run` to inspect
 the fully resolved config for your run. For checkpointing and resuming longer
 jobs, see <project:../../guide/running-workflows.md>.
 
@@ -169,8 +169,8 @@ config; see [evaluation estimators](#hall-estimators) for keys and
 post-processing.
 
 ```bash
-jaqmc hall evaluate estimators.enabled.density=true \
-  estimators.enabled.pair_correlation=true estimators.enabled.one_rdm=true
+jaqmc hall evaluate estimators.density.enabled=true \
+  estimators.pair_correlation.enabled=true estimators.one_rdm.enabled=true
 ```
 
 ## Reporting results

@@ -7,8 +7,6 @@ from collections.abc import Callable
 
 from jax import numpy as jnp
 
-from jaqmc.utils.wiring import runtime_dep
-
 from .base import HallWavefunction, lll_monopole_harmonics
 
 __all__ = ["Laughlin"]
@@ -37,19 +35,11 @@ class Laughlin(HallWavefunction):
     fermion orbitals with an attached Jastrow factor.
 
     Args:
-        nspins: ``(n_up, n_down)`` electron counts.
-        flux: Magnetic flux :math:`2Q`.
-        interaction_strength: Coulomb interaction scaling factor accepted for
-            shared Hall workflow wiring. The analytic Laughlin wavefunction does
-            not use it.
         flux_per_elec: Composite fermion flux attachment parameter :math:`p`.
         excitation_lz: Target :math:`L_z` for a quasiparticle or quasihole
             excitation. Ignored for ground-state fillings.
     """
 
-    nspins: tuple[int, int] = runtime_dep()
-    flux: int = runtime_dep()
-    interaction_strength: float = runtime_dep()
     flux_per_elec: int = 1
     excitation_lz: int = 0
 

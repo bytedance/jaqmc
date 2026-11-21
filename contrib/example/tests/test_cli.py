@@ -9,7 +9,7 @@ def test_example_contrib_info() -> None:
     result = CliRunner().invoke(cli, ["info"])
     assert result.exit_code == 0
     assert "jaqmc-contrib-example" in result.output
-    assert "configured package: jaqmc-contrib-example" in result.output
+    assert "CLI entry point: example-contrib" in result.output
     assert "jaqmc version:" in result.output
 
 

@@ -4,8 +4,6 @@
 
 """Lorentz integral transform helpers for direct NQS response calculations."""
 
-from __future__ import annotations
-
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 

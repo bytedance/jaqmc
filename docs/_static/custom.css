@@ -133,6 +133,10 @@ div.math mjx-container {
     overflow-wrap: anywhere;
 }
 
+.config-defaults-meta code span.pre {
+    white-space: normal;
+}
+
 .config-defaults-meaning {
     color: var(--pst-color-text-muted);
     font-size: 0.96rem;

@@ -8,8 +8,6 @@ The density estimator accumulates histograms of electron positions over evaluati
 - {class}`~jaqmc.estimator.density.FractionalDensity` — converts positions to fractional (lattice) coordinates and histograms within $[0, 1)$.  Suited to periodic solids.
 - {class}`~jaqmc.estimator.density.SphericalDensity` — histograms polar angle $\theta$ (and optionally azimuthal angle $\varphi$) on the Haldane sphere.  Suited to FQHE simulations.
 
-All three are disabled by default and enabled via `estimators.enabled.density: true`.
-
 ## How it works
 
 Each variant inherits from `HistogramEstimator`, which handles the accumulation loop. On every evaluation step the estimator:
@@ -37,9 +35,8 @@ This example keeps only the `z` axis active:
 
 ```yaml
 estimators:
-  enabled:
-    density: true
   density:
+    enabled: true
     axes:
       z:
         direction: [0, 0, 1]   # project onto z-axis (normalized internally)
@@ -47,21 +44,20 @@ estimators:
         range: [-15.0, 15.0]   # min/max bounds in bohr
 ```
 
-### Disabling workflow-provided default axes
+### Selecting axes
 
-Because the config system deep-merges user overrides into workflow defaults,
-specifying only one axis does not remove the others. For example, overriding
-only `z` in the molecule evaluation workflow still leaves the default `x` and
-`y` axes active. To keep a subset, set the unwanted ones to `null`. This works
-for both `CartesianDensity` and `FractionalDensity`:
+The molecule and solid workflows use typed density defaults with three axes.
+To keep a subset, set the unwanted axes to `null`. This works for both
+`CartesianDensity` and `FractionalDensity`:
 
 ```yaml
 estimators:
   density:
+    enabled: true
     axes:
       x: null  # remove x
       y: null  # remove y
-      # z is inherited from the workflow default
+      # z keeps its typed default
 ```
 
 Entries set to `null` are filtered out before histogram construction.

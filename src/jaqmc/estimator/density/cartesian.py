@@ -26,7 +26,7 @@ class CartesianAxis:
 
     direction: tuple[float, ...]
     bins: int
-    range: tuple[float, float]
+    range: tuple[float, float] | None
 
 
 @configurable_dataclass
@@ -60,7 +60,11 @@ class CartesianDensity(HistogramEstimator):
     ) -> tuple[int | tuple[int, ...], list[tuple[float, float]]]:
         axes = self._sorted_axes()
         bins = tuple(a.bins for a in axes)
-        ranges = [a.range for a in axes]
+        ranges = [a.range for a in axes if a.range is not None]
+        if len(ranges) != len(axes):
+            raise ValueError(
+                "Cartesian density axis ranges must be resolved before evaluation."
+            )
         return bins, ranges
 
     def extract(self, data: Data) -> jnp.ndarray:

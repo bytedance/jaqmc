@@ -55,13 +55,21 @@ workflow usage, see the molecule configuration reference
 Use {class}`~jaqmc.app.molecule.config.base.AtomConfig` for molecules with
 Cartesian coordinates in the enclosing system unit, and
 {class}`~jaqmc.app.solid.config.base.SolidAtomConfig` for solids with
-primitive-cell fractional coordinates.
+primitive-cell fractional coordinates alongside
+{class}`~jaqmc.app.solid.config.base.LatticeVectors` or
+{class}`~jaqmc.app.solid.config.base.LatticeParameters`.
 
 ```{eval-rst}
 .. autoclass:: jaqmc.app.molecule.config.base.AtomConfig
    :members:
 
 .. autoclass:: jaqmc.app.solid.config.base.SolidAtomConfig
+   :members:
+
+.. autoclass:: jaqmc.app.solid.config.base.LatticeVectors
+   :members:
+
+.. autoclass:: jaqmc.app.solid.config.base.LatticeParameters
    :members:
 ```
 

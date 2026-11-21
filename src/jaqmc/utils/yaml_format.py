@@ -1,15 +1,39 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-"""Utilities for YAML processing and annotation."""
+"""Utilities for consistent YAML serialization."""
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from enum import StrEnum
-from typing import Any
+from typing import IO, Any
 
 import yaml
 from yaml.representer import SafeRepresenter
+
+
+class ConfigLoader(yaml.SafeLoader):
+    """Safe loader that also reads exponent floats such as ``1e-6``.
+
+    YAML 1.1, which PyYAML implements, requires a decimal point and a signed
+    exponent, so ``1e-6`` and ``1.0e6`` would otherwise load as strings.
+    """
+
+
+ConfigLoader.add_implicit_resolver(
+    "tag:yaml.org,2002:float",
+    re.compile(r"^[-+]?(?:[0-9][0-9_]*(?:\.[0-9_]*)?|\.[0-9_]+)[eE][-+]?[0-9]+$"),
+    list("-+0123456789."),
+)
+
+
+def load_yaml(stream: str | IO[str]) -> Any:
+    """Load YAML with :class:`ConfigLoader`.
+
+    Returns:
+        The loaded Python value.
+    """
+    return yaml.load(stream, Loader=ConfigLoader)
 
 
 def _is_numeric_list(lst: Iterable[Any]) -> bool:
@@ -78,62 +102,3 @@ def dump_yaml(data: Any, *, sort_keys: bool = False) -> str:
         allow_unicode=True,
         sort_keys=sort_keys,
     )
-
-
-def annotate_yaml_with_sources(
-    yaml_str: str,
-    source_map: Mapping[str, tuple[str, int, str | None]],
-    verbose: bool = False,
-) -> str:
-    """Annotate YAML string with source location comments.
-
-    This function post-processes a YAML string to inject comments indicating
-    where specific configuration sections (dataclasses/callables) are defined.
-    It uses indentation to reconstruct the nested key structure (e.g., `a.b.c`)
-    and looks up source locations in the provided source map.
-
-    Args:
-        yaml_str: The original YAML string to annotate.
-        source_map: A dictionary mapping configuration paths to their source
-            information. Key is the path (e.g., "system.molecule"), value is
-            a tuple of (source_file, line_number, docstring).
-        verbose: If True, also includes docstrings of the configuration objects
-            in the comments.
-
-    Returns:
-        Annotated YAML string with definition comments.
-    """
-    if not source_map:
-        return yaml_str
-
-    lines = yaml_str.splitlines()
-    result = []
-    # Stack tracks (indentation_level, key_name) to reconstruct full path
-    path_stack: list[tuple[int, str]] = []
-
-    # Regex to match keys in YAML
-    key_pattern = re.compile(r"^(\s*)([^:\s#]+)\s*:")
-
-    for line in lines:
-        match = key_pattern.match(line)
-        if match:
-            indent_str, key = match.groups()
-            indent = len(indent_str)
-
-            # Pop keys from stack that are deeper or same level
-            while path_stack and path_stack[-1][0] >= indent:
-                path_stack.pop()
-            path_stack.append((indent, key))
-
-            current_path = ".".join(k for _, k in path_stack)
-
-            if current_path in source_map:
-                src_file, lineno, doc = source_map[current_path]
-                prefix = indent_str
-                result.append(f"{prefix}# Defined in {src_file}:{lineno}")
-                if verbose and doc:
-                    for doc_line in doc.splitlines():
-                        result.append(f"{prefix}# {doc_line}")
-
-        result.append(line)
-    return "\n".join(result)

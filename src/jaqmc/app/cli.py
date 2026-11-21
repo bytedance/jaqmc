@@ -26,10 +26,12 @@ Example::
 
     @my_demo.add_command
     @make_cli(name="train", help="Train the demo.")
-    def my_demo_train(cfg: ConfigManager, dry_run: bool):
+    def my_demo_train(configs, dotlist, dry_run: bool):
         from jaqmc.app.my_demo import my_demo_train_workflow
 
-        my_demo_train_workflow(cfg)(dry_run)
+        workflow = my_demo_train_workflow.from_config(configs, dotlist)
+        workflow.initialize_runtime(dry_run)
+        workflow(dry_run)
 """
 
 from functools import cached_property
@@ -38,7 +40,6 @@ from importlib.metadata import EntryPoint, entry_points
 import click
 
 from jaqmc.utils.cli import make_cli
-from jaqmc.utils.config import ConfigManager
 
 from .molecule.reference.cli import reference as molecule_reference
 from .solid.reference.cli import reference as solid_reference
@@ -131,10 +132,12 @@ def hydrogen_atom():
 
 @hydrogen_atom.add_command
 @make_cli(name="train", help="Train the hydrogen atom model.")
-def hydrogen_atom_train(cfg: ConfigManager, dry_run: bool):
-    from .hydrogen_atom import hydrogen_atom_train_workflow
+def hydrogen_atom_train(configs, dotlist, dry_run: bool):
+    from .hydrogen_atom import HydrogenAtomTrainWorkflow
 
-    hydrogen_atom_train_workflow(cfg)(dry_run)
+    workflow = HydrogenAtomTrainWorkflow.from_config(configs, dotlist)
+    workflow.initialize_runtime(dry_run)
+    workflow(dry_run)
 
 
 # --- molecule ---
@@ -147,18 +150,22 @@ def molecule():
 
 @molecule.add_command
 @make_cli(name="train", help="Pretrain + train a molecular system.")
-def molecule_train(cfg: ConfigManager, dry_run: bool):
+def molecule_train(configs, dotlist, dry_run: bool):
     from .molecule import MoleculeTrainWorkflow
 
-    MoleculeTrainWorkflow(cfg)(dry_run)
+    workflow = MoleculeTrainWorkflow.from_config(configs, dotlist)
+    workflow.initialize_runtime(dry_run)
+    workflow(dry_run)
 
 
 @molecule.add_command
 @make_cli(name="evaluate", help="Evaluate a trained molecular system.")
-def molecule_evaluate(cfg: ConfigManager, dry_run: bool):
+def molecule_evaluate(configs, dotlist, dry_run: bool):
     from .molecule import MoleculeEvalWorkflow
 
-    MoleculeEvalWorkflow(cfg)(dry_run)
+    workflow = MoleculeEvalWorkflow.from_config(configs, dotlist)
+    workflow.initialize_runtime(dry_run)
+    workflow(dry_run)
 
 
 molecule.add_command(molecule_reference)
@@ -174,18 +181,22 @@ def solid():
 
 @solid.add_command
 @make_cli(name="train", help="Pretrain + train a solid-state system.")
-def solid_train(cfg: ConfigManager, dry_run: bool):
+def solid_train(configs, dotlist, dry_run: bool):
     from .solid import SolidTrainWorkflow
 
-    SolidTrainWorkflow(cfg)(dry_run)
+    workflow = SolidTrainWorkflow.from_config(configs, dotlist)
+    workflow.initialize_runtime(dry_run)
+    workflow(dry_run)
 
 
 @solid.add_command
 @make_cli(name="evaluate", help="Evaluate a trained solid-state system.")
-def solid_evaluate(cfg: ConfigManager, dry_run: bool):
+def solid_evaluate(configs, dotlist, dry_run: bool):
     from .solid import SolidEvalWorkflow
 
-    SolidEvalWorkflow(cfg)(dry_run)
+    workflow = SolidEvalWorkflow.from_config(configs, dotlist)
+    workflow.initialize_runtime(dry_run)
+    workflow(dry_run)
 
 
 solid.add_command(solid_reference)
@@ -201,18 +212,22 @@ def electron_gas():
 
 @electron_gas.add_command
 @make_cli(name="train", help="Pretrain + train a homogeneous electron gas model.")
-def electron_gas_train(cfg: ConfigManager, dry_run: bool):
+def electron_gas_train(configs, dotlist, dry_run: bool):
     from .electron_gas import ElectronGasTrainWorkflow
 
-    ElectronGasTrainWorkflow(cfg)(dry_run)
+    workflow = ElectronGasTrainWorkflow.from_config(configs, dotlist)
+    workflow.initialize_runtime(dry_run)
+    workflow(dry_run)
 
 
 @electron_gas.add_command
 @make_cli(name="evaluate", help="Evaluate a trained electron gas model.")
-def electron_gas_evaluate(cfg: ConfigManager, dry_run: bool):
+def electron_gas_evaluate(configs, dotlist, dry_run: bool):
     from .electron_gas import ElectronGasEvalWorkflow
 
-    ElectronGasEvalWorkflow(cfg)(dry_run)
+    workflow = ElectronGasEvalWorkflow.from_config(configs, dotlist)
+    workflow.initialize_runtime(dry_run)
+    workflow(dry_run)
 
 
 # --- hall ---
@@ -225,18 +240,22 @@ def hall():
 
 @hall.add_command
 @make_cli(name="train", help="Train a quantum Hall system.")
-def hall_train(cfg: ConfigManager, dry_run: bool):
+def hall_train(configs, dotlist, dry_run: bool):
     from .hall import HallTrainWorkflow
 
-    HallTrainWorkflow(cfg)(dry_run)
+    workflow = HallTrainWorkflow.from_config(configs, dotlist)
+    workflow.initialize_runtime(dry_run)
+    workflow(dry_run)
 
 
 @hall.add_command
 @make_cli(name="evaluate", help="Evaluate a trained quantum Hall system.")
-def hall_evaluate(cfg: ConfigManager, dry_run: bool):
+def hall_evaluate(configs, dotlist, dry_run: bool):
     from .hall import HallEvalWorkflow
 
-    HallEvalWorkflow(cfg)(dry_run)
+    workflow = HallEvalWorkflow.from_config(configs, dotlist)
+    workflow.initialize_runtime(dry_run)
+    workflow(dry_run)
 
 
 # --- moire ---
@@ -249,15 +268,19 @@ def moire():
 
 @moire.add_command
 @make_cli(name="train", help="Train a moire system.")
-def moire_train(cfg: ConfigManager, dry_run: bool):
+def moire_train(configs, dotlist, dry_run: bool):
     from .moire import MoireTrainWorkflow
 
-    MoireTrainWorkflow(cfg)(dry_run)
+    workflow = MoireTrainWorkflow.from_config(configs, dotlist)
+    workflow.initialize_runtime(dry_run)
+    workflow(dry_run)
 
 
 @moire.add_command
 @make_cli(name="evaluate", help="Evaluate a trained moire system.")
-def moire_evaluate(cfg: ConfigManager, dry_run: bool):
+def moire_evaluate(configs, dotlist, dry_run: bool):
     from .moire import MoireEvalWorkflow
 
-    MoireEvalWorkflow(cfg)(dry_run)
+    workflow = MoireEvalWorkflow.from_config(configs, dotlist)
+    workflow.initialize_runtime(dry_run)
+    workflow(dry_run)

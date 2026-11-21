@@ -18,8 +18,6 @@ quadrature to the archival covariance, but neither covariance contribution
 enters the ordinary least-squares line fit.
 """
 
-from __future__ import annotations
-
 import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass

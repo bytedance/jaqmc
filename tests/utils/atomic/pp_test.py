@@ -4,7 +4,7 @@
 import pytest
 
 from jaqmc.app.molecule.config import AtomConfig, MoleculeConfig
-from jaqmc.app.molecule.config.diatomic import diatomic_config
+from jaqmc.app.molecule.config.diatomic import DiatomicBuilder
 from jaqmc.utils.atomic import PP_PH, core_electrons_by_pp
 
 
@@ -29,7 +29,7 @@ def test_core_electrons_by_pp_rejects_unknown_ecp_name():
 def test_atomic_system_config_mixes_ph_ecp_and_all_electron():
     """Protect integrated PH/ECP/all-electron routing and SCF surrogate ECP."""
     cfg = MoleculeConfig(
-        atom_configs=[
+        atoms=[
             AtomConfig(symbol="Fe", coords=[0.0, 0.0, 0.0]),
             AtomConfig(symbol="Li", coords=[1.0, 0.0, 0.0]),
             AtomConfig(symbol="H", coords=[2.0, 0.0, 0.0]),
@@ -46,7 +46,7 @@ def test_atomic_system_config_mixes_ph_ecp_and_all_electron():
 def test_atomic_system_config_rejects_unsupported_ph_symbol():
     with pytest.raises(ValueError, match="PH is not available for element O"):
         MoleculeConfig(
-            atom_configs=[AtomConfig(symbol="O", coords=[0.0, 0.0, 0.0])],
+            atoms=[AtomConfig(symbol="O", coords=[0.0, 0.0, 0.0])],
             pp={"O": "ph"},
         )
 
@@ -54,7 +54,7 @@ def test_atomic_system_config_rejects_unsupported_ph_symbol():
 def test_atomic_system_config_rejects_unused_pp_mapping_entries():
     with pytest.raises(ValueError, match="not used"):
         MoleculeConfig(
-            atom_configs=[AtomConfig(symbol="Fe", coords=[0.0, 0.0, 0.0])],
+            atoms=[AtomConfig(symbol="Fe", coords=[0.0, 0.0, 0.0])],
             pp={"Fe": "ph", "Q": "ph"},
             s_z=2,
         )
@@ -63,7 +63,7 @@ def test_atomic_system_config_rejects_unused_pp_mapping_entries():
 def test_atomic_system_config_rejects_string_ph_with_unsupported_atom():
     with pytest.raises(ValueError, match="PH is not available for element H"):
         MoleculeConfig(
-            atom_configs=[
+            atoms=[
                 AtomConfig(symbol="Fe", coords=[0.0, 0.0, 0.0]),
                 AtomConfig(symbol="H", coords=[1.0, 0.0, 0.0]),
             ],
@@ -74,7 +74,7 @@ def test_atomic_system_config_rejects_string_ph_with_unsupported_atom():
 
 def test_atomic_system_config_supports_ph_only_without_runtime_ecp():
     cfg = MoleculeConfig(
-        atom_configs=[
+        atoms=[
             AtomConfig(symbol="Fe", coords=[0.0, 0.0, 0.0]),
             AtomConfig(symbol="S", coords=[1.0, 0.0, 0.0]),
         ],
@@ -88,7 +88,7 @@ def test_atomic_system_config_supports_ph_only_without_runtime_ecp():
 
 def test_diatomic_config_supports_ph_treatment():
     """Guard PH valence charge propagation in mixed molecule config factories."""
-    cfg = diatomic_config(formula="FeH", pp={"Fe": "ph"}, s_z=0.5)
+    cfg = DiatomicBuilder(formula="FeH", pp={"Fe": "ph"}, s_z=0.5)()
 
     assert cfg.pp == {"Fe": "ph"}
     assert cfg.atoms[0].charge == 16

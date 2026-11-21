@@ -4,27 +4,33 @@
 import datetime as dt
 
 import pytest
+from pydantic import Field
+from upath import UPath
 
-from jaqmc.utils.config import ConfigManager
+from jaqmc.utils.config import configurable_dataclass
 from jaqmc.workflow.base import Workflow
 from jaqmc.workflow.evaluation import EvaluationWorkflowConfig
 from jaqmc.workflow.stage.base import WorkStageConfig
 
 
+@configurable_dataclass
 class NamespacedWorkflow(Workflow):
-    config_namespace = "custom"
+    workflow_name = "custom"
 
-    def run(self) -> None:
-        raise NotImplementedError()
+    def build_runtime(self) -> None:
+        pass
 
 
-class EvaluationNamespacedWorkflow(NamespacedWorkflow):
-    config_namespace = "evaluation"
-    config_class = EvaluationWorkflowConfig
+@configurable_dataclass
+class EvaluationNamespacedWorkflow(Workflow):
+    workflow_name = "evaluation"
+    config: EvaluationWorkflowConfig = Field(
+        default_factory=EvaluationWorkflowConfig, alias="workflow"
+    )
+    run_config: WorkStageConfig = Field(default_factory=WorkStageConfig, alias="run")
 
-    def __init__(self, cfg: ConfigManager):
-        super().__init__(cfg)
-        self.run_config = cfg.get("run", WorkStageConfig)
+    def build_runtime(self) -> None:
+        pass
 
 
 class _FixedDateTime(dt.datetime):
@@ -43,23 +49,22 @@ def freeze_backup_time(monkeypatch: pytest.MonkeyPatch) -> None:
 def _make_workflow(
     workflow_cls: type[Workflow], tmp_path, *, seed: int, batch_size: int = 4096
 ) -> Workflow:
-    return workflow_cls(
-        ConfigManager(
-            {
-                "workflow": {
-                    "save_path": str(tmp_path),
-                    "seed": seed,
-                    "batch_size": batch_size,
-                }
+    return workflow_cls.from_config(
+        {
+            "workflow": {
+                "save_path": str(tmp_path),
+                "seed": seed,
+                "batch_size": batch_size,
             }
-        )
+        }
     )
 
 
 def test_workflow_config_path_uses_namespace():
-    cfg = ConfigManager({"workflow": {"save_path": "/tmp/run"}})
-    workflow = NamespacedWorkflow(cfg)
-    assert workflow.config_path() == workflow.save_path / "custom_config.yaml"
+    workflow = NamespacedWorkflow.from_config({"workflow": {"save_path": "/tmp/run"}})
+    # Compare against the resolved path: config_path() resolves save_path, and on
+    # macOS /tmp is a symlink to /private/tmp.
+    assert workflow.config_path() == UPath("/tmp/run").resolve() / "custom_config.yaml"
 
 
 def test_prepare_skips_identical_backup_and_suffixes_same_second_collisions(
@@ -85,39 +90,35 @@ def test_prepare_skips_identical_backup_and_suffixes_same_second_collisions(
 
     assert first_backup.exists()
     assert second_backup.exists()
-    assert first_backup.read_text() == first.cfg.to_yaml()
-    assert second_backup.read_text() == second.cfg.to_yaml()
+    assert first_backup.read_text() == first.to_yaml()
+    assert second_backup.read_text() == second.to_yaml()
     assert first_backup.stat().st_ino == first_inode
     assert second_backup.stat().st_ino == second_inode
-    assert (tmp_path / "custom_config.yaml").read_text() == third.cfg.to_yaml()
+    assert (tmp_path / "custom_config.yaml").read_text() == third.to_yaml()
 
 
 def test_prepare_tracks_evaluation_config_and_consumed_run_section(
     tmp_path, freeze_backup_time
 ):
-    first = EvaluationNamespacedWorkflow(
-        ConfigManager(
-            {
-                "workflow": {
-                    "save_path": str(tmp_path),
-                    "batch_size": 128,
-                    "source_path": "train-source",
-                },
-                "run": {"iterations": 2},
-            }
-        )
+    first = EvaluationNamespacedWorkflow.from_config(
+        {
+            "workflow": {
+                "save_path": str(tmp_path),
+                "batch_size": 128,
+                "source_path": "train-source",
+            },
+            "run": {"iterations": 2},
+        }
     )
-    second = EvaluationNamespacedWorkflow(
-        ConfigManager(
-            {
-                "workflow": {
-                    "save_path": str(tmp_path),
-                    "batch_size": 128,
-                    "source_path": "train-source",
-                },
-                "run": {"iterations": 3},
-            }
-        )
+    second = EvaluationNamespacedWorkflow.from_config(
+        {
+            "workflow": {
+                "save_path": str(tmp_path),
+                "batch_size": 128,
+                "source_path": "train-source",
+            },
+            "run": {"iterations": 3},
+        }
     )
 
     first.prepare()
@@ -143,8 +144,8 @@ def test_prepare_validates_save_path_only_on_master(tmp_path, monkeypatch):
 
     save_path = tmp_path / "save"
     save_path.touch()
-    workflow = NamespacedWorkflow(
-        ConfigManager({"workflow": {"save_path": str(save_path)}})
+    workflow = NamespacedWorkflow.from_config(
+        {"workflow": {"save_path": str(save_path)}}
     )
     monkeypatch.setattr(workflow_base.jax, "process_index", lambda: 1)
 
@@ -162,15 +163,13 @@ def test_prepare_rejects_non_empty_cross_directory_resume_destination(tmp_path):
     save_path.mkdir()
     (save_path / "existing.txt").touch()
 
-    workflow = NamespacedWorkflow(
-        ConfigManager(
-            {
-                "workflow": {
-                    "save_path": str(save_path),
-                    "restore_path": str(source_path),
-                }
+    workflow = NamespacedWorkflow.from_config(
+        {
+            "workflow": {
+                "save_path": str(save_path),
+                "restore_path": str(source_path),
             }
-        )
+        }
     )
 
     with pytest.raises(

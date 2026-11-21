@@ -3,8 +3,6 @@
 
 """Source-pool batching, persistence, and reduction helpers for LIT."""
 
-from __future__ import annotations
-
 import logging
 import operator
 from collections.abc import Mapping

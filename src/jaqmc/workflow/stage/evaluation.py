@@ -7,16 +7,19 @@ Accumulates per-step statistics in a ``.npy`` file owned by the stage and produc
 ``digest.npz`` summary after all steps. Optionally logs preview digests.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar
 
 import jax
 import numpy as np
+from upath import UPath
 
 from jaqmc.array_types import PRNGKey
+from jaqmc.estimator import EstimatorPipeline
 from jaqmc.utils import parallel_jax
 from jaqmc.utils.config import configurable_dataclass
-from jaqmc.writer import Writers
+from jaqmc.writer import Writer, Writers
 from jaqmc.writer.npy import NPYWriter
 
 from .base import RunContext, WorkStageConfig
@@ -43,26 +46,22 @@ class EvalStageBuilder(SamplingStageBuilder):
     Call :meth:`build` to create a fully-configured :class:`EvaluationWorkStage`.
     """
 
-    config_class: ClassVar[type[EvaluationWorkStageConfig]] = EvaluationWorkStageConfig
     config: EvaluationWorkStageConfig
 
-    def configure_writers(self, writers: Writers | None = None) -> None:
+    def configure_writers(self, writers: Mapping[str, Writer | None]) -> None:
         """Configure optional writers and add evaluation statistics storage.
 
+        The stage owns its statistics writer rather than accepting one, because
+        :meth:`EvaluationWorkStage.write_digest` reads the accumulated stats
+        back out of it.
+
         Args:
-            writers: Pre-built writers, or None to load from config.
+            writers: Named writers, where ``None`` disables an entry.
         """
-        if writers is None:
-            writers_map = self.cfg.get_collection(
-                "writers",
-                defaults={},
-                context={"config": self.config, "name": self.name},
-            )
-            optional_writers = list(writers_map.values())
-        else:
-            optional_writers = list(writers)
         self.stats_writer = NPYWriter()
-        self.writers = Writers([self.stats_writer, *optional_writers])
+        self.writers = Writers(
+            [self.stats_writer, *(writer for writer in writers.values() if writer)]
+        )
 
     def build(self) -> "EvaluationWorkStage":
         """Build a fully-configured :class:`EvaluationWorkStage`.
@@ -76,7 +75,7 @@ class EvalStageBuilder(SamplingStageBuilder):
             name=self.name,
             wavefunction=self.wavefunction,
             sample_plan=self.sample_plan,
-            estimators=self.estimators,
+            estimators=EstimatorPipeline(self.estimators),
             writers=self.writers,
             stats_writer=self.stats_writer,
         )
@@ -92,10 +91,10 @@ class EvaluationWorkStage(SamplingWorkStage):
 
     Usage::
 
-        builder = EvaluationWorkStage.builder(cfg, wf)
-        sampler = cfg.get("sampler", MCMCSampler)
+        builder = EvaluationWorkStage.builder(run_config, wf, name="evaluation")
         builder.configure_sample_plan(wf.logpsi, {"electrons": sampler})
-        builder.configure_estimators(kinetic=..., potential=..., total=...)
+        builder.configure_estimators({"kinetic": ..., "potential": ..., "total": ...})
+        builder.configure_writers(writers)
         evaluation = builder.build()
     """
 
@@ -107,9 +106,8 @@ class EvaluationWorkStage(SamplingWorkStage):
     builder: ClassVar[type[EvalStageBuilder]] = EvalStageBuilder
 
     def run(self, state: Any, context: RunContext, rngs: PRNGKey) -> Any:
-        save_dir, prefix, _ = self._resolve_paths(context)
-        self._save_dir = save_dir
-        self._prefix = prefix
+        self._save_dir = UPath(context.save_path)
+        self._prefix = self.name
 
         if self.config.digest_step_interval == 0:
             self.logger.info(

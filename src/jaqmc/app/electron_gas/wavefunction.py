@@ -3,10 +3,19 @@
 
 """Periodic neural wavefunction for the homogeneous electron gas."""
 
-from jaqmc.app.solid.wavefunction import SolidWavefunction
+from typing import Protocol, runtime_checkable
+
+from jaqmc.app.solid.wavefunction import SolidWavefunction, SolidWavefunctionLike
 from jaqmc.wavefunction.output.envelope import EnvelopeType
 
-__all__ = ["ElectronGasWavefunction"]
+__all__ = ["ElectronGasWavefunction", "ElectronGasWavefunctionLike"]
+
+
+@runtime_checkable
+class ElectronGasWavefunctionLike(SolidWavefunctionLike, Protocol):
+    """Runtime interface required by electron-gas workflows."""
+
+    envelope_type: EnvelopeType
 
 
 class ElectronGasWavefunction(SolidWavefunction):

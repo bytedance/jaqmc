@@ -239,7 +239,7 @@ and derivations behind each estimator, see <project:../../guide/estimators/index
 
 ## Production Settings
 
-The workflow presets default to 2,000 pretraining iterations and 200,000
+The default training configuration uses 2,000 pretraining iterations and 200,000
 training iterations so that a bare `jaqmc molecule train ...` command is closer
 to a real calculation than a smoke test. If that budget fits your system and
 hardware, you can usually keep the defaults. For laptop-scale experiments, you
@@ -264,7 +264,7 @@ acceptance rate, and burn-in interact.
 
 For authoritative key definitions and effective defaults, see the
 <project:train.md> and use
-`--dry-run workflow.config.verbose=true` to inspect the fully resolved config
+`--dry-run` to inspect the fully resolved config
 for your run.
 
 :::{admonition} Checking convergence

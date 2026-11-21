@@ -36,7 +36,7 @@ dependencies = [
     "jax>=0.4.36,<=0.9.1",
     "kfac-jax==0.0.8",
     "numpy>=2.3.5",
-    "pyserde>=0.31.7",
+    "pydantic>=2.11.0",
     "optax>=0.2.5",
     "pygments>=2.19.2",
     "pyscf>=2.11.0",
@@ -158,10 +158,10 @@ select = [
     "FURB", "UP",  # modernize code
     "SIM", "C90",  # simplify code
     "PLW", "PLE",  # pylint rules
+    "TID251",      # banned imports
 ]
 ignore = [
     "D1",          # Allow missing docstring
-    "RUF009",      # Allow functions creating Fields in dataclass
     "PLW1641",     # False possitive for dataclass
     "FURB140",     # Suggested to be ignored on Python 3.12
 ]
@@ -174,6 +174,12 @@ ignore = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.ruff.lint.pylint]
+allow-dunder-method-names = ["__get_pydantic_core_schema__"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"__future__.annotations".msg = "Use standard Python 3.12+ annotations; stringized annotations break runtime config schema resolution."
 
 [tool.pytest]
 filterwarnings = [

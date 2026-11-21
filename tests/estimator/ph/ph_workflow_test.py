@@ -1,73 +1,42 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import Any
+from types import SimpleNamespace
 
 import pytest
+import yaml
 from jax import numpy as jnp
+from pydantic import ValidationError
 
-from jaqmc.app.molecule.config import AtomConfig, MoleculeConfig
-from jaqmc.app.molecule.workflow import make_estimators as make_molecule_estimators
-from jaqmc.app.solid.config import SolidAtomConfig, SolidConfig
-from jaqmc.app.solid.config.base import LatticeParams
-from jaqmc.app.solid.workflow import make_estimators as make_solid_estimators
-from jaqmc.data import Data
+from jaqmc.app.molecule.workflow import (
+    MoleculeEvalWorkflow,
+    MoleculeTrainWorkflow,
+)
+from jaqmc.app.solid.workflow import (
+    SolidEvalWorkflow,
+    SolidTrainWorkflow,
+)
 from jaqmc.estimator.ecp import ECPEnergy
 from jaqmc.estimator.ph import PHEnergy
-from jaqmc.utils.config import ConfigError, ConfigManager
-
-
-class _DummyWavefunction:
-    full_det = True
-
-    def init_params(self, data, rngs):
-        del data, rngs
-        return {}
-
-    def evaluate(
-        self, params: Any, data: Data, *, precision: str | None = None
-    ) -> dict[str, jnp.ndarray]:
-        return {
-            "logpsi": self.logpsi(params, data, precision=precision),
-            "sign_logpsi": jnp.array(1.0),
-        }
-
-    def logpsi(
-        self, params: Any, data: Data, *, precision: str | None = None
-    ) -> jnp.ndarray:
-        del params, precision
-        return -jnp.sum(data["electrons"] ** 2)
-
-    def phase_logpsi(
-        self, params: Any, data: Data, *, precision: str | None = None
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        return jnp.array(1.0), self.logpsi(params, data, precision=precision)
-
-    def orbitals(
-        self, params: Any, data: Data, *, precision: str | None = None
-    ) -> jnp.ndarray:
-        del params, precision
-        nelec = data["electrons"].shape[0]
-        return jnp.eye(nelec)[None, ...]
 
 
 def test_molecule_workflow_wires_ph_parallel_to_ecp():
     """Keep molecule workflows wiring PH as a runtime estimator parallel to ECP."""
-    cfg = ConfigManager({})
-    wf: Any = _DummyWavefunction()
-    system_config = MoleculeConfig(
-        atom_configs=[
-            AtomConfig(symbol="Fe", coords=[0.0, 0.0, 0.0]),
-            AtomConfig(symbol="Li", coords=[2.0, 0.0, 0.0]),
-            AtomConfig(symbol="H", coords=[0.0, 2.0, 0.0]),
-        ],
-        s_z=0,
-        pp={"Li": "ccecp", "Fe": "ph"},
+    workflow = MoleculeEvalWorkflow.from_config(
+        {
+            "system": {
+                "atoms": [
+                    {"symbol": "Fe", "coords": [0.0, 0.0, 0.0]},
+                    {"symbol": "Li", "coords": [2.0, 0.0, 0.0]},
+                    {"symbol": "H", "coords": [0.0, 2.0, 0.0]},
+                ],
+                "s_z": 0,
+                "pp": {"Li": "ccecp", "Fe": "ph"},
+            }
+        }
     )
-
-    estimators = make_molecule_estimators(
-        cfg, wf, system_config, always_enable_energy=True
-    )
+    workflow.build_runtime()
+    estimators = dict(workflow.estimators)
 
     assert list(estimators) == ["potential", "ecp", "ph", "total"]
     assert isinstance(estimators["ecp"], ECPEnergy)
@@ -77,44 +46,31 @@ def test_molecule_workflow_wires_ph_parallel_to_ecp():
     assert estimators["ph"].ph == ["Fe"]
 
 
-def test_ph_workflow_rejects_kinetic_mode_override_via_cfg_finalize():
-    """PH workflows surface `estimators.energy.kinetic.*` overrides as unused config."""
-    cfg = ConfigManager(
-        {}, dotlist=["estimators.energy.kinetic.mode=forward_laplacian"]
+def test_solid_workflow_wires_ph_parallel_to_ecp(monkeypatch):
+    """Solid workflows wire PH across supercells with periodic distances."""
+    monkeypatch.setattr(
+        "jaqmc.app.solid.workflow._load_reference",
+        lambda *_: SimpleNamespace(
+            get_orbital_kpoints=lambda: jnp.zeros((1, 3)),
+            get_kpoint_occupancies=lambda: [],
+        ),
     )
-    wf: Any = _DummyWavefunction()
-    system_config = MoleculeConfig(
-        atom_configs=[AtomConfig(symbol="Fe", coords=[0.0, 0.0, 0.0])],
-        s_z=0,
-        pp={"Fe": "ph"},
+    workflow = SolidEvalWorkflow.from_config(
+        {
+            "system": {
+                "atoms": [
+                    {"symbol": "Fe", "frac_coords": [0.0, 0.0, 0.0]},
+                    {"symbol": "Li", "frac_coords": [0.5, 0.5, 0.5]},
+                ],
+                "lattice": {"a": 8.0, "b": 8.0, "c": 8.0},
+                "supercell_matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 2]],
+                "pp": {"Fe": "ph", "Li": "ccecp"},
+                "s_z": 0.5,
+            }
+        }
     )
-
-    make_molecule_estimators(cfg, wf, system_config, always_enable_energy=True)
-
-    with pytest.raises(ConfigError, match="Unused config keys detected"):
-        cfg.finalize(raise_on_unused=True)
-
-
-def test_solid_workflow_wires_ph_and_rejects_kinetic_override():
-    """Solid workflows wire PH across supercells and leave kinetic overrides unread."""
-    cfg = ConfigManager(
-        {}, dotlist=["estimators.energy.kinetic.mode=forward_laplacian"]
-    )
-    wf: Any = _DummyWavefunction()
-    system_config = SolidConfig(
-        atom_configs=[
-            SolidAtomConfig("Fe", [0.0, 0.0, 0.0]),
-            SolidAtomConfig("Li", [0.5, 0.5, 0.5]),
-        ],
-        lattice=LatticeParams(a=8.0, b=8.0, c=8.0),
-        supercell_matrix=[[1, 0, 0], [0, 1, 0], [0, 0, 2]],
-        pp={"Fe": "ph", "Li": "ccecp"},
-        s_z=0.5,
-    )
-
-    estimators = make_solid_estimators(
-        cfg, wf, system_config, always_enable_energy=True
-    )
+    workflow.build_runtime()
+    estimators = dict(workflow.estimators)
 
     assert list(estimators) == ["potential", "ecp", "ph", "total"]
     assert isinstance(estimators["ecp"], ECPEnergy)
@@ -128,5 +84,55 @@ def test_solid_workflow_wires_ph_and_rejects_kinetic_override():
     assert jnp.allclose(disp, jnp.array([[[0.0, 0.0, -5.0]]]))
     assert jnp.allclose(dist, jnp.array([[5.0]]))
 
-    with pytest.raises(ConfigError, match="Unused config keys detected"):
-        cfg.finalize(raise_on_unused=True)
+
+@pytest.mark.parametrize(
+    ("workflow_cls", "system"),
+    [
+        (
+            MoleculeTrainWorkflow,
+            {"atoms": [{"symbol": "Fe", "coords": [0, 0, 0]}], "pp": "ph"},
+        ),
+        (
+            SolidTrainWorkflow,
+            {
+                "atoms": [{"symbol": "Fe", "frac_coords": [0.0, 0.0, 0.0]}],
+                "lattice": {"a": 8.0, "b": 8.0, "c": 8.0},
+                "pp": "ph",
+            },
+        ),
+    ],
+)
+def test_ph_workflow_rejects_kinetic_enabled_override(workflow_cls, system):
+    """The system, not the config, decides whether EuclideanKinetic runs."""
+    with pytest.raises(ValidationError, match="Unexpected keyword argument"):
+        workflow_cls.from_config(
+            {"system": system},
+            [
+                "estimators.energy.kinetic.enabled=true",
+            ],
+        )
+
+
+def test_molecule_workflow_normalizes_kinetic_estimator_during_parsing():
+    all_electron = MoleculeTrainWorkflow.from_config(
+        {"system": {"module": "atom", "symbol": "H"}}
+    )
+    ph = MoleculeTrainWorkflow.from_config(
+        {"system": {"module": "atom", "symbol": "Fe", "pp": "ph"}}
+    )
+
+    assert list(all_electron.estimators) == ["potential", "kinetic", "total"]
+    assert list(ph.estimators) == ["potential", "ph", "total"]
+
+    energy = yaml.safe_load(ph.to_yaml())["estimators"]["energy"]
+    assert "enabled" not in energy["kinetic"]
+    assert "enabled" not in energy["ph"]
+    assert energy["ph"]["kinetic_backend"] == "forward_laplacian"
+
+
+def test_training_rejects_disabled_required_estimators():
+    with pytest.raises(ValidationError, match="Unexpected keyword argument"):
+        MoleculeTrainWorkflow.from_config(
+            {"system": {"module": "atom", "symbol": "H"}},
+            ["estimators.energy.enabled=false"],
+        )

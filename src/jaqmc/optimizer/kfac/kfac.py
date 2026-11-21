@@ -1,8 +1,10 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
+from collections.abc import Callable
+from dataclasses import field
 from functools import partial
-from typing import Any, NamedTuple
+from typing import Annotated, Any, NamedTuple
 
 import jax
 import kfac_jax
@@ -11,7 +13,7 @@ import optax
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import BatchedData
 from jaqmc.optimizer.schedule import Standard
-from jaqmc.utils.config import configurable_dataclass, module_config
+from jaqmc.utils.config import ModuleConfig, configurable_dataclass
 from jaqmc.utils.parallel_jax import BATCH_AXIS_NAME
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction import NumericWavefunctionEvaluate
@@ -96,7 +98,10 @@ class KFACOptimizer:
             wavefunction evaluation. ``None`` inherits the wavefunction default.
     """
 
-    learning_rate: Any = module_config(Standard, direct_value_type=float)
+    learning_rate: Annotated[
+        float | Callable[..., Any],
+        ModuleConfig(package="jaqmc.optimizer"),
+    ] = field(default_factory=Standard)
     norm_constraint: float = 1e-3
     curvature_ema: float = 0.95
     l2_reg: float = 0.0
