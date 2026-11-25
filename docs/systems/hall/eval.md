@@ -91,7 +91,7 @@ configuration keys.
 (hall-angular-projection)=
 ## Estimators (`estimators.*`)
 
-Training and evaluation share this estimator schema. Runtime dependencies such
+Training and evaluation share this estimator collection, with evaluation omitting training `loss_weight` fields (see [training estimators](#hall-train-estimators)). Runtime dependencies such
 as the wavefunction and sphere geometry are wired at startup and omitted from
 YAML. For physics, derivations, and post-processing (including
 [angular-momentum sector projection](../../guide/estimators/angular-momentum.md)

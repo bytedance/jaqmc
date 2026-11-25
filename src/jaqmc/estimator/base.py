@@ -2,19 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, fields
-from functools import reduce
+from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import fields
 from typing import Any, cast
 
 import jax
 from jax import numpy as jnp
-from pydantic import (
-    Field,
-    GetCoreSchemaHandler,
-    SerializerFunctionWrapHandler,
-    TypeAdapter,
-)
+from pydantic import Field, GetCoreSchemaHandler, SerializerFunctionWrapHandler
 from pydantic_core import CoreSchema, core_schema
 
 from jaqmc.array_types import Params, PRNGKey
@@ -31,33 +25,35 @@ class EstimatorCollection(Mapping):
     The mapping view contains only estimators that are enabled (along with
     their enclosing groups). Workflows and parent collections configure which
     child fields expose a user-togglable ``enabled`` key via
-    :func:`WithToggles`, and can toggle children programmatically via
+    :func:`WithToggles`, can omit VMC ``loss_weight`` fields during evaluation
+    via :func:`HideLoss`, and can toggle children programmatically via
     :meth:`set_enabled`.
     """
 
     def __post_init__(self) -> None:
         self._enabled: dict[str, bool] = {}
-        self._key_map: dict[str, list[str]] = {}
+        seen: set[str] = set()
+        for name, _ in self._items(enabled_only=False):
+            if name in seen:
+                raise ValueError(
+                    f"Duplicate estimator name {name!r} in {type(self).__name__}."
+                )
+            seen.add(name)
 
-        def visit(group: EstimatorCollection, prefix: Sequence[str] = ()) -> None:
-            for f in fields(cast(Any, group)):
-                value = getattr(group, f.name)
-                if isinstance(value, EstimatorCollection):
-                    visit(value, [*prefix, f.name])
-                elif isinstance(value, Estimator):
-                    if f.name in self._key_map:
-                        raise ValueError(
-                            f"Duplicate estimator name {f.name!r} in "
-                            f"{type(self).__name__}."
-                        )
-                    self._key_map[f.name] = [*prefix, f.name]
-                else:
-                    raise TypeError(
-                        f"{type(group).__name__}.{f.name} must be an "
-                        f"Estimator or EstimatorCollection; got {type(value)}."
-                    )
-
-        visit(self)
+    def _items(self, enabled_only: bool = True) -> Iterator[tuple[str, "Estimator"]]:
+        for f in fields(cast(Any, self)):
+            if enabled_only and not getattr(self, "_enabled", {}).get(f.name, True):
+                continue
+            value = getattr(self, f.name)
+            if isinstance(value, EstimatorCollection):
+                yield from value._items(enabled_only)
+            elif isinstance(value, Estimator):
+                yield f.name, value
+            else:
+                raise TypeError(
+                    f"{type(self).__name__}.{f.name} must be an "
+                    f"Estimator or EstimatorCollection; got {type(value)}."
+                )
 
     def set_enabled(self, **kwargs: bool) -> None:
         """Set the runtime enabled state for direct child estimators or subgroups.
@@ -65,80 +61,56 @@ class EstimatorCollection(Mapping):
         Raises:
             AttributeError: If any keyword does not match a field on this
                 collection.
+            ValueError: If any enabled state is not a boolean.
         """
         if unknown := set(kwargs) - {f.name for f in fields(cast(Any, self))}:
             raise AttributeError(
                 f"{type(self).__name__} has no estimator field(s) {sorted(unknown)}."
             )
+        if not all(isinstance(v, bool) for v in kwargs.values()):
+            raise ValueError("Estimator enabled state must be a boolean.")
+        if not hasattr(self, "_enabled"):
+            self._enabled = {}
         self._enabled.update(kwargs)
 
     def is_enabled(self, key: str) -> bool:
         """Return whether the named estimator and its parent groups are enabled."""
-        node: Any = self
-        for name in self._key_map[key]:
-            if not node._enabled.get(name, True):
-                return False
-            node = getattr(node, name)
-        return True
+        return key in self
 
     def __getitem__(self, key: str) -> "Estimator":
-        if key not in self._key_map or not self.is_enabled(key):
-            raise KeyError(key)
-        return reduce(getattr, self._key_map[key], self)  # type: ignore
+        return dict(self._items())[key]
 
-    def __iter__(self):
-        return (key for key in self._key_map if self.is_enabled(key))
+    def __iter__(self) -> Iterator[str]:
+        return (key for key, _ in self._items())
 
-    def __len__(self):
-        return sum(1 for _ in self)
+    def __len__(self) -> int:
+        return sum(1 for _ in self._items())
 
 
-@dataclass(frozen=True)
-class _WithToggles:
-    enabled: Mapping[str, bool]
-
-    def __get_pydantic_core_schema__(
-        self, source_type: Any, handler: GetCoreSchemaHandler
-    ) -> CoreSchema:
-        known = {f.name for f in fields(source_type)}
-        if unknown := set(self.enabled) - known:
-            raise ValueError(
-                f"{source_type.__name__} enabled keys {sorted(unknown)} "
-                "do not match any field."
+def _wrap_schema(
+    validate: Any, serialize: Any, expected_fields: Iterable[str] = ()
+) -> Any:
+    class _Schema:
+        @staticmethod
+        def __get_pydantic_core_schema__(
+            source_type: Any, handler: GetCoreSchemaHandler
+        ) -> CoreSchema:
+            if unknown := set(expected_fields) - {f.name for f in fields(source_type)}:
+                raise ValueError(
+                    f"{source_type.__name__} enabled keys {sorted(unknown)} "
+                    "do not match any field."
+                )
+            return core_schema.no_info_wrap_validator_function(
+                validate,
+                handler(source_type),
+                serialization=core_schema.wrap_serializer_function_ser_schema(
+                    serialize, info_arg=False
+                ),
             )
-        defaults = dict(self.enabled)
 
-        def validate(raw: Any, nxt: Any) -> Any:
-            overrides: dict[str, bool] = {}
-            if isinstance(raw, dict):
-                raw = {
-                    k: dict(v) if k in defaults and isinstance(v, dict) else v
-                    for k, v in raw.items()
-                }
-                if en_raw := {
-                    k: raw[k].pop("enabled")
-                    for k in defaults
-                    if isinstance(raw.get(k), dict) and "enabled" in raw[k]
-                }:
-                    validator = TypeAdapter(dict[str, bool]).validator
-                    overrides = validator.validate_python(en_raw)
-            instance = nxt(raw)
-            instance._enabled = {**defaults, **overrides}
-            return instance
-
-        def serialize(value: Any, nxt: SerializerFunctionWrapHandler) -> Any:
-            d = nxt(value)
-            for k, default in defaults.items():
-                d[k] = {"enabled": value._enabled.get(k, default), **d[k]}
-            return d
-
-        return core_schema.no_info_wrap_validator_function(
-            validate,
-            handler(source_type),
-            serialization=core_schema.wrap_serializer_function_ser_schema(
-                serialize, info_arg=False
-            ),
-        )
+    f = Field(validate_default=True)
+    f.metadata.append(_Schema)
+    return f
 
 
 def WithToggles(**enabled: bool) -> Any:
@@ -155,9 +127,65 @@ def WithToggles(**enabled: bool) -> Any:
     Returns:
         A Pydantic field annotation attaching the toggle schema.
     """
-    f = Field(validate_default=True)
-    f.metadata.append(_WithToggles(enabled))
-    return f
+
+    def validate(raw: Any, nxt: Any) -> Any:
+        overrides: dict[str, bool] = {}
+        if isinstance(raw, dict):
+            raw = dict(raw)
+            for k in enabled.keys() & raw.keys():
+                if isinstance(raw[k], dict) and "enabled" in raw[k]:
+                    raw[k] = dict(raw[k])
+                    overrides[k] = raw[k].pop("enabled")
+        instance: EstimatorCollection = nxt(raw)
+        instance.set_enabled(**(enabled | overrides))
+        return instance
+
+    def serialize(
+        value: EstimatorCollection, nxt: SerializerFunctionWrapHandler
+    ) -> Any:
+        d = nxt(value)
+        for k, default in enabled.items():
+            d[k] = {"enabled": value._enabled.get(k, default), **d[k]}
+        return d
+
+    return _wrap_schema(validate, serialize, enabled)
+
+
+def HideLoss() -> Any:
+    """Omit and reject ``loss_weight`` fields on estimators in evaluation workflows.
+
+    Use with :data:`typing.Annotated` on evaluation workflow estimator fields to
+    disable VMC loss/penalty computation (``loss_weight=None`` at runtime), strip
+    ``loss_weight`` from serialized configuration, and reject ``loss_weight``
+    overrides.
+
+    Returns:
+        A Pydantic field annotation hiding ``loss_weight`` configuration.
+    """
+
+    def pop_loss_weight(d: Any) -> bool:
+        if not isinstance(d, dict):
+            return False
+        popped = "loss_weight" in d
+        d.pop("loss_weight", None)
+        for v in d.values():
+            popped |= pop_loss_weight(v)
+        return popped
+
+    def validate(raw: Any, nxt: Any) -> Any:
+        if pop_loss_weight(raw):
+            raise ValueError("Unexpected keyword argument 'loss_weight'")
+        instance: EstimatorCollection = nxt(raw)
+        for _, est in instance._items(enabled_only=False):
+            est.loss_weight = None  # type: ignore[attr-defined]
+        return instance
+
+    def serialize(value: Any, nxt: SerializerFunctionWrapHandler) -> Any:
+        d = nxt(value)
+        pop_loss_weight(d)
+        return d
+
+    return _wrap_schema(validate, serialize)
 
 
 def mean_reduce(
@@ -176,8 +204,11 @@ def mean_reduce(
         include_variance: Whether to include ``_var`` keys.
 
     Returns:
-        Step-level statistics (walker dimension consumed).
+        Step-level statistics (walker dimension consumed). Keys starting with
+        ``"aux:"`` are skipped so estimators can pass auxiliary per-walker
+        values to downstream estimators without reducing them.
     """
+    walker_stats = {k: v for k, v in walker_stats.items() if not k.startswith("aux:")}
     stats = jax.tree.map(parallel_jax.pnanmean, walker_stats)
     if include_variance:
         var_stats = jax.tree.map(
@@ -402,6 +433,7 @@ class PerWalkerEstimator[DataT: Data](Estimator[DataT], ABC):
         return chunked_vmap(
             self.evaluate_single_walker,
             in_axes=(None, batched_data.vmap_axis, 0, None, 0),
+            out_axes=(0, None),
             chunk_size=self.vmap_chunk_size,
         )(params, batched_data.data, prev_walker_stats, state, rngs)
 
@@ -470,7 +502,11 @@ class EstimatorPipeline:
                 params, batched_data, walker_stats, state[name], sub_rngs
             )
             walker_stats.update(stats_parts)
-            reduced = estimator.reduce(stats_parts)
+            # Keys starting with ``"aux:"`` are skipped so estimators can pass auxiliary
+            # per-walker values to downstream estimators without reducing them.
+            reduced = estimator.reduce(
+                {k: v for k, v in stats_parts.items() if not k.startswith("aux:")}
+            )
             self._reduce_keys[name] = frozenset(reduced.keys())
             step_stats.update(reduced)
 

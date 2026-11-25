@@ -148,10 +148,7 @@ The train stage enables `console`, `csv`, and `npy` writers by default.
 
 ### Loss gradients (`train.grads.*`)
 
-The workflow resolves {py:obj}`~jaqmc.estimator.loss_grad.LossAndGrad`
-from `train.grads.*`. Its default gradient clipping window has scale 20. See
-[Loss and gradient](../../guide/estimators/loss-grad.md) for the clipping
-formulas.
+The workflow resolves {class}`~jaqmc.estimator.loss_grad.LossGrad` from `train.grads.*`. Its default gradient clipping window has scale 20. See [Loss and gradient](../../guide/estimators/loss-grad.md) for the clipping formulas.
 
 ```{eval-rst}
 .. config-defaults::
@@ -161,8 +158,13 @@ formulas.
 
 ---
 
+(moire-train-estimators)=
 ## Estimators (`estimators.*`)
 
-Training and evaluation share the same estimator schema and defaults; see the
-[evaluation estimator config](#moire-estimators). During training, the
-total-energy estimator is always enabled and cannot be toggled off.
+Training and evaluation share the same estimator collection, with training exposing `loss_weight` settings for VMC gradient and penalty computation (see [Loss and gradient](../../guide/estimators/loss-grad.md) and [How Estimators Work](../../guide/estimators/index.md)) and keeping the total-energy estimator always enabled. See the [evaluation estimator config](#moire-estimators) for evaluation defaults.
+
+```{eval-rst}
+.. config-defaults::
+   :prefix: estimators
+   :defaults-from: jaqmc.app.moire.workflow.MoireTrainWorkflow
+```

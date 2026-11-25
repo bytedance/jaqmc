@@ -1,146 +1,254 @@
 # Copyright (c) 2025-2026 ByteDance Ltd. and/or its affiliates
 # SPDX-License-Identifier: Apache-2.0
 
-from collections.abc import Mapping
-from functools import partial
+r"""Shared VMC loss and covariance-gradient helpers.
+
+Provides :func:`loss_term` and :class:`LossGrad` used by estimators and
+:class:`~jaqmc.workflow.stage.vmc.VMCWorkStage` to compute VMC parameter
+gradients:
+
+.. math::
+
+    \nabla_\theta \langle \mathcal{O}_L \rangle
+      = 2 \operatorname{Re} \left\langle
+          (\nabla_\theta \log\psi_\theta)^*
+          (\mathcal{O}_L - \langle \mathcal{O}_L \rangle)
+      \right\rangle
+      + \langle \nabla_\theta \mathcal{O}_L \rangle
+
+Note:
+    :class:`LossGrad` sums all per-walker :math:`\partial \mathcal{L} /
+    \partial \log\psi` terms into one effective local Hamiltonian, clips
+    and centers it once per step, and contracts the centered weights in a
+    single batched :func:`jax.vjp` backward pass. As a consequence, averaging
+    ``reduce`` outputs across multiple steps is not mathematically valid for
+    covariance centering or nonlinear ``loss_fn`` penalties; multi-step
+    gradient accumulation requires separate handling.
+"""
+
+from collections.abc import Callable, Mapping
+from functools import partial, reduce
 from typing import Any, Literal
 
 import jax
-import optax
 from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
-from jaqmc.data import Data
-from jaqmc.estimator.base import PerWalkerEstimator, mean_reduce
+from jaqmc.data import BatchedData, Data
+from jaqmc.estimator.base import Estimator
 from jaqmc.utils import parallel_jax
 from jaqmc.utils.array import match_first_axis_of
 from jaqmc.utils.clip import clip_observable
 from jaqmc.utils.config import configurable_dataclass
-from jaqmc.utils.func_transform import transform_maybe_complex
 from jaqmc.utils.wiring import runtime_dep
 from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
 
+__all__ = ["LossGrad", "loss_term"]
+
+
+def loss_term(
+    tag: str,
+    local_val: jnp.ndarray,
+    *,
+    weight: float | None = 1.0,
+    direct_grad: Params | None = None,
+    loss_fn: Callable[[jnp.ndarray], jnp.ndarray] | None = None,
+) -> dict[str, Any]:
+    r"""Build per-walker auxiliary loss and gradient statistics for a loss term.
+
+    Args:
+        tag: Identifier for this loss term (reported under ``loss:{tag}``).
+        local_val: Per-walker local observable values.
+        weight: Multiplier applied to this term's loss and parameter gradient.
+            ``0.0`` or ``None`` disables gradient computation for this term.
+        direct_grad: Optional per-walker parameter gradient
+            :math:`\nabla_\theta \mathcal{O}_L` for observables that depend
+            directly on wavefunction parameters.
+        loss_fn: Optional scalar function :math:`f(\langle \operatorname{Re}
+            \mathcal{O}_L \rangle)` wrapping the expectation value.
+
+    Returns:
+        Dictionary with ``aux:loss:{tag}``, ``aux:dloss_dlogpsi:{tag}``, and
+        (when ``direct_grad`` is provided) ``aux:direct_grad:{tag}``, or an
+        empty dict when ``weight`` is zero or ``None``.
+    """
+    if not weight:
+        return {}
+    real_local = jnp.real(local_val)
+    if loss_fn is None:
+        loss = weight * real_local
+        grad_scale: float | jnp.ndarray = weight
+    else:
+        mean_local = parallel_jax.pnanmean(real_local)
+        loss = jnp.where(jnp.isnan(real_local), jnp.nan, weight * loss_fn(mean_local))
+        grad_scale = weight * jax.grad(loss_fn)(mean_local)
+
+    out: dict[str, Any] = {
+        f"aux:loss:{tag}": loss,
+        f"aux:dloss_dlogpsi:{tag}": grad_scale * local_val,
+    }
+    if direct_grad is not None:
+        out[f"aux:direct_grad:{tag}"] = jax.tree.map(
+            lambda x: grad_scale * x, direct_grad
+        )
+    return out
+
 
 @configurable_dataclass
-class LossAndGrad(PerWalkerEstimator):
-    r"""Estimator that computes the VMC loss and parameter gradients.
+class LossGrad[DataT: Data](Estimator[DataT]):
+    r"""Assemble ``aux:loss:*``, ``aux:dloss_dlogpsi:*``, and ``aux:direct_grad:*``.
 
-    For real parameters :math:`\theta` and a possibly complex wavefunction,
-    the gradient of the variational energy is:
-
-    .. math::
-
-        \nabla_\theta \langle E_L \rangle
-          = 2 \operatorname{Re} \left\langle
-              (\nabla_\theta \log\psi_\theta)^*
-              (E_L - \langle E_L \rangle)
-          \right\rangle
-
-    For real wavefunctions this reduces to
-    :math:`2 \langle (E_L - \langle E_L \rangle)
-    \nabla_\theta \log|\psi_\theta| \rangle` since
-    :math:`\nabla_\theta \log\psi = \nabla_\theta \log|\psi|`
-    is real.
-
-    The computation proceeds in three stages across the estimator
-    lifecycle:
-
-    1. ``evaluate_single_walker`` evaluates :math:`\log\psi` and its
-       parameter gradient for each walker, and reads the loss value.
-    2. ``reduce`` optionally clips the local energies for outlier
-       robustness, then forms the per-walker product
-       :math:`\operatorname{Re}[(\nabla\log\psi)^*
-       E_L^{\text{clipped}}]`.
-    3. ``finalize_stats`` averages over walkers and subtracts the baseline
-       :math:`\operatorname{Re}[(\langle\nabla\log\psi\rangle)^*
-       \langle E_L^{\text{clipped}} \rangle]` to assemble the final
-       gradient.
+    Reads per-walker ``aux:loss:*``, ``aux:dloss_dlogpsi:*``, and
+    ``aux:direct_grad:*`` from ``prev_walker_stats``, sums all
+    ``aux:dloss_dlogpsi:*`` terms into one effective local Hamiltonian, clips
+    and centers it over valid walkers, contracts the centered sensitivity
+    vector with :math:`\nabla_\theta\log\psi` in a single batched
+    :func:`jax.vjp` backward pass in :meth:`evaluate_batch_walkers`, and
+    reduces losses and gradients across walkers and devices in :meth:`reduce`.
 
     Args:
         wavefunction_precision: Wavefunction-defined precision mode passed to
             wavefunction evaluation. ``None`` inherits the wavefunction default.
-        clip_method: Outlier clipping rule used for gradient weighting.
-            ``"iqr"`` clips to :math:`[Q_1 - s \cdot \text{IQR},\;
-            Q_3 + s \cdot \text{IQR}]`. ``"mad"`` clips to
-            :math:`\mathrm{median}(E_L) \pm s \cdot
-            \mathrm{median}(|E_L - \mathrm{median}(E_L)|)`.
-            ``"none"`` disables clipping.
+        clip_method: Outlier clipping rule applied to the combined effective
+            local Hamiltonian before gradient centering. ``"iqr"`` clips to
+            :math:`[Q_1 - s \cdot \text{IQR},\; Q_3 + s \cdot \text{IQR}]`.
+            ``"mad"`` clips to :math:`\mathrm{median}(x) \pm s \cdot
+            \mathrm{median}(|x - \mathrm{median}(x)|)`. ``"none"`` disables
+            clipping.
         clip_scale: Width multiplier for the selected clipping window.
             Smaller values clip more aggressively, which stabilises
             gradients but biases the estimator. Ignored when
             ``clip_method="none"``.
-        loss_key: Key in ``prev_walker_stats`` to use as the loss (runtime dep,
-            default ``"total_energy"``).
+        mode: Gradient evaluation mode (runtime dep). ``"standard"`` contracts
+            centered ``dloss_dlogpsi`` weights with :math:`\nabla_\theta\log\psi`
+            via :func:`jax.vjp` and returns ``grads``. ``"sr"`` skips the VJP
+            and returns centered per-walker ``dloss_dlogpsi`` weights for
+            :class:`~jaqmc.optimizer.sr.SROptimizer` to contract with its
+            score matrix.
         f_log_psi: Log-psi function to differentiate (runtime dep).
     """
 
     clip_method: Literal["iqr", "mad", "none"] = "mad"
     clip_scale: float = 5.0
     wavefunction_precision: str | None = None
-    loss_key: str = runtime_dep(default="total_energy")
-    f_log_psi: NumericWavefunctionEvaluate = runtime_dep()
+    mode: Literal["standard", "sr"] = runtime_dep(default="standard")
+    f_log_psi: NumericWavefunctionEvaluate[DataT] = runtime_dep()
 
-    def evaluate_single_walker(
+    def _vjp_log_psi(
         self,
         params: Params,
-        data: Data,
+        batched_data: BatchedData[DataT],
+        dloss_dlogpsi: jnp.ndarray,
+    ) -> Params:
+        batch_log_psi = jax.vmap(
+            partial(self.f_log_psi, precision=self.wavefunction_precision),
+            in_axes=(None, batched_data.vmap_axis),
+        )
+        # Wrap params with pvary so grads inherit the correct (varying) sharding.
+        # Without this, JAX assumes grads share params' non-varying sharding,
+        # which confuses the compiler (known bug in JAX 0.8.1).
+        log_psi, vjp_fn = jax.vjp(
+            lambda p: batch_log_psi(p, batched_data.data),
+            parallel_jax.pvary(params),
+        )
+        # JAX's complex VJP computes Re(cotangent * d(log_psi)), so conjugate
+        # the weights to obtain Re(conj(grad log_psi) * weights).
+        cotangent = jnp.conj(dloss_dlogpsi)
+        if jnp.isrealobj(log_psi):
+            cotangent = cotangent.real
+        (local_grads,) = vjp_fn(cotangent.astype(log_psi.dtype))
+        return local_grads
+
+    def evaluate_batch_walkers(
+        self,
+        params: Params,
+        batched_data: BatchedData[DataT],
         prev_walker_stats: Mapping[str, Any],
         state: None,
         rngs: PRNGKey,
     ) -> tuple[dict[str, Any], None]:
         del rngs
-        value_and_grad_f = transform_maybe_complex(
-            partial(self.f_log_psi, precision=self.wavefunction_precision),
-            jax.value_and_grad,
-        )
-        # Wrap params with pvary so grads inherit the correct (varying) sharding.
-        # Without this, JAX assumes grads share params' non-varying sharding,
-        # which confuses the compiler (known bug in JAX 0.8.1).
-        primals, grads = value_and_grad_f(parallel_jax.pvary(params), data)
-        if not jnp.isscalar(prev_walker_stats[self.loss_key]):
-            raise ValueError(
-                "Expected scalar loss value (i.e. ndim=0), got shape "
-                f"{prev_walker_stats[self.loss_key].shape}."
+        losses = {
+            k.removeprefix("aux:"): v
+            for k, v in prev_walker_stats.items()
+            if k.startswith("aux:loss:")
+        }
+        if not losses:
+            return {}, state
+
+        dloss_terms = [
+            v
+            for k, v in prev_walker_stats.items()
+            if k.startswith("aux:dloss_dlogpsi:")
+        ]
+        if dloss_terms:
+            total_dloss = reduce(jnp.add, dloss_terms)
+            clipped = clip_observable(
+                total_dloss, self.clip_method, scale=self.clip_scale
             )
-        # We copy over loss stats because we need to do customized reduce
-        return {
-            "logpsi": primals,
-            "grad_logpsi": grads,
-            "loss": prev_walker_stats[self.loss_key],
-        }, state
+            valid = ~jnp.isnan(clipped)
+            # In IEEE-754, NaN == NaN is False, so keep is False for both NaN
+            # walkers and clipped outlier walkers.
+            keep = clipped == total_dloss
+            n_valid = parallel_jax.psum(jnp.sum(valid))
+            mean_clipped = parallel_jax.pnanmean(clipped)
+            dloss_dlogpsi: jnp.ndarray | None = jnp.where(
+                valid, 2.0 * (clipped - mean_clipped) / n_valid, 0.0
+            )
+        else:
+            valid = keep = ~jnp.isnan(reduce(jnp.add, losses.values()))
+            n_valid = parallel_jax.psum(jnp.sum(valid))
+            dloss_dlogpsi = None
+
+        direct_terms = [
+            v for k, v in prev_walker_stats.items() if k.startswith("aux:direct_grad:")
+        ]
+        if direct_terms:
+            total_direct = reduce(
+                lambda a, b: jax.tree.map(jnp.add, a, b), direct_terms
+            )
+            # Only mask walkers by observable validity/clipping (keep); do not
+            # mask NaNs in direct_grad itself so wavefunction gradient NaNs
+            # propagate and abort training.
+            grads = jax.tree.map(
+                lambda x: (
+                    jnp.sum(jnp.where(match_first_axis_of(keep, x), x, 0.0), axis=0)
+                    / n_valid
+                ),
+                total_direct,
+            )
+        else:
+            grads = jax.tree.map(jnp.zeros_like, params)
+
+        if self.mode == "sr":
+            return {**losses, "grads": grads, "dloss_dlogpsi": dloss_dlogpsi}, state
+
+        if dloss_dlogpsi is None:
+            return {**losses, "grads": grads}, state
+
+        vjp_grads = self._vjp_log_psi(params, batched_data, dloss_dlogpsi)
+        grads = jax.tree.map(jnp.add, grads, vjp_grads)
+        return {**losses, "grads": grads}, state
 
     def reduce(self, walker_stats: Mapping[str, Any]) -> dict[str, Any]:
-        clipped_loss = clip_observable(
-            walker_stats["loss"], self.clip_method, scale=self.clip_scale
-        )
-        grad_logpsi_and_loss = jax.tree.map(
-            lambda x: jnp.real(jnp.conj(x) * match_first_axis_of(clipped_loss, x)),
-            walker_stats["grad_logpsi"],
-        )
-        return mean_reduce(
-            {
-                "grad_logpsi_and_loss": grad_logpsi_and_loss,
-                "loss": walker_stats["loss"],
-                "clipped_loss": clipped_loss,
-                "grad_logpsi": walker_stats["grad_logpsi"],
-            }
-        )
+        if not walker_stats:
+            return {}
+        losses = {
+            k: parallel_jax.pnanmean(v)
+            for k, v in walker_stats.items()
+            if k.startswith("loss:")
+        }
+        out: dict[str, Any] = {
+            **losses,
+            "loss": reduce(jnp.add, losses.values()),
+            "grads": parallel_jax.psum(walker_stats["grads"]),
+        }
+        if "dloss_dlogpsi" in walker_stats:
+            out["dloss_dlogpsi"] = walker_stats["dloss_dlogpsi"]
+        return out
 
     def finalize_stats(
-        self, batch_stats: Mapping[str, Any], state: None
+        self, batched_stats: Mapping[str, Any], state: None
     ) -> dict[str, Any]:
         del state
-        batch_mean = partial(jnp.mean, axis=0)
-        grad_logpsi_and_loss = jax.tree.map(
-            batch_mean, batch_stats["grad_logpsi_and_loss"]
-        )
-        grad_logpsi = jax.tree.map(batch_mean, batch_stats["grad_logpsi"])
-        clipped_loss = batch_mean(batch_stats["clipped_loss"])
-        loss = batch_mean(batch_stats["loss"])
-        grads = optax.tree.add(
-            grad_logpsi_and_loss,
-            optax.tree.real(
-                optax.tree.scale(-clipped_loss, optax.tree.conj(grad_logpsi))
-            ),
-        )
-        return {"loss": loss, "grads": optax.tree.scale(2, grads)}
+        return jax.tree.map(lambda x: jnp.mean(x, axis=0), dict(batched_stats))

@@ -176,6 +176,22 @@ def psum[ValueT](x: ValueT) -> ValueT:
         return x
 
 
+def pmax[ValueT](x: ValueT) -> ValueT:
+    """Compute maximum of ``x`` across devices along the batch axis.
+
+    Returns:
+        The maximum of ``x`` across all devices, or ``x`` unchanged outside shard_map.
+
+    Type Parameters:
+        ValueT: Arbitrary pytree-like value type preserved across the call.
+    """
+    try:
+        return jax.lax.pmax(x, axis_name=BATCH_AXIS_NAME)
+    except NameError:
+        logger.warning("Using pmax() outside a shard_map context.")
+        return x
+
+
 def pnanmean(x):
     """Compute a NaN-aware mean over the leading batch axis and all devices.
 
@@ -190,7 +206,8 @@ def pnanmean(x):
     valid = ~jax.numpy.isnan(x)
     local_sum = jax.numpy.sum(jax.numpy.where(valid, x, 0), axis=0)
     local_count = jax.numpy.sum(valid, axis=0)
-    return pmean(local_sum) / pmean(local_count)
+    total_sum, total_count = pmean((local_sum, local_count))
+    return total_sum / total_count
 
 
 def all_gather(x):

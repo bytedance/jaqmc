@@ -16,6 +16,8 @@ API reference for built-in estimators. For background, formulas, and configurati
 
 .. autofunction:: jaqmc.estimator.WithToggles
 
+.. autofunction:: jaqmc.estimator.HideLoss
+
 .. autoclass:: jaqmc.estimator.EstimatorPipeline
    :members: init, evaluate, finalize_stats, digest
 
@@ -35,6 +37,7 @@ API reference for built-in estimators. For background, formulas, and configurati
 
 ```{eval-rst}
 .. autoclass:: jaqmc.estimator.angular_momentum.SphericalAngularMomentum
+.. autoclass:: jaqmc.estimator.angular_momentum.AngularMomentumLoss
 .. autoclass:: jaqmc.estimator.angular_momentum.SphericalAngularMomentumProjection
 ```
 
@@ -70,10 +73,18 @@ API reference for built-in estimators. For background, formulas, and configurati
 .. autoclass:: jaqmc.estimator.ph.PHEnergy
 ```
 
-### Spin squared
+### Spin
 
 ```{eval-rst}
 .. autoclass:: jaqmc.estimator.spin.SpinSquared
+```
+
+### Overlap
+
+```{eval-rst}
+.. autoclass:: jaqmc.estimator.overlap.Overlap
+   :members: restore
+.. autoclass:: jaqmc.estimator.overlap.ReferenceState
 ```
 
 ### Total energy
@@ -99,5 +110,7 @@ API reference for built-in estimators. For background, formulas, and configurati
 ### Loss and gradient
 
 ```{eval-rst}
-.. autoclass:: jaqmc.estimator.loss_grad.LossAndGrad
+.. autofunction:: jaqmc.estimator.loss_grad.loss_term
+.. autoclass:: jaqmc.estimator.loss_grad.LossGrad
+   :members:
 ```

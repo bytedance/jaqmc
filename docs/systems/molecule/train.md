@@ -257,15 +257,15 @@ The pretrain stage enables `console`, `csv`, and `npy` writers by default.
    :defaults-from: jaqmc.app.molecule.workflow.MoleculeTrainWorkflow
 ```
 
-### Loss gradients
-
-Pretraining does not use configurable `pretrain.grads.*` settings. The workflow
-wires a supervised orbital-matching loss against the loaded reference.
-
 ---
 
+(train-estimators)=
 ## Estimators (`estimators.*`)
 
-Training and evaluation share the same estimator schema and defaults; see the
-[evaluation estimator config](#molecule-estimators). During training, the
-total-energy estimator is always enabled and cannot be toggled off.
+Training and evaluation share the same estimator collection, with training exposing `loss_weight` settings for VMC gradient and penalty computation (see [Loss and gradient](../../guide/estimators/loss-grad.md) and [How Estimators Work](../../guide/estimators/index.md)) and keeping the total-energy estimator always enabled. See the [evaluation estimator config](#molecule-estimators) for evaluation defaults.
+
+```{eval-rst}
+.. config-defaults::
+   :prefix: estimators
+   :defaults-from: jaqmc.app.molecule.workflow.MoleculeTrainWorkflow
+```

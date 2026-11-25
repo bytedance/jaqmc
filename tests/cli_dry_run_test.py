@@ -363,8 +363,8 @@ train:
         "hall",
         "train",
         dotlist=(
-            "system.lz_penalty=10",
-            "system.lz_center=0",
+            "estimators.angular_momentum.loss_weight.lz_square=10",
+            "estimators.angular_momentum.loss_weight.l_square=10",
             "workflow.batch_size=4",
             "train.run.iterations=1",
         ),
@@ -488,6 +488,18 @@ estimators:
             "workflow.batch_size=4",
             "workflow.source_path=source",
             "run.iterations=1",
+        ),
+    ),
+    CliDryRunCase(
+        "molecule_overlap_penalty_train",
+        "molecule",
+        "train",
+        (
+            "estimators.overlap.enabled=true",
+            "estimators.overlap.loss_weight=5.0",
+            "estimators.overlap.states.ground.path=runs/s0",
+            "estimators.overlap.states.ground.weight=1.5",
+            "estimators.overlap.states.ground.wf.module=lapnet:LapNetWavefunction",
         ),
     ),
 ]

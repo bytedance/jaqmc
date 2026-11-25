@@ -3,6 +3,5 @@
 
 from .one_rdm import OneRDM
 from .pair_correlation import PairCorrelation
-from .penalized_loss import PenalizedLoss
 
-__all__ = ["OneRDM", "PairCorrelation", "PenalizedLoss"]
+__all__ = ["OneRDM", "PairCorrelation"]

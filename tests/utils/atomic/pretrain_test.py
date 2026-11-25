@@ -105,8 +105,10 @@ class TestPretrainOrbitalShape:
             params, data, {}, None, TEST_KEY
         )
 
-        assert jnp.isfinite(stats["loss"])
-        assert stats["loss"] > 0, "Random params should not match reference orbitals"
+        assert jnp.isfinite(stats["aux:loss:pretrain"])
+        assert stats["aux:loss:pretrain"] > 0, (
+            "Random params should not match reference orbitals"
+        )
 
 
 def test_pretrain_loss_uses_spin_block_diagonal_target():
@@ -128,7 +130,9 @@ def test_pretrain_loss_uses_spin_block_diagonal_target():
         {}, make_test_data((2, 1)), {}, None, TEST_KEY
     )
 
-    np.testing.assert_allclose(stats["loss"], (10**2 + 20**2 + 30**2 + 40**2) / 9)
+    np.testing.assert_allclose(
+        stats["aux:loss:pretrain"], (10**2 + 20**2 + 30**2 + 40**2) / 9
+    )
 
 
 def test_pretrain_loss_handles_an_empty_spin_block():
@@ -147,4 +151,4 @@ def test_pretrain_loss_handles_an_empty_spin_block():
         {}, make_test_data((1, 0)), {}, None, TEST_KEY
     )
 
-    np.testing.assert_allclose(stats["loss"], 1.0)
+    np.testing.assert_allclose(stats["aux:loss:pretrain"], 1.0)

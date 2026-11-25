@@ -3,9 +3,10 @@
 
 """Picklable typehints formatter for sphinx-autodoc-typehints."""
 
-from typing import TypeAliasType
+from typing import TypeAliasType, TypeVar
 
 import optax
+from sphinx_autodoc_typehints import format_annotation
 
 
 class TypehintsFormatter:
@@ -16,6 +17,8 @@ class TypehintsFormatter:
             return ":py:obj:`optax.ScalarOrSchedule`"
         if annotation == optax.ScalarOrSchedule | None:
             return ":py:obj:`optax.ScalarOrSchedule` | :py:obj:`None`"
+        if isinstance(annotation, TypeVar) and annotation.__bound__ is not None:
+            return format_annotation(annotation.__bound__, *args)
         if isinstance(annotation, TypeAliasType):
             mod = getattr(annotation, "__module__", None)
             name = annotation.__name__

@@ -13,7 +13,8 @@ from jaqmc.estimator.angular_momentum import (
     SphericalAngularMomentum,
     SphericalAngularMomentumProjection,
 )
-from jaqmc.estimator.loss_grad import LossAndGrad
+from jaqmc.estimator.loss_grad import LossGrad
+from jaqmc.estimator.total_energy import TotalEnergy
 
 
 def _train_estimators(config):
@@ -29,9 +30,12 @@ def _eval_estimators(config):
 
 
 def test_angular_momentum_enabled_by_default():
-    assert isinstance(
-        _train_estimators({})["angular_momentum"], SphericalAngularMomentum
-    )
+    train_am = _train_estimators({})["angular_momentum"]
+    eval_am = _eval_estimators({})["angular_momentum"]
+    assert isinstance(train_am, SphericalAngularMomentum)
+    assert train_am.loss_weight is not None
+    assert isinstance(eval_am, SphericalAngularMomentum)
+    assert eval_am.loss_weight is None
 
 
 def test_angular_momentum_can_be_disabled_without_penalty():
@@ -45,18 +49,47 @@ def test_eval_angular_momentum_without_energy():
     assert isinstance(estimators["angular_momentum"], SphericalAngularMomentum)
 
 
-def test_penalty_switches_loss_key():
-    grads = _train_estimators({"system": {"lz_penalty": 1.0}})["grads"]
-    assert isinstance(grads, LossAndGrad)
-    assert grads.loss_key == "penalized_loss"
+def test_penalty_configures_angular_momentum_estimator():
+    estimators = _train_estimators(
+        {
+            "estimators": {
+                "angular_momentum": {
+                    "loss_weight": {
+                        "lz": -1.5,
+                        "lz_square": 1.0,
+                        "l_square": 0.5,
+                    },
+                }
+            },
+        }
+    )
+    am = estimators["angular_momentum"]
+    assert isinstance(am, SphericalAngularMomentum)
+    assert am.loss_weight is not None
+    np.testing.assert_allclose(am.loss_weight.lz, -1.5)
+    np.testing.assert_allclose(am.loss_weight.lz_square, 1.0)
+    np.testing.assert_allclose(am.loss_weight.l_square, 0.5)
 
 
-def test_default_loss_grads():
-    grads = _train_estimators({})["grads"]
-    assert isinstance(grads, LossAndGrad)
-    assert grads.loss_key == "total_energy"
+def test_default_energy_loss_grads():
+    train_est = _train_estimators({})
+    total = train_est["total"]
+    assert isinstance(total, TotalEnergy)
+    np.testing.assert_allclose(total.loss_weight, 1.0)
+    grads = train_est["loss_grad"]
+    assert isinstance(grads, LossGrad)
     assert grads.clip_method == "mad"
-    assert grads.clip_scale == 100
+    np.testing.assert_allclose(grads.clip_scale, 100.0)
+    am = train_est["angular_momentum"]
+    assert isinstance(am, SphericalAngularMomentum)
+    assert am.loss_weight is not None
+    np.testing.assert_allclose(am.loss_weight.lz, 0.0)
+    np.testing.assert_allclose(am.loss_weight.lz_square, 0.0)
+    np.testing.assert_allclose(am.loss_weight.l_square, 0.0)
+
+    eval_est = _eval_estimators({})
+    assert isinstance(eval_est["total"], TotalEnergy)
+    assert eval_est["total"].loss_weight is None
 
 
 def test_train_grads_override():
@@ -69,8 +102,8 @@ def test_train_grads_override():
                 }
             }
         }
-    )["grads"]
-    assert isinstance(grads, LossAndGrad)
+    )["loss_grad"]
+    assert isinstance(grads, LossGrad)
     assert grads.clip_method == "none"
     np.testing.assert_allclose(grads.clip_scale, 7.0)
 
@@ -84,48 +117,33 @@ def test_angular_projection_is_opt_in():
     )
 
 
-@pytest.mark.parametrize(
-    "workflow_cls,config,match",
-    [
-        pytest.param(
-            HallEvalWorkflow,
-            {
-                "system": {"lz_penalty": 1.0},
-                "estimators": {
-                    "energy": {"enabled": False},
-                },
-            },
-            r"penalties require the total energy estimator",
-            id="penalty-without-energy",
-        ),
-        *[
-            pytest.param(
-                HallTrainWorkflow,
-                {
-                    "system": {penalty: 1.0},
-                    "estimators": {"angular_momentum": {"enabled": False}},
-                },
-                r"penalties require the angular-momentum estimator",
-                id=f"{penalty}-without-angular-momentum",
-            )
-            for penalty in ("lz_penalty", "l2_penalty")
-        ],
-        pytest.param(
-            HallEvalWorkflow,
-            {
-                "estimators": {
-                    "energy": {"enabled": False},
-                    "angular_projection": {"enabled": True},
-                }
-            },
-            r"projection requires the total energy estimator",
-            id="projection-without-energy",
-        ),
-    ],
-)
-def test_rejects_inconsistent_estimator_config(workflow_cls, config, match):
-    with pytest.raises(ValidationError, match=match):
-        workflow_cls.from_config(config)
+def test_rejects_inconsistent_estimator_config():
+    config = {
+        "estimators": {
+            "energy": {"enabled": False},
+            "angular_projection": {"enabled": True},
+        }
+    }
+    with pytest.raises(
+        ValidationError, match=r"projection requires the total energy estimator"
+    ):
+        HallEvalWorkflow.from_config(config)
+
+    with pytest.raises(ValidationError, match="Unexpected keyword argument"):
+        HallEvalWorkflow.from_config(
+            {},
+            ["estimators.angular_momentum.loss_weight.lz=1.0"],
+        )
+
+    # Disabling energy loss weight is valid when an angular-momentum penalty is active.
+    _train_estimators(
+        {
+            "estimators": {
+                "energy": {"total": {"loss_weight": 0.0}},
+                "angular_momentum": {"loss_weight": {"l_square": 1.0}},
+            }
+        }
+    )
 
 
 def _run_config(tmp_path, *, wf_module: str, save_name: str):

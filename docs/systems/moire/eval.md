@@ -70,7 +70,7 @@ configuration keys.
 (moire-estimators)=
 ## Estimators (`estimators.*`)
 
-Training and evaluation share this estimator schema. Runtime dependencies such
+Training and evaluation share this estimator collection, with evaluation omitting training `loss_weight` fields (see [training estimators](#moire-train-estimators)). Runtime dependencies such
 as the wavefunction, supercell lattice, and Hamiltonian prefactors are wired at
 startup and omitted from YAML. For physics and derivations, see
 <project:../../guide/estimators/index.md>. For the API, see

@@ -22,7 +22,7 @@ from jaqmc.estimator.angular_momentum import (
     SphericalAngularMomentumProjection,
 )
 from jaqmc.estimator.kinetic import EuclideanKinetic, SphericalKinetic
-from jaqmc.estimator.loss_grad import LossAndGrad
+from jaqmc.estimator.loss_grad import LossGrad, loss_term
 from jaqmc.estimator.spin import SpinSquared
 from jaqmc.optimizer.kfac import KFACOptimizer
 from jaqmc.optimizer.sr import SROptimizer
@@ -102,7 +102,7 @@ def test_workflow_configures_consumer_wavefunction_precisions(tmp_path: Path) ->
         == "fp16_mixed"
     )
     assert (
-        cast(LossAndGrad, stage.estimators.estimators["grads"]).wavefunction_precision
+        cast(LossGrad, stage.estimators.estimators["loss_grad"]).wavefunction_precision
         == "fp16_mixed"
     )
     assert cast(KFACOptimizer, stage.optimizer).wavefunction_precision == "standard"
@@ -133,7 +133,7 @@ def test_sampler_and_pretrain_forward_wavefunction_precision() -> None:
 
 
 def test_molecule_estimators_evaluate_configured_precision() -> None:
-    data, _ = _make_molecule_sample()
+    data, batched = _make_molecule_sample()
     key = jax.random.key(0)
 
     for mode, s in ((None, 1.0), ("fp16_mixed", 3.0)):
@@ -158,15 +158,22 @@ def test_molecule_estimators_evaluate_configured_precision() -> None:
         spin.init(data, key)
         spin_out, _ = spin.evaluate_single_walker({}, data, {}, None, key)
         np.testing.assert_allclose(
-            spin_out["spin:s2"], 1.0 - np.exp(-2.0 * s), rtol=1e-5
+            spin_out["spin_squared"], 1.0 - np.exp(-2.0 * s), rtol=1e-5
         )
 
-        loss_grads = LossAndGrad(f_log_psi=_scaled_log_psi, wavefunction_precision=mode)
-        grad_out, _ = loss_grads.evaluate_single_walker(
-            {"w": jnp.float32(2.0)}, data, {"total_energy": jnp.float32(1.0)}, None, key
+        loss_grads = LossGrad(
+            clip_method="none",
+            f_log_psi=_scaled_log_psi,
+            wavefunction_precision=mode,
         )
-        np.testing.assert_allclose(grad_out["logpsi"], -5.0 * s, rtol=1e-6)
-        np.testing.assert_allclose(grad_out["grad_logpsi"]["w"], -2.5 * s, rtol=1e-6)
+        grad_out, _ = loss_grads.evaluate_batch_walkers(
+            {"w": jnp.float32(2.0)},
+            batched,
+            loss_term("total_energy", jnp.array([1.0, 3.0], dtype=jnp.float32)),
+            None,
+            key,
+        )
+        np.testing.assert_allclose(grad_out["grads"]["w"], -7.5 * s, rtol=1e-6)
 
 
 def test_sr_optimizer_evaluates_configured_precision() -> None:

@@ -195,6 +195,7 @@ class OneRDM(PerWalkerEstimator):
             Dict with ``one_rdm``, ``one_rdm:diagonal``, and
             ``one_rdm:trace``.
         """
+        del state
         one_rdm = jnp.nanmean(batched_stats["one_rdm"], axis=0)
         return {
             "one_rdm": one_rdm,

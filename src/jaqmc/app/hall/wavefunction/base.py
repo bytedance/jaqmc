@@ -80,3 +80,10 @@ class HallWavefunction(Wavefunction[HallData, ComplexWFOutput], ABC):
         self, params: Params, data: HallData, *, precision: str | None = None
     ) -> jnp.ndarray:
         return self.evaluate(params, data, precision=precision)["logpsi"]
+
+    @nn.nowrap
+    def phase_logpsi(
+        self, params: Params, data: HallData, *, precision: str | None = None
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        logpsi = self.logpsi(params, data, precision=precision)
+        return jnp.exp(1j * logpsi.imag), logpsi.real

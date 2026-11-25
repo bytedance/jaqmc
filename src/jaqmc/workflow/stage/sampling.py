@@ -44,18 +44,22 @@ class SamplingState(StageState, metaclass=JAXDataclassMeta):
 
     def partition(self) -> Self:
         """Return a matching pytree of :class:`~jax.sharding.PartitionSpec`."""
-        return replace(
+        return jax.tree.map(
+            lambda x: (
+                x.partition_spec
+                if isinstance(x, BatchedData)
+                else jax.sharding.PartitionSpec()
+            ),
             self,
-            **{  # type: ignore[arg-type]
-                name: jax.sharding.PartitionSpec()
-                if not isinstance(s, BatchedData)
-                else s.partition_spec
-                for name, s in self.__dict__.items()
-            },
+            is_leaf=lambda x: isinstance(x, BatchedData),
         )
 
     def process_allgather(self) -> Self:
-        return replace(self, batched_data=self.batched_data.process_allgather())
+        return jax.tree.map(
+            lambda x: x.process_allgather() if isinstance(x, BatchedData) else x,
+            self,
+            is_leaf=lambda x: isinstance(x, BatchedData),
+        )
 
 
 class SamplingStageBuilder:
@@ -70,7 +74,6 @@ class SamplingStageBuilder:
         builder.configure_sample_plan(wf.logpsi, {"electrons": sampler})
         builder.configure_optimizer(optimizer, f_log_psi=wf.logpsi)
         builder.configure_estimators({"kinetic": ..., "potential": ..., "total": ...})
-        builder.configure_loss_grads(loss_grads, f_log_psi=wf.logpsi)
         builder.configure_writers(writers)
         stage = builder.build()
 
@@ -203,9 +206,7 @@ class SamplingWorkStage(WorkStage):
             Sharded sampling state.
         """
         sampler_rngs, params_rngs, est_rngs = jax.random.split(rngs, 3)
-
         local_data = jax.tree.map(parallel_jax.addressable_data, batched_data)
-
         shared = parallel_jax.make_sharding(parallel_jax.SHARE_PARTITION)
 
         if params is None:
@@ -214,13 +215,23 @@ class SamplingWorkStage(WorkStage):
             )
             params = jax.device_put(local_params, shared)
 
-        local_sampler_state = self.sample_plan.init(local_data, sampler_rngs)
         if sampler_state is None:
-            sampler_state = jax.device_put(local_sampler_state, shared)
+            sampler_state = jax.device_put(
+                self.sample_plan.init(local_data, sampler_rngs), shared
+            )
 
-        estimator_state = jax.device_put(
+        estimator_state = jax.tree.map(
+            lambda x: (
+                jax.tree.map(
+                    jax.make_array_from_process_local_data,
+                    parallel_jax.make_sharding(x.partition_spec),
+                    x,
+                )
+                if isinstance(x, BatchedData)
+                else jax.device_put(x, shared)
+            ),
             self.estimators.init(local_data, est_rngs),
-            parallel_jax.make_sharding(parallel_jax.SHARE_PARTITION),
+            is_leaf=lambda x: isinstance(x, BatchedData),
         )
 
         return SamplingState(

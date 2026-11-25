@@ -13,12 +13,14 @@ from jax import numpy as jnp
 
 from jaqmc.array_types import Params, PRNGKey
 from jaqmc.data import BatchedData
-from jaqmc.estimator.base import Estimator, EstimatorPipeline
+from jaqmc.estimator.base import EstimatorPipeline
+from jaqmc.estimator.loss_grad import LossGrad
 from jaqmc.optimizer.base import OptimizerLike
 from jaqmc.optimizer.kfac import KFACOptimizer
+from jaqmc.optimizer.sr import SROptimizer
 from jaqmc.utils import parallel_jax
 from jaqmc.utils.config import configurable_dataclass
-from jaqmc.utils.wiring import check_wired, wire
+from jaqmc.utils.wiring import wire
 from jaqmc.wavefunction.base import NumericWavefunctionEvaluate
 from jaqmc.writer import Writers
 
@@ -51,9 +53,8 @@ class VMCStageBuilder(SamplingStageBuilder):
     """Builder for VMC work stages.
 
     Extends :class:`~jaqmc.workflow.stage.sampling.SamplingStageBuilder`
-    with optimizer and loss gradient
-    configuration. Call :meth:`build` to create a fully-configured
-    :class:`VMCWorkStage`.
+    with optimizer configuration. Call :meth:`build` to create a
+    fully-configured :class:`VMCWorkStage`.
     """
 
     config: VMCWorkStageConfig
@@ -80,39 +81,15 @@ class VMCStageBuilder(SamplingStageBuilder):
             raise TypeError(f"{self.name}: optimizer must be an OptimizerLike.")
         wire(optimizer, f_log_psi=f_log_psi, **kwargs)
         self.optimizer = optimizer
+        self._f_log_psi = f_log_psi
 
-    def configure_loss_grads(
-        self,
-        loss_grads: Estimator | None,
-        *,
-        f_log_psi: NumericWavefunctionEvaluate,
-        loss_key: str | None = None,
-    ) -> None:
-        """Configure loss gradient estimator and add to estimator dict.
+    def configure_loss_grads(self, loss_grads: LossGrad) -> None:
+        """Configure the loss-gradient estimator.
 
         Args:
-            f_log_psi: Log wavefunction for loss gradient wiring.
-            loss_grads: Resolved loss-gradient estimator, or None.
-            loss_key: Walker statistic to use as the loss. ``None`` keeps the
-                estimator's default.
-
-        Raises:
-            ValueError: If :meth:`configure_estimators` was not called
-                before this method.
+            loss_grads: Loss-gradient estimator instance.
         """
-        if not hasattr(self, "estimators"):
-            raise ValueError(
-                f"{self.name}: configure_estimators() must be called "
-                "before configure_loss_grads()."
-            )
-        if loss_grads is None:
-            return
-        if loss_key is None:
-            wire(loss_grads, f_log_psi=f_log_psi)
-        else:
-            wire(loss_grads, f_log_psi=f_log_psi, loss_key=loss_key)
-        check_wired(loss_grads, label="loss_grads")
-        self.estimators["grads"] = loss_grads
+        self._loss_grads = loss_grads
 
     def ensure_configured(self) -> None:
         """Validate that every required configure method was called.
@@ -123,13 +100,6 @@ class VMCStageBuilder(SamplingStageBuilder):
         super().ensure_configured()
         if not hasattr(self, "optimizer"):
             raise ValueError(f"{self.name}: configure_optimizer() was not called.")
-        if "grads" not in self.estimators:
-            raise ValueError(
-                f"{self.name}: configure_loss_grads() was not called. "
-                "A VMC training stage requires loss gradients. Either call "
-                "configure_loss_grads() or pass a 'grads' estimator to "
-                "configure_estimators()."
-            )
 
     def build(self) -> "VMCWorkStage":
         """Build a fully-configured :class:`VMCWorkStage`.
@@ -138,12 +108,18 @@ class VMCStageBuilder(SamplingStageBuilder):
             A fully-configured :class:`VMCWorkStage`.
         """
         self.ensure_configured()
+        loss_grad = getattr(self, "_loss_grads", None) or LossGrad()
+        wire(
+            loss_grad,
+            mode="sr" if isinstance(self.optimizer, SROptimizer) else "standard",
+            f_log_psi=self._f_log_psi,
+        )
         return VMCWorkStage(
             config=self.config,
             name=self.name,
             wavefunction=self.wavefunction,
             sample_plan=self.sample_plan,
-            estimators=EstimatorPipeline(self.estimators),
+            estimators=EstimatorPipeline({**self.estimators, "loss_grad": loss_grad}),
             writers=self.writers,
             optimizer=self.optimizer,
         )
@@ -163,7 +139,6 @@ class VMCWorkStage(SamplingWorkStage):
         builder.configure_sample_plan(wf.logpsi, {"electrons": sampler})
         builder.configure_optimizer(optimizer, f_log_psi=wf.logpsi)
         builder.configure_estimators({"kinetic": ..., "potential": ..., "total": ...})
-        builder.configure_loss_grads(loss_grads, f_log_psi=wf.logpsi)
         builder.configure_writers(writers)
         train = builder.build()
     """
@@ -243,7 +218,7 @@ class VMCWorkStage(SamplingWorkStage):
             Tuple of (updated state with new params, finalized stats).
 
         Raises:
-            ValueError: If no estimator provides ``grads``.
+            ValueError: If no estimator provides ``grads`` stats.
         """
         sampler_rngs, est_rngs, opt_rngs = jax.random.split(rngs, 3)
         data, sampler_stats, sampler_state = self.sample_plan.step(
@@ -255,6 +230,7 @@ class VMCWorkStage(SamplingWorkStage):
         batched = jax.tree.map(itemgetter(None), step_stats)
         final_stats = self.estimators.finalize_stats(batched, estimator_state)
         grads = final_stats.pop("grads", None)
+        dloss_dlogpsi = final_stats.pop("dloss_dlogpsi", None)
         if grads is None:
             raise ValueError("None of the estimators provides `grads` stats.")
         updates, opt_state = self.optimizer.update(
@@ -263,6 +239,7 @@ class VMCWorkStage(SamplingWorkStage):
             params=state.params,
             batched_data=data,
             rngs=opt_rngs,
+            dloss_dlogpsi=dloss_dlogpsi,
         )
         params = optax.apply_updates(state.params, updates)
         new_state = replace(

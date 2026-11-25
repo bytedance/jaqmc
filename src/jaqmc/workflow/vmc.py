@@ -14,7 +14,7 @@ from jax.experimental import multihost_utils
 
 from jaqmc.array_types import PRNGKey
 from jaqmc.data import BatchedData, Data
-from jaqmc.estimator.loss_grad import LossAndGrad
+from jaqmc.estimator.loss_grad import LossGrad
 from jaqmc.optimizer.base import OptimizerLike
 from jaqmc.optimizer.kfac import KFACOptimizer
 from jaqmc.optimizer.optax import adam
@@ -60,9 +60,7 @@ class VMCTrainConfig:
     optim: Annotated[OptimizerLike, ModuleConfig(package="jaqmc.optimizer")] = field(
         default_factory=KFACOptimizer
     )
-    grads: Annotated[LossAndGrad, ModuleConfig(package="jaqmc.estimator")] = field(
-        default_factory=LossAndGrad
-    )
+    grads: LossGrad = field(default_factory=LossGrad)
     writers: WriterMap = field(default_factory=stage_writers)
 
 

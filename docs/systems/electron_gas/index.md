@@ -103,12 +103,13 @@ non-cubic simulation cells is planned future work. Individual twists are
 supported, but twist averaging, finite-size corrections, and
 thermodynamic-limit extrapolation must be performed separately.
 
+(electron-gas-config)=
 ## Configuration reference
 
 The `system.*` options below are specific to the electron gas. The `wf.*`
 options are shared with JaQMC's [periodic solid wavefunction](../solid/index.md);
 the electron-gas workflow disables envelope decay and requires
-`wf.full_det=true`.
+`wf.full_det=true`. The `estimators.*` defaults below are shown for `train` (including `loss_weight` settings for VMC gradient and penalty computation, described in [Loss and gradient](../../guide/estimators/loss-grad.md) and [How Estimators Work](../../guide/estimators/index.md)). In `evaluate`, training `loss_weight` fields are omitted.
 
 ```{eval-rst}
 .. config-defaults:: jaqmc.app.electron_gas.config.ElectronGasConfig
@@ -119,7 +120,7 @@ the electron-gas workflow disables envelope decay and requires
 
 .. config-defaults::
    :prefix: estimators
-   :defaults-from: jaqmc.app.electron_gas.workflow.ElectronGasEvalWorkflow
+   :defaults-from: jaqmc.app.electron_gas.workflow.ElectronGasTrainWorkflow
 ```
 
 Shared workflow, sampler, optimizer, writer, and runtime options are documented

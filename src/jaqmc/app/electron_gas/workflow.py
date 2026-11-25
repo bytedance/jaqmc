@@ -10,8 +10,9 @@ from typing import Annotated
 from jax import numpy as jnp
 
 from jaqmc.app.solid.hamiltonian import PotentialEnergy
-from jaqmc.estimator import EstimatorCollection, WithToggles
+from jaqmc.estimator import EstimatorCollection, HideLoss, WithToggles
 from jaqmc.estimator.kinetic import EuclideanKinetic
+from jaqmc.estimator.overlap import Overlap, ReferenceState
 from jaqmc.estimator.spin import SpinSquared
 from jaqmc.estimator.total_energy import TotalEnergy
 from jaqmc.geometry.pbc import make_pbc_gaussian_proposal
@@ -54,18 +55,30 @@ class ElectronGasEnergyEstimators(EstimatorCollection):
 
 
 @configurable_dataclass
+class ElectronGasReferenceState(ReferenceState):
+    """Reference state for electron-gas overlap estimation."""
+
+    wf: Annotated[
+        ElectronGasWavefunctionLike | None,
+        ModuleConfig(package="jaqmc.app.electron_gas.wavefunction"),
+    ] = None
+
+
+@configurable_dataclass
 class ElectronGasEstimators(EstimatorCollection):
     """Observables evaluated by electron-gas workflows.
 
     Args:
         energy: Energy component estimators.
         spin: Total spin-squared (:math:`S^2`) estimator.
+        overlap: Wavefunction overlap estimator.
     """
 
     energy: ElectronGasEnergyEstimators = field(
         default_factory=ElectronGasEnergyEstimators
     )
     spin: SpinSquared = field(default_factory=SpinSquared)
+    overlap: Overlap[ElectronGasReferenceState] = field(default_factory=Overlap)
 
 
 def _validate_wavefunction(wf: ElectronGasWavefunctionLike) -> None:
@@ -85,9 +98,9 @@ class ElectronGasWorkflowBase:
     sampler: Annotated[SamplerLike, ModuleConfig(package="jaqmc.sampler")] = field(
         default_factory=MCMCSampler
     )
-    estimators: Annotated[ElectronGasEstimators, WithToggles(spin=False)] = field(
-        default_factory=ElectronGasEstimators
-    )
+    estimators: Annotated[
+        ElectronGasEstimators, WithToggles(spin=False, overlap=False)
+    ] = field(default_factory=ElectronGasEstimators)
 
     def __post_init__(self) -> None:
         _validate_wavefunction(self.wf)
@@ -134,9 +147,9 @@ class ElectronGasTrainWorkflow(ElectronGasWorkflowBase, VMCWorkflow):
         train = VMCWorkStage.builder(self.train.run, self.wf, name="train")
         train.configure_sample_plan(self.wf.logpsi, {"electrons": self.sampler})
         train.configure_optimizer(self.train.optim, f_log_psi=self.wf.logpsi)
-        _wire_estimators(self.estimators, self.wf, self.system)
+        _wire_estimators(self.estimators, self.wf, self.system, self.sampler)
         train.configure_estimators(self.estimators)
-        train.configure_loss_grads(self.train.grads, f_log_psi=self.wf.logpsi)
+        train.configure_loss_grads(self.train.grads)
         train.configure_writers(self.train.writers)
         self.pretrain_stage = pretrain.build()
         self.train_stage = train.build()
@@ -148,7 +161,9 @@ class ElectronGasEvalWorkflow(ElectronGasWorkflowBase, EvaluationWorkflow):
     """Evaluate a trained homogeneous electron gas wavefunction."""
 
     estimators: Annotated[
-        ElectronGasEstimators, WithToggles(energy=True, spin=False)
+        ElectronGasEstimators,
+        WithToggles(energy=True, spin=False, overlap=False),
+        HideLoss(),
     ] = field(default_factory=ElectronGasEstimators)
 
     def build_runtime(self) -> None:
@@ -163,7 +178,7 @@ class ElectronGasEvalWorkflow(ElectronGasWorkflowBase, EvaluationWorkflow):
             self.run_config, self.wf, name="evaluation"
         )
         evaluation.configure_sample_plan(self.wf.logpsi, {"electrons": self.sampler})
-        _wire_estimators(self.estimators, self.wf, self.system)
+        _wire_estimators(self.estimators, self.wf, self.system, self.sampler)
         evaluation.configure_estimators(self.estimators)
         evaluation.configure_writers(self.writers)
         self.evaluation_stage = evaluation.build()
@@ -187,8 +202,18 @@ def _wire_estimators(
     settings: ElectronGasEstimators,
     wf: ElectronGasWavefunctionLike,
     system: ElectronGasConfig,
+    sampler: SamplerLike,
 ) -> None:
     settings.energy.potential.supercell_lattice = jnp.asarray(system.lattice)
     settings.energy.kinetic.f_log_psi = wf.logpsi
     settings.spin.n_up, settings.spin.n_down = system.nspins
     settings.spin.phase_logpsi = wf.phase_logpsi
+    for ref in filter(None, settings.overlap.states.values()):
+        if ref.wf is not None:
+            _configure_system(system, ref.wf)
+    settings.overlap.restore(
+        wf=wf,
+        samplers={"electrons": sampler},
+        data_init=partial(data_init, system),
+        enabled=settings.is_enabled("overlap"),
+    )

@@ -126,12 +126,10 @@ estimators:
 
 When `VMCWorkStage.builder(run_config, wavefunction, name="train")` runs,
 the workflow passes already-parsed components into the builder's configuration
-methods. The builder wires `f_log_psi` into the optimizer and loss-gradient
-estimator:
+methods. The builder wires `f_log_psi` into the optimizer:
 
 ```
 builder.configure_optimizer(train_config.optim, f_log_psi=wf.evaluate)
-builder.configure_loss_grads(train_config.grads, f_log_psi=wf.evaluate)
 ```
 
 The workflow wires sampler and estimator runtime dependencies, then passes

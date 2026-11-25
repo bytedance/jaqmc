@@ -11,10 +11,11 @@ from typing import Annotated
 import numpy as np
 from upath import UPath
 
-from jaqmc.estimator import EstimatorCollection, WithToggles
+from jaqmc.estimator import EstimatorCollection, HideLoss, WithToggles
 from jaqmc.estimator.density import CartesianAxis, CartesianDensity
 from jaqmc.estimator.ecp import ECPEnergy
 from jaqmc.estimator.kinetic import EuclideanKinetic
+from jaqmc.estimator.overlap import Overlap, ReferenceState
 from jaqmc.estimator.ph import PHEnergy
 from jaqmc.estimator.spin import SpinSquared
 from jaqmc.estimator.total_energy import TotalEnergy
@@ -69,12 +70,23 @@ class MoleculeEnergyEstimators(EstimatorCollection):
 
 
 @configurable_dataclass
+class MoleculeReferenceState(ReferenceState):
+    """Reference state for molecular overlap estimation."""
+
+    wf: Annotated[
+        MoleculeWavefunction | None,
+        ModuleConfig(package="jaqmc.app.molecule.wavefunction"),
+    ] = None
+
+
+@configurable_dataclass
 class MoleculeEstimators(EstimatorCollection):
     """Observables evaluated by molecular workflows.
 
     Args:
         energy: Energy component estimators.
         spin: Total spin-squared (:math:`S^2`) estimator.
+        overlap: Wavefunction overlap estimator.
         density: 3-D Cartesian electron density histogram. Axes with
             ``range: null`` are auto-padded by 5 bohr around the atomic
             coordinates at runtime.
@@ -82,6 +94,7 @@ class MoleculeEstimators(EstimatorCollection):
 
     energy: MoleculeEnergyEstimators = field(default_factory=MoleculeEnergyEstimators)
     spin: SpinSquared = field(default_factory=SpinSquared)
+    overlap: Overlap[MoleculeReferenceState] = field(default_factory=Overlap)
     density: CartesianDensity = field(
         default_factory=lambda: CartesianDensity(
             axes={
@@ -111,7 +124,10 @@ class MoleculePretrainConfig(VMCPretrainConfig):
 
 
 def _wire_estimators(
-    settings: MoleculeEstimators, wf: MoleculeWavefunction, system: MoleculeConfig
+    settings: MoleculeEstimators,
+    wf: MoleculeWavefunction,
+    system: MoleculeConfig,
+    sampler: SamplerLike,
 ) -> None:
     energy = settings.energy
     symbols = [atom.symbol for atom in system.atoms]
@@ -124,6 +140,15 @@ def _wire_estimators(
     energy.ph.ph = list(system.ph_elements)
     settings.spin.n_up, settings.spin.n_down = system.electron_spins
     settings.spin.phase_logpsi = wf.phase_logpsi
+    for ref in filter(None, settings.overlap.states.values()):
+        if ref.wf is not None:
+            wire(ref.wf, nspins=system.electron_spins)
+    settings.overlap.restore(
+        wf=wf,
+        samplers={"electrons": sampler},
+        data_init=partial(data_init, system),
+        enabled=settings.is_enabled("overlap"),
+    )
     positions = np.array([atom.coords for atom in system.atoms])
     for name, index in [("x", 0), ("y", 1), ("z", 2)]:
         axis = settings.density.axes.get(name)
@@ -148,7 +173,7 @@ class MoleculeWorkflowBase:
         default_factory=MCMCSampler
     )
     estimators: Annotated[
-        MoleculeEstimators, WithToggles(spin=False, density=False)
+        MoleculeEstimators, WithToggles(spin=False, overlap=False, density=False)
     ] = field(default_factory=MoleculeEstimators)
 
     def __post_init__(self) -> None:
@@ -188,9 +213,9 @@ class MoleculeTrainWorkflow(MoleculeWorkflowBase, VMCWorkflow):
         train = VMCWorkStage.builder(self.train.run, self.wf, name="train")
         train.configure_sample_plan(self.wf.logpsi, {"electrons": self.sampler})
         train.configure_optimizer(self.train.optim, f_log_psi=self.wf.logpsi)
-        _wire_estimators(self.estimators, self.wf, system)
+        _wire_estimators(self.estimators, self.wf, system, self.sampler)
         train.configure_estimators(self.estimators)
-        train.configure_loss_grads(self.train.grads, f_log_psi=self.wf.logpsi)
+        train.configure_loss_grads(self.train.grads)
         train.configure_writers(self.train.writers)
         self.train_stage = train.build()
         self.data_init = partial(data_init, system)
@@ -241,7 +266,9 @@ class MoleculeTrainWorkflow(MoleculeWorkflowBase, VMCWorkflow):
 @configurable_dataclass
 class MoleculeEvalWorkflow(MoleculeWorkflowBase, EvaluationWorkflow):
     estimators: Annotated[
-        MoleculeEstimators, WithToggles(energy=True, spin=False, density=False)
+        MoleculeEstimators,
+        WithToggles(energy=True, spin=False, overlap=False, density=False),
+        HideLoss(),
     ] = field(default_factory=MoleculeEstimators)
 
     def build_runtime(self) -> None:
@@ -252,7 +279,7 @@ class MoleculeEvalWorkflow(MoleculeWorkflowBase, EvaluationWorkflow):
             self.run_config, self.wf, name="evaluation"
         )
         evaluation.configure_sample_plan(self.wf.logpsi, {"electrons": self.sampler})
-        _wire_estimators(self.estimators, self.wf, system)
+        _wire_estimators(self.estimators, self.wf, system, self.sampler)
         evaluation.configure_estimators(self.estimators)
         evaluation.configure_writers(self.writers)
         self.evaluation_stage = evaluation.build()

@@ -43,19 +43,20 @@ class PretrainLossEstimator(PerWalkerEstimator):
 
     def evaluate_single_walker(self, params, data, prev_walker_stats, state, rngs):
         del prev_walker_stats, rngs
+        target = self.orbital_ref.eval_orbitals(data["electrons"], self.nspins)
+        if self.full_det:
+            na = target[0].shape[-2]
+            nb = target[1].shape[-2]
+            concat_target = jnp.block(
+                [
+                    [target[0], jnp.zeros((na, nb))],
+                    [jnp.zeros((nb, na)), target[1]],
+                ]
+            )
 
         def loss_fn(current_params):
-            target = self.orbital_ref.eval_orbitals(data["electrons"], self.nspins)
             orbitals = self.orbitals_fn(current_params, data)
             if self.full_det:
-                na = target[0].shape[-2]
-                nb = target[1].shape[-2]
-                concat_target = jnp.block(
-                    [
-                        [target[0], jnp.zeros((na, nb))],
-                        [jnp.zeros((nb, na)), target[1]],
-                    ]
-                )
                 return jnp.mean(jnp.abs(concat_target - orbitals) ** 2)
             losses = [
                 jnp.mean(jnp.abs(target_spin - orbital_spin) ** 2)
@@ -70,7 +71,10 @@ class PretrainLossEstimator(PerWalkerEstimator):
         # grads varies across the batch axis but params does not, and without pvary
         # the JAX compiler can miscompile this (observed in JAX 0.8.1).
         loss, grads = jax.value_and_grad(loss_fn)(parallel_jax.pvary(params))
-        return {"loss": loss, "grads": grads}, state
+        return {
+            "aux:loss:pretrain": loss,
+            "aux:direct_grad:pretrain": grads,
+        }, state
 
 
 def make_pretrain_log_amplitude[DataT: Data](
